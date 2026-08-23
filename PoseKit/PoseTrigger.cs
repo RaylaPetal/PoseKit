@@ -17,39 +17,50 @@ namespace PoseKit;
 /// </summary>
 public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
 {
-    private NamedPose? cyclingTarget;
+    private (PoseIdentifier Pose, PoseOffset Offset)? cyclingTarget;
     private int attempts;
     private long nextAttemptTime;
 
-    public void Trigger(NamedPose pose)
+    public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset);
+
+    public void Trigger(PoseIdentifier pose, PoseOffset offset)
     {
-        switch (pose.Pose.EmoteModeId)
+        switch (pose.EmoteModeId)
         {
-            case 1: EnterPoseCycle(pose, EmoteController.PoseType.GroundSit, "/groundsit"); break;
-            case 2: EnterPoseCycle(pose, EmoteController.PoseType.Sit, "/sit"); break;
-            case 3: EnterPoseCycle(pose, EmoteController.PoseType.Doze, "/doze"); break;
+            case 1: EnterPoseCycle(pose, offset, EmoteController.PoseType.GroundSit, "/groundsit"); break;
+            case 2: EnterPoseCycle(pose, offset, EmoteController.PoseType.Sit, "/sit"); break;
+            case 3: EnterPoseCycle(pose, offset, EmoteController.PoseType.Doze, "/doze"); break;
             default:
-                ExecuteCommand($"/{pose.Pose.EmoteName.ToLowerInvariant().Replace(" ", "")} motion");
                 cyclingTarget = null;
-                offsetEngine.DesiredOffset = pose.Offset;
+                if (pose.SlashCommand is not { } command) break; // no resolvable trigger — don't fake one
+                ExecuteCommand($"/{command} motion");
+                offsetEngine.DesiredOffset = offset;
                 offsetEngine.Active = true;
                 break;
         }
     }
 
-    private void EnterPoseCycle(NamedPose pose, EmoteController.PoseType poseType, string enterCommand)
+    /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
+    /// "(/command)" naming hint) — no pose-cycling, no offset; the mod's own redirect handles the visual.
+    public void TriggerCommand(string emoteCommand)
+    {
+        cyclingTarget = null;
+        ExecuteCommand($"/{emoteCommand} motion");
+    }
+
+    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, EmoteController.PoseType poseType, string enterCommand)
     {
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
-        var alreadyInThatEmote = currentPose is { } c && c.EmoteModeId == pose.Pose.EmoteModeId;
+        var alreadyInThatEmote = currentPose is { } c && c.EmoteModeId == pose.EmoteModeId;
 
         if (!alreadyInThatEmote)
         {
             var state = PlayerState.Instance();
-            if (state != null) state->SelectedPoses[(int)poseType] = pose.Pose.CPoseState;
+            if (state != null) state->SelectedPoses[(int)poseType] = pose.CPoseState;
             ExecuteCommand(enterCommand);
         }
 
-        cyclingTarget = pose;
+        cyclingTarget = (pose, offset);
         attempts = 0;
         nextAttemptTime = Environment.TickCount64 + (alreadyInThatEmote ? 0 : 500);
     }
@@ -58,19 +69,19 @@ public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
     /// reached, then hands the offset to OffsetEngine.
     public void Tick()
     {
-        if (cyclingTarget == null || Environment.TickCount64 < nextAttemptTime) return;
+        if (cyclingTarget is not { } target || Environment.TickCount64 < nextAttemptTime) return;
 
         var current = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
-        if (current is not { } c || c.EmoteModeId != cyclingTarget.Pose.EmoteModeId)
+        if (current is not { } c || c.EmoteModeId != target.Pose.EmoteModeId)
         {
             if (++attempts >= 8) cyclingTarget = null;
             else nextAttemptTime = Environment.TickCount64 + 100;
             return;
         }
 
-        if (c.CPoseState == cyclingTarget.Pose.CPoseState)
+        if (c.CPoseState == target.Pose.CPoseState)
         {
-            offsetEngine.DesiredOffset = cyclingTarget.Offset;
+            offsetEngine.DesiredOffset = target.Offset;
             offsetEngine.Active = true;
             cyclingTarget = null;
             return;

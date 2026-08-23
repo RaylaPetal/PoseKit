@@ -34,13 +34,22 @@ public sealed class Plugin : IDalamudPlugin
 
     public EmoteSyncCommand EmoteSync { get; init; }
 
-    public TempOffset TempOffset { get; } = new();
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
     public PoseTrigger PoseTrigger { get; init; }
     public PenumbraIpc PenumbraIpc { get; init; }
     public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
-    public List<DiscoveredPose> DiscoveredPoses { get; private set; } = new();
+    public List<PoseModInfo> DiscoveredPoses { get; private set; } = new();
+
+    /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
+    /// "update this preset" instead of only ever "save as new".
+    public NamedPose? LoadedPreset { get; set; }
+
+    /// The Penumbra mod/group state a Play action in the Penumbra panel last put in place, if any —
+    /// attached to the next saved preset so replaying it can restore that mod state too, not just
+    /// the offset. Best-effort: goes stale if the user changes Penumbra settings some other way
+    /// afterward, same as any other snapshot.
+    public PenumbraLink? LastPlayedPenumbraContext { get; set; }
 
     public Plugin()
     {
@@ -52,7 +61,7 @@ public sealed class Plugin : IDalamudPlugin
         PresetManager = new PresetManager(Configuration);
         PoseTrigger = new PoseTrigger(OffsetEngine);
         PenumbraIpc = new PenumbraIpc();
-        PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc);
+        PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);
@@ -92,13 +101,46 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnFrameworkUpdate(IFramework framework)
     {
-        OffsetEngine.Tick(ObjectTable.LocalPlayer);
+        var localPlayer = ObjectTable.LocalPlayer;
+
+        // Auto-clear once the character leaves the pose/emote loop entirely — without this, a
+        // leftover offset keeps fighting the game's own draw-offset updates during normal
+        // movement (turning, walking) indefinitely, since the hook re-applies it on every write
+        // regardless of what's actually playing. Mirrors SimpleHeels clearing its temp offset on
+        // emote change (SimpleHeels-master/Plugin.cs).
+        if (OffsetEngine.Active && PoseIdentifier.FromCharacter(localPlayer) == null)
+        {
+            OffsetEngine.Reset(localPlayer);
+            LoadedPreset = null;
+            LastPlayedPenumbraContext = null;
+        }
+
+        OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
     }
 
     public void RefreshPenumbraPoses()
     {
         DiscoveredPoses = PenumbraPoseScanner.Scan();
+    }
+
+    /// Replays a saved preset: if it's linked to a Penumbra mod, re-applies that mod's group
+    /// selections (enabling it if needed) and forces a redraw before triggering the pose, so the
+    /// right animation is actually active by the time the character enters it — not just the offset.
+    public void PlayPreset(NamedPose pose)
+    {
+        if (pose.Penumbra is { } link && PenumbraIpc.TryGetLocalPlayerCollectionId() is { } collectionId)
+        {
+            var selections = new Dictionary<string, IReadOnlyList<string>>();
+            foreach (var (group, options) in link.GroupSelections)
+                selections[group] = options;
+
+            if (PenumbraIpc.TrySetTemporarySettings(collectionId, link.ModDirectory, true, selections))
+                PenumbraIpc.TryRedrawLocalPlayer();
+        }
+
+        LoadedPreset = pose;
+        PoseTrigger.Trigger(pose);
     }
 
     private void OnCommand(string command, string args)

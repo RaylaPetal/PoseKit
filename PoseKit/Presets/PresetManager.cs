@@ -15,15 +15,23 @@ public sealed class PresetManager(Configuration configuration)
 
     public IReadOnlyList<NamedPose> Presets => CurrentCharacterConfig()?.Presets ?? (IReadOnlyList<NamedPose>)System.Array.Empty<NamedPose>();
 
-    public NamedPose? Save(string name, PoseIdentifier pose, PoseOffset offset)
+    public NamedPose? Save(string name, PoseIdentifier pose, PoseOffset offset, PenumbraLink? penumbra = null)
     {
         var config = CurrentCharacterConfig();
         if (config == null) return null;
 
-        var namedPose = new NamedPose { Name = name, Pose = pose, Offset = offset };
+        var namedPose = new NamedPose { Name = name, Pose = pose, Offset = offset, Penumbra = penumbra };
         config.Presets.Add(namedPose);
         configuration.Save();
         return namedPose;
+    }
+
+    /// Overwrites an existing preset's offset in place (e.g. after loading it and adjusting the
+    /// live-offset drag fields) rather than creating a duplicate.
+    public void Update(NamedPose existing, PoseOffset offset)
+    {
+        existing.Offset = offset;
+        configuration.Save();
     }
 
     public void Delete(NamedPose pose)

@@ -22,16 +22,25 @@ public readonly unsafe record struct PoseIdentifier(uint EmoteModeId, byte CPose
         return new PoseIdentifier(character->ModeParam, character->EmoteController.CPoseState);
     }
 
-    private static string FetchName(uint emoteModeId)
+    private static (string Name, string? Command) FetchNameAndCommand(uint emoteModeId)
     {
         var emoteMode = Plugin.DataManager.GetExcelSheet<EmoteMode>().GetRowOrDefault(emoteModeId);
-        if (emoteMode is null) return $"EmoteMode#{emoteModeId}";
+        if (emoteMode is null) return ($"EmoteMode#{emoteModeId}", null);
         var emote = emoteMode.Value.StartEmote;
-        if (!emote.IsValid || emote.RowId == 0) return $"EmoteMode#{emoteModeId}";
-        return emote.Value.Name.ExtractText();
+        if (!emote.IsValid || emote.RowId == 0) return ($"EmoteMode#{emoteModeId}", null);
+
+        var name = emote.Value.Name.ExtractText();
+        var commandRow = emote.Value.TextCommand;
+        var command = commandRow.IsValid ? commandRow.Value.Command.ExtractText().TrimStart('/') : null;
+        return (name, string.IsNullOrEmpty(command) ? null : command);
     }
 
-    public string EmoteName => FetchName(EmoteModeId);
+    public string EmoteName => FetchNameAndCommand(EmoteModeId).Name;
+
+    /// The emote's actual slash command (e.g. "sweep"), distinct from its display name (e.g.
+    /// "Sweep Up") — using the display name to build a chat command is wrong for any emote whose
+    /// command text doesn't match its label.
+    public string? SlashCommand => FetchNameAndCommand(EmoteModeId).Command;
 
     /// GroundSit(1)/Sit(2)/Doze(3) are the pose-cycling emotes; every other EmoteModeId has a single variant.
     public string DisplayName => EmoteModeId is 1 or 2 or 3 ? $"{EmoteName} Pose {CPoseState + 1}" : EmoteName;

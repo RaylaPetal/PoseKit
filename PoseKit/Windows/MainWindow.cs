@@ -10,13 +10,18 @@ public class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
 
     public MainWindow(Plugin plugin)
-        : base("PoseKit##MainWindow", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+        : base("PoseKit##MainWindow")
     {
+        // Wide enough by default that pose labels ("Sit on Ground Pose 3" etc.) alongside their
+        // checkboxes/trigger buttons don't get clipped at the window edge.
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(375, 200),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
+            MinimumSize = new Vector2(420, 250),
+            MaximumSize = new Vector2(1200, 1200)
         };
+
+        Size = new Vector2(600, 700);
+        SizeCondition = ImGuiCond.FirstUseEver;
 
         this.plugin = plugin;
     }
@@ -30,19 +35,12 @@ public class MainWindow : Window, IDisposable
             plugin.ToggleConfigUi();
         }
 
-        ImGui.Spacing();
-        ImGui.Separator();
         PresetButtonsPanel.Draw(plugin);
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextUnformatted("Penumbra Poses");
+        PoseKitUi.SectionHeader("Penumbra Poses");
         PenumbraPosePanel.Draw(plugin);
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextUnformatted("Emote Sync");
-
+        PoseKitUi.SectionHeader("Emote Sync");
         if (ImGui.Button("Resync my emote"))
         {
             plugin.EmoteSync.Sync();

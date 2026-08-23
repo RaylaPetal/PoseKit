@@ -6,8 +6,8 @@
     <Author>Rayla Petal</Author>
     <Name>PoseKit</Name>
     <Punchline>Offset, save, and replay poses; auto-discover Penumbra animation mods.</Punchline>
-    <Description>An Avsitter-for-FFXIV plugin: offset your character's pose, save named presets and replay them,
-auto-discover Penumbra pose mods, and manually resync emote timing with a partner.</Description>
+    <Description>An Animation Assistance Plugin: offset your character's pose, save named presets and replay them, 
+        auto-discover Penumbra pose mods, and manually resync emote timing with a partner.</Description>
     <RepoUrl>https://github.com/your-name-here/PoseKit</RepoUrl>
     <Tags>pose;emote;offset;penumbra</Tags>
   </PropertyGroup>

@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
@@ -5,58 +6,88 @@ using PoseKit.Presets;
 
 namespace PoseKit.Windows;
 
-/// <summary>Live-offset drag fields + save button, and saved-preset buttons grouped by PoseIdentifier.</summary>
+/// <summary>Live-offset controls bound directly to OffsetEngine (the single source of truth — a
+/// separate "temp offset" copy previously went stale whenever a preset was loaded, leaving the
+/// controls showing the wrong values), and saved-preset buttons grouped by PoseIdentifier.</summary>
 public static class PresetButtonsPanel
 {
     private static string newPresetName = "";
 
     public static void Draw(Plugin plugin)
     {
-        ImGui.TextUnformatted("Live Offset");
+        PoseKitUi.SectionHeader("Live Offset");
 
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
-        if (currentPose is null)
-        {
-            ImGui.TextDisabled("Not currently in a pose/emote loop.");
-        }
-        else
-        {
-            ImGui.TextDisabled(currentPose.Value.DisplayName);
+        ImGui.TextDisabled(currentPose?.DisplayName ?? "Not currently in a pose/emote loop.");
 
-            var position = plugin.TempOffset.Offset.Position;
-            if (ImGui.DragFloat3("Position##PoseKitOffset", ref position, 0.005f))
+        using (ImRaii.Disabled(currentPose is null))
+        {
+            var offset = plugin.OffsetEngine.DesiredOffset;
+            var changed = false;
+
+            changed |= PoseKitUi.AxisDragFloat("OffsetX", "Left / Right", ref offset.Position.X);
+            changed |= PoseKitUi.AxisDragFloat("OffsetY", "Height", ref offset.Position.Y);
+            changed |= PoseKitUi.AxisDragFloat("OffsetZ", "Forward / Backward", ref offset.Position.Z);
+
+            if (plugin.OffsetEngine.RotationHookResolved)
             {
-                plugin.TempOffset.Active = true;
-                plugin.TempOffset.Offset = new PoseOffset { Position = position };
-                plugin.OffsetEngine.DesiredOffset = plugin.TempOffset.Offset;
+                var degrees = offset.Rotation * (180f / MathF.PI);
+                if (PoseKitUi.AxisDragFloat("Rotation", "Rotation (degrees)", ref degrees, 1f))
+                {
+                    degrees %= 360f;
+                    if (degrees < 0) degrees += 360f;
+                    offset.Rotation = degrees * (MathF.PI / 180f);
+                    changed = true;
+                }
+            }
+            else
+            {
+                ImGui.TextDisabled("Rotation offset unavailable — hook didn't resolve this game version.");
+            }
+
+            if (changed)
+            {
+                plugin.OffsetEngine.DesiredOffset = offset;
                 plugin.OffsetEngine.Active = true;
             }
+        }
 
-            if (ImGui.Button("Reset##PoseKitOffsetReset"))
+        // Always available, regardless of current pose — this is the manual escape hatch for a
+        // stuck offset, so it can't be hidden behind the very state that made it hard to fix.
+        if (ImGui.Button("Reset##PoseKitOffsetReset"))
+        {
+            plugin.OffsetEngine.Reset(localPlayer);
+            plugin.LoadedPreset = null;
+            plugin.LastPlayedPenumbraContext = null;
+        }
+
+        if (currentPose is { } pose)
+        {
+            if (plugin.LoadedPreset is { } loaded && loaded.Pose == pose)
             {
-                plugin.TempOffset.Reset();
-                plugin.OffsetEngine.Active = false;
+                ImGui.SameLine();
+                if (ImGui.Button("Update preset##PoseKitUpdatePreset"))
+                    plugin.PresetManager.Update(loaded, plugin.OffsetEngine.DesiredOffset);
             }
 
-            ImGui.SameLine();
             ImGui.SetNextItemWidth(150);
             ImGui.InputTextWithHint("##PoseKitPresetName", "Preset name", ref newPresetName, 64);
             ImGui.SameLine();
-            var canSave = plugin.TempOffset.Active && newPresetName.Trim().Length > 0;
+            var canSave = plugin.OffsetEngine.Active && newPresetName.Trim().Length > 0;
             using (ImRaii.Disabled(!canSave))
             {
                 if (ImGui.Button("Save as preset##PoseKitSavePreset"))
                 {
-                    plugin.PresetManager.Save(newPresetName.Trim(), currentPose.Value, plugin.TempOffset.Offset);
+                    var saved = plugin.PresetManager.Save(newPresetName.Trim(), pose, plugin.OffsetEngine.DesiredOffset,
+                        plugin.LastPlayedPenumbraContext);
+                    plugin.LoadedPreset = saved;
                     newPresetName = "";
                 }
             }
         }
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextUnformatted("Saved Presets");
+        PoseKitUi.SectionHeader("Saved Presets");
 
         var groups = plugin.PresetManager.Presets.GroupBy(p => p.Pose);
         foreach (var group in groups)
@@ -65,7 +96,7 @@ public static class PresetButtonsPanel
             foreach (var namedPose in group)
             {
                 if (ImGui.Button($"{namedPose.Name}##PoseKitPreset{namedPose.GetHashCode()}"))
-                    plugin.PoseTrigger.Trigger(namedPose);
+                    plugin.PlayPreset(namedPose);
 
                 ImGui.SameLine();
                 if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))

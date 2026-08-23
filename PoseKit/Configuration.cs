@@ -21,6 +21,10 @@ public class Configuration : IPluginConfiguration
     /// identity pattern so alts don't collide.
     public Dictionary<uint, Dictionary<string, CharacterPoseConfig>> Characters { get; set; } = new();
 
+    /// Mod directory names to scan for poses (set in the Settings window) — scanning every installed
+    /// mod was slow and mostly irrelevant noise, so this is opt-in per mod rather than automatic.
+    public HashSet<string> SelectedPenumbraMods { get; set; } = new();
+
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
     {
         if (!Characters.TryGetValue(homeWorldId, out var byName))
