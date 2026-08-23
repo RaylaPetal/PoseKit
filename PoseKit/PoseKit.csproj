@@ -11,4 +11,45 @@ auto-discover Penumbra pose mods, and manually resync emote timing with a partne
     <RepoUrl>https://github.com/your-name-here/PoseKit</RepoUrl>
     <Tags>pose;emote;offset;penumbra</Tags>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Reference-only material, never compiled into PoseKit itself. -->
+    <Compile Remove="SimpleHeels-master\**\*.cs" />
+    <Compile Remove="Synastry-main\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Published NuGet package, not the Penumbra.Api submodule checked out at the repo root
+      (that submodule's .csproj requires an unpublished sibling "Luna" source checkout to build
+      from source; the published package ILRepacks Luna in and has no external dependencies).
+    -->
+    <PackageReference Include="Penumbra.Api" Version="5.15.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="SimpleHeels-master\.github\workflows\build.yml" />
+    <Content Include="SimpleHeels-master\.gitignore" />
+    <Content Include="SimpleHeels-master\.gitmodules" />
+    <Content Include="SimpleHeels-master\modguide.md" />
+    <Content Include="SimpleHeels-master\packages.lock.json" />
+    <Content Include="SimpleHeels-master\readme.md" />
+    <Content Include="SimpleHeels-master\SimpleHeels.csproj" />
+    <Content Include="SimpleHeels-master\SimpleHeels.csproj.DotSettings" />
+    <Content Include="SimpleHeels-master\SimpleHeels.json" />
+    <Content Include="SimpleHeels-master\SimpleHeels.sln" />
+    <Content Include="Synastry-main\.gitignore" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\aethercast-cert-renew.service" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\aethercast-cert-renew.timer" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\emotelink-compat-repo.json" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\nginx-bootstrap.conf" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\nginx.conf" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\README.md" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\renew-certificate.sh" />
+    <Content Include="Synastry-main\deploy\aethercast-repo\repo.json" />
+    <Content Include="Synastry-main\EmoteLink.slnx" />
+    <Content Include="Synastry-main\images\icon.png" />
+    <Content Include="Synastry-main\README.md" />
+    <Content Include="Synastry-main\repo.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="SimpleHeels-master\LivePose\" />
+  </ItemGroup>
 </Project>

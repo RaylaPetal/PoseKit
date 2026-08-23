@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using PoseKit.Penumbra;
+using PoseKit.Presets;
 using PoseKit.Sync;
 using PoseKit.Windows;
 
@@ -17,6 +20,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private const string CommandName = "/posekit";
@@ -29,11 +34,25 @@ public sealed class Plugin : IDalamudPlugin
 
     public EmoteSyncCommand EmoteSync { get; init; }
 
+    public TempOffset TempOffset { get; } = new();
+    public OffsetEngine OffsetEngine { get; init; }
+    public PresetManager PresetManager { get; init; }
+    public PoseTrigger PoseTrigger { get; init; }
+    public PenumbraIpc PenumbraIpc { get; init; }
+    public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
+    public List<DiscoveredPose> DiscoveredPoses { get; private set; } = new();
+
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
         EmoteSync = new EmoteSyncCommand();
+
+        OffsetEngine = new OffsetEngine();
+        PresetManager = new PresetManager(Configuration);
+        PoseTrigger = new PoseTrigger(OffsetEngine);
+        PenumbraIpc = new PenumbraIpc();
+        PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc);
 
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);
@@ -49,10 +68,14 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
+        Framework.Update += OnFrameworkUpdate;
+
+        RefreshPenumbraPoses();
     }
 
     public void Dispose()
     {
+        Framework.Update -= OnFrameworkUpdate;
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
@@ -62,8 +85,20 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow.Dispose();
         MainWindow.Dispose();
         EmoteSync.Dispose();
+        OffsetEngine.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
+    }
+
+    private void OnFrameworkUpdate(IFramework framework)
+    {
+        OffsetEngine.Tick(ObjectTable.LocalPlayer);
+        PoseTrigger.Tick();
+    }
+
+    public void RefreshPenumbraPoses()
+    {
+        DiscoveredPoses = PenumbraPoseScanner.Scan();
     }
 
     private void OnCommand(string command, string args)

@@ -32,6 +32,15 @@ public class MainWindow : Window, IDisposable
 
         ImGui.Spacing();
         ImGui.Separator();
+        PresetButtonsPanel.Draw(plugin);
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextUnformatted("Penumbra Poses");
+        PenumbraPosePanel.Draw(plugin);
+
+        ImGui.Spacing();
+        ImGui.Separator();
         ImGui.TextUnformatted("Emote Sync");
 
         if (ImGui.Button("Resync my emote"))

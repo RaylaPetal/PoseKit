@@ -2,3 +2,7 @@
 obj/
 bin/
 *.user
+
+# Reference-only material, not part of PoseKit itself.
+PoseKit/SimpleHeels-master/
+PoseKit/Synastry-main/
