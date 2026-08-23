@@ -24,6 +24,7 @@ public sealed class PenumbraIpc
     private const string Source = "PoseKit";
 
     private readonly GetModList getModList = new(Plugin.PluginInterface);
+    private readonly GetModPath getModPath = new(Plugin.PluginInterface);
     private readonly GetModDirectory getModDirectory = new(Plugin.PluginInterface);
     private readonly GetCollectionForObject getCollectionForObject = new(Plugin.PluginInterface);
     private readonly GetCurrentModSettings getCurrentModSettings = new(Plugin.PluginInterface);
@@ -57,6 +58,20 @@ public sealed class PenumbraIpc
     public string? TryGetModDirectory()
     {
         try { return getModDirectory.Invoke(); }
+        catch { return null; }
+    }
+
+    /// The mod's position in Penumbra's user-organized sort-folder tree (e.g.
+    /// "Animations/Idles/[JxT] Gyaru") — confirmed against a real Penumbra install
+    /// (~/.xlcore/pluginConfigs/Penumbra/sort_order.json.bak), distinct from its on-disk directory
+    /// name. Null if the mod isn't in the sort order or the call failed.
+    public string? TryGetModPath(string modDirectory, string modName)
+    {
+        try
+        {
+            var (ec, fullPath, _, _) = getModPath.Invoke(modDirectory, modName);
+            return ec == PenumbraApiEc.Success ? fullPath : null;
+        }
         catch { return null; }
     }
 

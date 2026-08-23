@@ -54,6 +54,16 @@ public class ConfigWindow : Window, IDisposable
         PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
         ImGui.TextDisabled("Only currently-enabled mods are listed. Scanning is opt-in per mod.");
 
+        var folderFilter = configuration.PenumbraFolderFilter;
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.InputTextWithHint("Sort folder##PoseKitFolderFilter", "e.g. Animations (blank = all mods)", ref folderFilter, 128))
+        {
+            configuration.PenumbraFolderFilter = folderFilter;
+            configuration.Save();
+            RefreshEnabledMods();
+        }
+        ImGui.TextDisabled("Filters by Penumbra's own mod-organization folder (Mods tab), not the disk folder.");
+
         if (ImGui.Button("Refresh mod list##PoseKitRefreshMods"))
             RefreshEnabledMods();
 
@@ -98,10 +108,24 @@ public class ConfigWindow : Window, IDisposable
         foreach (var (directory, name) in modList)
         {
             var (enabled, _) = plugin.PenumbraIpc.TryGetCurrentSettings(cid, directory);
-            if (enabled) list.Add((directory, name));
+            if (!enabled) continue;
+
+            var sortPath = plugin.PenumbraIpc.TryGetModPath(directory, name);
+            if (MatchesFolderFilter(sortPath, configuration.PenumbraFolderFilter))
+                list.Add((directory, name));
         }
 
         enabledModsCache = list;
         return list;
+    }
+
+    private static bool MatchesFolderFilter(string? sortPath, string filter)
+    {
+        filter = filter.Trim().Trim('/');
+        if (filter.Length == 0) return true;
+        if (sortPath == null) return false;
+
+        return sortPath.Equals(filter, StringComparison.OrdinalIgnoreCase)
+            || sortPath.StartsWith(filter + "/", StringComparison.OrdinalIgnoreCase);
     }
 }

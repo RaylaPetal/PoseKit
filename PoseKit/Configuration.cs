@@ -25,6 +25,11 @@ public class Configuration : IPluginConfiguration
     /// mod was slow and mostly irrelevant noise, so this is opt-in per mod rather than automatic.
     public HashSet<string> SelectedPenumbraMods { get; set; } = new();
 
+    /// Restricts the Settings mod picker to mods filed under this Penumbra sort-folder path (e.g.
+    /// "Animations") — Penumbra's own UI-organized mod tree, not the on-disk directory. Empty means
+    /// no filter (every enabled mod is offered, same as before this existed).
+    public string PenumbraFolderFilter { get; set; } = "";
+
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
     {
         if (!Characters.TryGetValue(homeWorldId, out var byName))
