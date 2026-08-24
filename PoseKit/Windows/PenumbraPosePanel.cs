@@ -27,6 +27,29 @@ namespace PoseKit.Windows;
 /// </summary>
 public static class PenumbraPosePanel
 {
+    private static string animationSearch = "";
+
+    public static void DrawToolbar(Plugin plugin)
+    {
+        PoseKitUi.SectionHeader("Animation Library");
+
+        var buttonWidth = 82f;
+        ImGui.SetNextItemWidth(Math.Max(140f, ImGui.GetContentRegionAvail().X - buttonWidth - ImGui.GetStyle().ItemSpacing.X));
+        ImGui.InputTextWithHint("##PoseKitAnimationSearch", "Search animation name, command, or pose number...",
+            ref animationSearch, 128);
+        ImGui.SameLine();
+        if (ImGui.Button("Rescan##PoseKitPenumbraRescan", new System.Numerics.Vector2(buttonWidth, 0)))
+            plugin.RefreshPenumbraPoses();
+
+        if (animationSearch.Length > 0)
+        {
+            ImGui.TextDisabled($"Filtering by “{animationSearch}”");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Clear##PoseKitClearAnimationSearch"))
+                animationSearch = "";
+        }
+    }
+
     public static void Draw(Plugin plugin)
     {
         if (!plugin.PenumbraIpc.IsAvailable)
@@ -35,9 +58,6 @@ public static class PenumbraPosePanel
             return;
         }
 
-        if (ImGui.Button("Rescan##PoseKitPenumbraRescan"))
-            plugin.RefreshPenumbraPoses();
-
         if (plugin.DiscoveredPoses.Count == 0)
         {
             ImGui.TextDisabled("No mods selected — pick some in Settings.");
@@ -45,29 +65,51 @@ public static class PenumbraPosePanel
         }
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+        var anyVisible = false;
 
         foreach (var mod in plugin.DiscoveredPoses)
         {
-            if (!ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}"))
+            if (!ModMatches(mod, animationSearch))
+                continue;
+
+            anyVisible = true;
+            var searchTreeFlags = string.IsNullOrWhiteSpace(animationSearch)
+                ? ImGuiTreeNodeFlags.None
+                : ImGuiTreeNodeFlags.DefaultOpen;
+            if (!ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags))
                 continue;
 
             ImGui.Indent();
             foreach (var group in mod.Groups)
-                DrawGroup(plugin, mod, group, collectionId);
+            {
+                if (GroupMatches(mod, group, animationSearch))
+                    DrawGroup(plugin, mod, group, collectionId, animationSearch);
+            }
             ImGui.Unindent();
         }
+
+        if (!anyVisible)
+            ImGui.TextDisabled("No animations match this search.");
     }
 
-    private static void DrawGroup(Plugin plugin, PoseModInfo mod, PoseModGroup group, Guid? collectionId)
+    private static void DrawGroup(Plugin plugin, PoseModInfo mod, PoseModGroup group, Guid? collectionId, string filter)
     {
         ImGui.PushID(group.Name);
 
+        var showAllOptions = Matches(mod.ModName, filter) || Matches(group.Name, filter);
+        var visibleOptions = showAllOptions
+            ? group.Options
+            : group.Options.FindAll(option => OptionMatches(option, filter));
+
         if (group.MultiSelect)
         {
-            if (ImGui.CollapsingHeader(group.Name))
+            var searchTreeFlags = string.IsNullOrWhiteSpace(filter)
+                ? ImGuiTreeNodeFlags.None
+                : ImGuiTreeNodeFlags.DefaultOpen;
+            if (ImGui.CollapsingHeader(group.Name, searchTreeFlags))
             {
                 ImGui.Indent();
-                foreach (var option in group.Options)
+                foreach (var option in visibleOptions)
                 {
                     var isChecked = group.Selected.Contains(option.Name);
                     if (ImGui.Checkbox(option.Name, ref isChecked) && collectionId is { } cid)
@@ -92,7 +134,7 @@ public static class PenumbraPosePanel
             var currentLabel = selectedOption?.Name ?? "Disabled";
             if (ImGui.BeginCombo("##PoseKitGroupCombo", currentLabel))
             {
-                foreach (var option in group.Options)
+                foreach (var option in visibleOptions)
                 {
                     var isSelected = group.Selected.Contains(option.Name);
                     if (ImGui.Selectable(option.Name, isSelected) && collectionId is { } cid)
@@ -109,6 +151,40 @@ public static class PenumbraPosePanel
 
         ImGui.PopID();
     }
+
+    private static bool ModMatches(PoseModInfo mod, string filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter) || Matches(mod.ModName, filter)) return true;
+        foreach (var group in mod.Groups)
+            if (GroupMatches(mod, group, filter)) return true;
+        return false;
+    }
+
+    private static bool GroupMatches(PoseModInfo mod, PoseModGroup group, string filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter) || Matches(mod.ModName, filter) || Matches(group.Name, filter))
+            return true;
+        foreach (var option in group.Options)
+            if (OptionMatches(option, filter)) return true;
+        return false;
+    }
+
+    private static bool OptionMatches(PoseModOption option, string filter)
+    {
+        if (Matches(option.Name, filter)) return true;
+        foreach (var trigger in option.Triggers)
+        {
+            if (trigger.SlashCommand is { } command && Matches(command, filter)) return true;
+            if (trigger.PoseIdentifier is not { } pose) continue;
+            if (Matches(pose.DisplayName, filter) || Matches(pose.EmoteModeId.ToString(), filter)
+                || Matches((pose.CPoseState + 1).ToString(), filter))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool Matches(string value, string filter)
+        => value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
 
     /// Penumbra's temporary-settings IPC replaces a mod's *entire* set of group selections in one
     /// call, so every group's current selection has to be sent even though only one is changing.

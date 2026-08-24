@@ -43,11 +43,14 @@ public class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        using var theme = PoseKitUi.PushTheme();
+
         if (!ImGui.BeginTabBar("##PoseKitMainTabs", ImGuiTabBarFlags.None))
             return;
 
         if (ImGui.BeginTabItem("Animations"))
         {
+            PenumbraPosePanel.DrawToolbar(plugin);
             if (ImGui.BeginChild("##PoseKitAnimationsScroll", Vector2.Zero, false, ImGuiWindowFlags.None))
                 PenumbraPosePanel.Draw(plugin);
             ImGui.EndChild();

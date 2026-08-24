@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
@@ -12,6 +13,7 @@ public class ConfigWindow : Window, IDisposable
     private readonly Plugin plugin;
     private readonly Configuration configuration;
     private List<(string Directory, string Name)>? enabledModsCache;
+    private string modSearch = "";
 
     public ConfigWindow(Plugin plugin) : base("PoseKit Settings###PoseKitConfig")
     {
@@ -45,6 +47,8 @@ public class ConfigWindow : Window, IDisposable
 
     public override void Draw()
     {
+        using var theme = PoseKitUi.PushTheme();
+
         var movable = configuration.IsConfigWindowMovable;
         if (ImGui.Checkbox("Movable Config Window", ref movable))
         {
@@ -56,7 +60,7 @@ public class ConfigWindow : Window, IDisposable
         ImGui.TextDisabled("Only currently-enabled mods are listed. Scanning is opt-in per mod.");
 
         var folderFilter = configuration.PenumbraFolderFilter;
-        ImGui.SetNextItemWidth(200);
+        ImGui.SetNextItemWidth(-1);
         if (ImGui.InputTextWithHint("Sort folder##PoseKitFolderFilter", "e.g. Animations (blank = all mods)", ref folderFilter, 128))
         {
             configuration.PenumbraFolderFilter = folderFilter;
@@ -65,7 +69,7 @@ public class ConfigWindow : Window, IDisposable
         }
         ImGui.TextDisabled("Filters by Penumbra's own mod-organization folder (Mods tab), not the disk folder.");
 
-        if (ImGui.Button("Refresh mod list##PoseKitRefreshMods"))
+        if (ImGui.Button("Refresh enabled mods##PoseKitRefreshMods"))
             RefreshEnabledMods();
 
         enabledModsCache ??= RefreshEnabledMods();
@@ -76,17 +80,55 @@ public class ConfigWindow : Window, IDisposable
         }
         else
         {
+            ImGui.SameLine();
+            var selectedEnabledCount = enabledModsCache.Count(mod =>
+                configuration.SelectedPenumbraMods.Contains(mod.Directory));
+            ImGui.TextColored(PoseKitUi.Accent,
+                $"{selectedEnabledCount} selected / {enabledModsCache.Count} enabled");
+
+            ImGui.SetNextItemWidth(-1);
+            ImGui.InputTextWithHint("##PoseKitModSearch", "Search enabled mods...", ref modSearch, 128);
+
+            var visibleMods = enabledModsCache
+                .Where(mod => MatchesModSearch(mod, modSearch))
+                .OrderByDescending(mod => configuration.SelectedPenumbraMods.Contains(mod.Directory))
+                .ThenBy(mod => mod.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             var changed = false;
-            foreach (var (modDirectory, modName) in enabledModsCache)
+            if (ImGui.SmallButton("Select visible##PoseKitSelectVisibleMods"))
+                foreach (var mod in visibleMods)
+                    changed |= configuration.SelectedPenumbraMods.Add(mod.Directory);
+
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Clear visible##PoseKitClearVisibleMods"))
+                foreach (var mod in visibleMods)
+                    changed |= configuration.SelectedPenumbraMods.Remove(mod.Directory);
+
+            ImGui.SameLine();
+            ImGui.TextDisabled($"{visibleMods.Count} shown");
+
+            if (ImGui.BeginChild("##PoseKitModPicker", new Vector2(0, 210), true, ImGuiWindowFlags.None))
             {
-                var isSelected = configuration.SelectedPenumbraMods.Contains(modDirectory);
-                if (ImGui.Checkbox($"{modName}##PoseKitModPick{modDirectory.GetHashCode()}", ref isSelected))
+                foreach (var (modDirectory, modName) in visibleMods)
                 {
-                    if (isSelected) configuration.SelectedPenumbraMods.Add(modDirectory);
-                    else configuration.SelectedPenumbraMods.Remove(modDirectory);
-                    changed = true;
+                    var isSelected = configuration.SelectedPenumbraMods.Contains(modDirectory);
+                    if (ImGui.Checkbox($"{modName}##PoseKitModPick{modDirectory.GetHashCode()}", ref isSelected))
+                    {
+                        if (isSelected) configuration.SelectedPenumbraMods.Add(modDirectory);
+                        else configuration.SelectedPenumbraMods.Remove(modDirectory);
+                        changed = true;
+                    }
+
+                    if (!string.Equals(modName, modDirectory, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ImGui.Indent();
+                        ImGui.TextDisabled(modDirectory);
+                        ImGui.Unindent();
+                    }
                 }
             }
+            ImGui.EndChild();
 
             if (changed)
             {
@@ -140,4 +182,9 @@ public class ConfigWindow : Window, IDisposable
         return sortPath.Equals(filter, StringComparison.OrdinalIgnoreCase)
             || sortPath.StartsWith(filter + "/", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool MatchesModSearch((string Directory, string Name) mod, string search)
+        => string.IsNullOrWhiteSpace(search)
+           || mod.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)
+           || mod.Directory.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase);
 }

@@ -7,13 +7,44 @@ namespace PoseKit.Windows;
 /// windows instead of each panel reinventing its own spacing/labels.</summary>
 internal static class PoseKitUi
 {
-    private static readonly Vector4 HeaderColor = new(0.78f, 0.65f, 1f, 1f);
+    public static readonly Vector4 Accent = new(0.78f, 0.65f, 1f, 1f);
+    public static readonly Vector4 AccentMuted = new(0.43f, 0.32f, 0.58f, 1f);
+    private static readonly Vector4 AccentHovered = new(0.55f, 0.41f, 0.74f, 1f);
+    private static readonly Vector4 AccentActive = new(0.66f, 0.50f, 0.88f, 1f);
+
+    /// Applies PoseKit's shared lavender control theme for the lifetime of the returned scope.
+    /// Window backgrounds remain under Dalamud's global theme so the plugin still feels native.
+    public static ThemeScope PushTheme()
+    {
+        ImGui.PushStyleColor(ImGuiCol.Button, AccentMuted);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AccentHovered);
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, AccentActive);
+        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.32f, 0.24f, 0.43f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, AccentHovered);
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, AccentActive);
+        ImGui.PushStyleColor(ImGuiCol.CheckMark, Accent);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrab, Accent);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrabActive, AccentActive);
+        ImGui.PushStyleColor(ImGuiCol.Tab, new Vector4(0.20f, 0.16f, 0.26f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.TabHovered, AccentHovered);
+        ImGui.PushStyleColor(ImGuiCol.TabActive, AccentMuted);
+        ImGui.PushStyleColor(ImGuiCol.TextSelectedBg, new Vector4(0.55f, 0.41f, 0.74f, 0.45f));
+
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 6f);
+        ImGui.PushStyleVar(ImGuiStyleVar.TabRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(8f, 5f));
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(8f, 7f));
+        return new ThemeScope();
+    }
 
     public static void SectionHeader(string text)
     {
         ImGui.Spacing();
+        ImGui.PushStyleColor(ImGuiCol.Separator, AccentMuted);
         ImGui.Separator();
-        ImGui.TextColored(HeaderColor, text);
+        ImGui.PopStyleColor();
+        ImGui.TextColored(Accent, text);
     }
 
     /// A single-axis drag float with its label always visible next to it, rather than an unlabeled
@@ -25,5 +56,14 @@ internal static class PoseKitUi
         ImGui.SameLine();
         ImGui.TextUnformatted(label);
         return changed;
+    }
+
+    public readonly struct ThemeScope : System.IDisposable
+    {
+        public void Dispose()
+        {
+            ImGui.PopStyleVar(5);
+            ImGui.PopStyleColor(13);
+        }
     }
 }
