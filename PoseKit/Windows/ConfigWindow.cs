@@ -13,10 +13,10 @@ public class ConfigWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private readonly Configuration configuration;
-    private List<(string Directory, string Name)>? enabledModsCache;
+    private List<(string Directory, string Name, bool Enabled)>? availableModsCache;
     private string modSearch = "";
 
-    public ConfigWindow(Plugin plugin) : base("PoseKit Settings###PoseKitConfig")
+    public ConfigWindow(Plugin plugin) : base($"PoseKit Settings v{Plugin.Version}###PoseKitConfig")
     {
         Flags = ImGuiWindowFlags.NoCollapse;
         SizeConstraints = new WindowSizeConstraints
@@ -37,35 +37,17 @@ public class ConfigWindow : Window, IDisposable
     /// the game finishes loading), so a cache built on the window's first-ever draw can permanently
     /// miss mods that hadn't synced yet. Dropping the cache each time the window opens means it
     /// re-scans against Penumbra's current state instead of a stale snapshot, without needing a
-    /// manual "Refresh enabled mods" click.
+    /// manual "Refresh mods" click.
     public override void OnOpen()
     {
-        enabledModsCache = null;
-    }
-
-    public override void PreDraw()
-    {
-        // Flags must be added or removed before Draw() is being called, or they won't apply
-        if (configuration.IsConfigWindowMovable)
-        {
-            Flags &= ~ImGuiWindowFlags.NoMove;
-        }
-        else
-        {
-            Flags |= ImGuiWindowFlags.NoMove;
-        }
+        availableModsCache = null;
     }
 
     public override void Draw()
     {
         using var theme = PoseKitUi.PushTheme();
 
-        var movable = configuration.IsConfigWindowMovable;
-        if (ImGui.Checkbox("Movable Config Window", ref movable))
-        {
-            configuration.IsConfigWindowMovable = movable;
-            configuration.Save();
-        }
+        PoseKitUi.DrawDependencyStatus(plugin);
 
         PoseKitUi.SectionHeader("Sync");
         var heelsLoaded = plugin.SimpleHeelsBridge.IsLoaded;
@@ -78,12 +60,12 @@ public class ConfigWindow : Window, IDisposable
                 configuration.Save();
             }
         }
-        ImGui.TextDisabled(heelsLoaded
+        PoseKitUi.TextWrappedDisabled(heelsLoaded
             ? "SimpleHeels detected."
             : "SimpleHeels not detected — install and enable it to sync your pose offset to nearby players.");
 
         PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
-        ImGui.TextDisabled("Only currently-enabled mods are listed. Scanning is opt-in per mod.");
+        PoseKitUi.TextWrappedDisabled("Disabled mods are listed too — PoseKit enables one temporarily when you play a pose from it.");
 
         var folderFilter = configuration.PenumbraFolderFilter;
         ImGui.SetNextItemWidth(-1);
@@ -91,31 +73,31 @@ public class ConfigWindow : Window, IDisposable
         {
             configuration.PenumbraFolderFilter = folderFilter;
             configuration.Save();
-            RefreshEnabledMods();
+            RefreshAvailableMods();
         }
-        ImGui.TextDisabled("Filters by Penumbra's own mod-organization folder (Mods tab), not the disk folder.");
+        PoseKitUi.TextWrappedDisabled("Filters by Penumbra's own mod-organization folder (Mods tab), not the disk folder.");
 
-        if (ImGui.Button("Refresh enabled mods##PoseKitRefreshMods"))
-            RefreshEnabledMods();
+        if (ImGui.Button("Refresh mods##PoseKitRefreshMods"))
+            RefreshAvailableMods();
 
-        enabledModsCache ??= RefreshEnabledMods();
+        availableModsCache ??= RefreshAvailableMods();
 
-        if (enabledModsCache == null)
+        if (availableModsCache == null)
         {
             ImGui.TextDisabled("Penumbra not found.");
         }
         else
         {
             ImGui.SameLine();
-            var selectedEnabledCount = enabledModsCache.Count(mod =>
+            var selectedCount = availableModsCache.Count(mod =>
                 configuration.SelectedPenumbraMods.Contains(mod.Directory));
             ImGui.TextColored(PoseKitUi.Accent,
-                $"{selectedEnabledCount} selected / {enabledModsCache.Count} enabled");
+                $"{selectedCount} selected / {availableModsCache.Count} found");
 
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##PoseKitModSearch", "Search enabled mods...", ref modSearch, 128);
+            ImGui.InputTextWithHint("##PoseKitModSearch", "Search mods...", ref modSearch, 128);
 
-            var visibleMods = enabledModsCache
+            var visibleMods = availableModsCache
                 .Where(mod => MatchesModSearch(mod, modSearch))
                 .OrderByDescending(mod => configuration.SelectedPenumbraMods.Contains(mod.Directory))
                 .ThenBy(mod => mod.Name, StringComparer.OrdinalIgnoreCase)
@@ -136,7 +118,7 @@ public class ConfigWindow : Window, IDisposable
 
             if (ImGui.BeginChild("##PoseKitModPicker", new Vector2(0, 210), true, ImGuiWindowFlags.None))
             {
-                foreach (var (modDirectory, modName) in visibleMods)
+                foreach (var (modDirectory, modName, modEnabled) in visibleMods)
                 {
                     var isSelected = configuration.SelectedPenumbraMods.Contains(modDirectory);
                     if (ImGui.Checkbox($"{modName}##PoseKitModPick{modDirectory.GetHashCode()}", ref isSelected))
@@ -144,6 +126,12 @@ public class ConfigWindow : Window, IDisposable
                         if (isSelected) configuration.SelectedPenumbraMods.Add(modDirectory);
                         else configuration.SelectedPenumbraMods.Remove(modDirectory);
                         changed = true;
+                    }
+
+                    if (!modEnabled)
+                    {
+                        ImGui.SameLine();
+                        ImGui.TextDisabled("(disabled in Penumbra)");
                     }
 
                     if (!string.Equals(modName, modDirectory, StringComparison.OrdinalIgnoreCase))
@@ -171,31 +159,33 @@ public class ConfigWindow : Window, IDisposable
 
         if (ImGui.Button("Report an issue on GitHub##PoseKitGitHubIssues"))
             Util.OpenLink("https://github.com/RaylaPetal/PoseKit/issues");
-        ImGui.TextDisabled("Questions and bug reports are welcome.");
+        PoseKitUi.TextWrappedDisabled("Questions and bug reports are welcome.");
     }
 
-    private List<(string, string)>? RefreshEnabledMods()
+    /// Lists every mod in the folder filter regardless of enabled state (not just currently-enabled
+    /// ones) — disabled mods can still be picked here, and PoseKit temporarily enables one through
+    /// Penumbra the moment you play a pose from it, so you don't have to go flip it on there first.
+    private List<(string, string, bool)>? RefreshAvailableMods()
     {
         var modList = plugin.PenumbraIpc.TryGetModList();
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         if (modList == null || collectionId is not { } cid)
         {
-            enabledModsCache = null;
+            availableModsCache = null;
             return null;
         }
 
-        var list = new List<(string, string)>();
+        var list = new List<(string, string, bool)>();
         foreach (var (directory, name) in modList)
         {
-            var (enabled, _) = plugin.PenumbraIpc.TryGetCurrentSettings(cid, directory);
-            if (!enabled) continue;
-
             var sortPath = plugin.PenumbraIpc.TryGetModPath(directory, name);
-            if (MatchesFolderFilter(sortPath, configuration.PenumbraFolderFilter))
-                list.Add((directory, name));
+            if (!MatchesFolderFilter(sortPath, configuration.PenumbraFolderFilter)) continue;
+
+            var (enabled, _) = plugin.PenumbraIpc.TryGetCurrentSettings(cid, directory);
+            list.Add((directory, name, enabled));
         }
 
-        enabledModsCache = list;
+        availableModsCache = list;
         return list;
     }
 
@@ -209,7 +199,7 @@ public class ConfigWindow : Window, IDisposable
             || sortPath.StartsWith(filter + "/", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool MatchesModSearch((string Directory, string Name) mod, string search)
+    private static bool MatchesModSearch((string Directory, string Name, bool Enabled) mod, string search)
         => string.IsNullOrWhiteSpace(search)
            || mod.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)
            || mod.Directory.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase);

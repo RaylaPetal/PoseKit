@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Interface.Windowing;
@@ -26,11 +27,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private const string CommandName = "/posekit";
 
+    public static readonly string Version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+
     public Configuration Configuration { get; init; }
 
     public readonly WindowSystem WindowSystem = new("PoseKit");
     private ConfigWindow ConfigWindow { get; init; }
     private MainWindow MainWindow { get; init; }
+    private WelcomeWindow WelcomeWindow { get; init; }
 
     public EmoteSyncCommand EmoteSync { get; init; }
 
@@ -67,9 +71,11 @@ public sealed class Plugin : IDalamudPlugin
 
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);
+        WelcomeWindow = new WelcomeWindow(this) { IsOpen = !Configuration.HasSeenWelcome };
 
         WindowSystem.AddWindow(ConfigWindow);
         WindowSystem.AddWindow(MainWindow);
+        WindowSystem.AddWindow(WelcomeWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -95,6 +101,7 @@ public sealed class Plugin : IDalamudPlugin
 
         ConfigWindow.Dispose();
         MainWindow.Dispose();
+        WelcomeWindow.Dispose();
         EmoteSync.Dispose();
         OffsetEngine.Dispose();
 

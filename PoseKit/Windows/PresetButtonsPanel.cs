@@ -17,7 +17,7 @@ public static class PresetButtonsPanel
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
         PoseKitUi.SectionHeader("Live Offset");
-        ImGui.TextDisabled(currentPose?.DisplayName ?? "Not currently in a pose/emote loop.");
+        PoseKitUi.TextWrappedDisabled(currentPose?.DisplayName ?? "Not currently in a pose/emote loop.");
 
         using (ImRaii.Disabled(currentPose is null))
         {
@@ -41,7 +41,7 @@ public static class PresetButtonsPanel
             }
             else
             {
-                ImGui.TextDisabled("Rotation offset unavailable — hook didn't resolve this game version.");
+                PoseKitUi.TextWrappedDisabled("Rotation offset unavailable — hook didn't resolve this game version.");
             }
 
             if (changed)
@@ -70,7 +70,7 @@ public static class PresetButtonsPanel
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
 
         PoseKitUi.SectionHeader("Save Current Offset");
-        ImGui.TextDisabled(currentPose?.DisplayName ?? "Start a pose or animation before saving a preset.");
+        PoseKitUi.TextWrappedDisabled(currentPose?.DisplayName ?? "Start a pose or animation before saving a preset.");
 
         if (currentPose is { } pose)
         {

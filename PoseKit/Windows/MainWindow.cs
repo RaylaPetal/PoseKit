@@ -11,7 +11,7 @@ public class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
 
     public MainWindow(Plugin plugin)
-        : base("PoseKit##MainWindow")
+        : base($"PoseKit v{Plugin.Version}###MainWindow")
     {
         // The window itself stays fixed so the navigation remains visible. Each tab owns its own
         // scrolling child region below the tab bar instead.
@@ -45,6 +45,8 @@ public class MainWindow : Window, IDisposable
     {
         using var theme = PoseKitUi.PushTheme();
 
+        PoseKitUi.DrawDependencyStatus(plugin);
+
         if (!ImGui.BeginTabBar("##PoseKitMainTabs", ImGuiTabBarFlags.None))
             return;
 
@@ -67,7 +69,7 @@ public class MainWindow : Window, IDisposable
                 if (ImGui.Button("Resync nearby emotes"))
                     plugin.EmoteSync.Sync();
                 ImGui.SameLine();
-                ImGui.TextDisabled("Resets all nearby rendered players together on your client.");
+                PoseKitUi.TextWrappedDisabled("Resets all nearby rendered players together on your client.");
             }
             ImGui.EndChild();
             ImGui.EndTabItem();

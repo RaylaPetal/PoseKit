@@ -54,13 +54,13 @@ public static class PenumbraPosePanel
     {
         if (!plugin.PenumbraIpc.IsAvailable)
         {
-            ImGui.TextDisabled("Penumbra not found — pose discovery unavailable.");
+            PoseKitUi.TextWrappedDisabled("Penumbra not found — pose discovery unavailable.");
             return;
         }
 
         if (plugin.DiscoveredPoses.Count == 0)
         {
-            ImGui.TextDisabled("No mods selected — pick some in Settings.");
+            PoseKitUi.TextWrappedDisabled("No mods selected — pick some in Settings.");
             return;
         }
 
@@ -76,10 +76,13 @@ public static class PenumbraPosePanel
             var searchTreeFlags = string.IsNullOrWhiteSpace(animationSearch)
                 ? ImGuiTreeNodeFlags.None
                 : ImGuiTreeNodeFlags.DefaultOpen;
-            if (!ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags))
+            var headerLabel = mod.Enabled ? mod.ModName : $"{mod.ModName} (disabled)";
+            if (!ImGui.CollapsingHeader($"{headerLabel}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags))
                 continue;
 
             ImGui.Indent();
+            if (!mod.Enabled)
+                PoseKitUi.TextWrappedDisabled("Disabled in Penumbra — playing anything below enables it temporarily.");
             foreach (var group in mod.Groups)
             {
                 if (GroupMatches(mod, group, animationSearch))
@@ -95,6 +98,18 @@ public static class PenumbraPosePanel
     private static void DrawGroup(Plugin plugin, PoseModInfo mod, PoseModGroup group, Guid? collectionId, string filter)
     {
         ImGui.PushID(group.Name);
+
+        if (group.IsImplicit)
+        {
+            // No real Penumbra group backs this — it's just the mod's always-active default files.
+            // Nothing to select (there's only ever the one implicit option), so skip straight to
+            // trigger buttons instead of a one-item combo that would falsely imply a choice exists.
+            ImGui.TextUnformatted(group.Name);
+            foreach (var option in group.Options)
+                DrawTriggerButtons(plugin, mod, option.Triggers, collectionId, "PoseKitDefaultPlay");
+            ImGui.PopID();
+            return;
+        }
 
         var showAllOptions = Matches(mod.ModName, filter) || Matches(group.Name, filter);
         var visibleOptions = showAllOptions
@@ -121,7 +136,7 @@ public static class PenumbraPosePanel
                         ApplyGroupChange(plugin, mod, group, newSelection, cid);
                     }
 
-                    DrawTriggerButtons(plugin, mod, option.Triggers, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
+                    DrawTriggerButtons(plugin, mod, option.Triggers, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
                 }
                 ImGui.Unindent();
             }
@@ -146,7 +161,7 @@ public static class PenumbraPosePanel
                 ImGui.EndCombo();
             }
 
-            DrawTriggerButtons(plugin, mod, selectedOption?.Triggers ?? [], "PoseKitGroupPlay");
+            DrawTriggerButtons(plugin, mod, selectedOption?.Triggers ?? [], collectionId, "PoseKitGroupPlay");
         }
 
         ImGui.PopID();
@@ -188,19 +203,47 @@ public static class PenumbraPosePanel
 
     /// Penumbra's temporary-settings IPC replaces a mod's *entire* set of group selections in one
     /// call, so every group's current selection has to be sent even though only one is changing.
+    /// Implicit groups (PenumbraPoseScanner's synthetic "Default" from default_mod.json) are skipped
+    /// — Penumbra has no group by that name, so including one would corrupt the payload.
     private static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,
         HashSet<string> newSelection, Guid collectionId)
     {
         var allSelections = new Dictionary<string, IReadOnlyList<string>>();
         foreach (var g in mod.Groups)
+        {
+            if (g.IsImplicit) continue;
             allSelections[g.Name] = g == changedGroup ? [.. newSelection] : [.. g.Selected];
+        }
 
         if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, true, allSelections))
             return false;
 
         changedGroup.Selected = newSelection;
+        mod.Enabled = true;
         plugin.PenumbraIpc.TryRedrawLocalPlayer();
         return true;
+    }
+
+    /// Playing a pose from a mod that's currently disabled in Penumbra shouldn't require going there
+    /// first to flip it on — temporarily enable it here (same mechanism ApplyGroupChange already uses
+    /// for selection changes) with its current group selections, so the redirect is actually live by
+    /// the time the pose is triggered.
+    private static void EnsureModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId)
+    {
+        if (mod.Enabled || collectionId is not { } cid) return;
+
+        var allSelections = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var g in mod.Groups)
+        {
+            if (g.IsImplicit) continue;
+            allSelections[g.Name] = [.. g.Selected];
+        }
+
+        if (!plugin.PenumbraIpc.TrySetTemporarySettings(cid, mod.ModDirectory, true, allSelections))
+            return;
+
+        mod.Enabled = true;
+        plugin.PenumbraIpc.TryRedrawLocalPlayer();
     }
 
     private static PoseModOption? FindSelected(PoseModGroup group)
@@ -211,7 +254,7 @@ public static class PenumbraPosePanel
         return null;
     }
 
-    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, List<PoseTriggerHint> triggers, string idPrefix)
+    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, List<PoseTriggerHint> triggers, Guid? collectionId, string idPrefix)
     {
         for (var i = 0; i < triggers.Count; i++)
         {
@@ -220,6 +263,7 @@ public static class PenumbraPosePanel
             ImGui.SameLine();
             if (ImGui.SmallButton($"{label}##{idPrefix}{i}"))
             {
+                EnsureModEnabled(plugin, mod, collectionId);
                 CapturePenumbraContext(plugin, mod);
                 PlayTrigger(plugin, trigger);
             }

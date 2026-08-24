@@ -11,6 +11,8 @@ internal static class PoseKitUi
     public static readonly Vector4 AccentMuted = new(0.43f, 0.32f, 0.58f, 1f);
     private static readonly Vector4 AccentHovered = new(0.55f, 0.41f, 0.74f, 1f);
     private static readonly Vector4 AccentActive = new(0.66f, 0.50f, 0.88f, 1f);
+    private static readonly Vector4 Good = new(0.45f, 0.85f, 0.45f, 1f);
+    private static readonly Vector4 Bad = new(0.9f, 0.4f, 0.4f, 1f);
 
     /// Applies PoseKit's shared lavender control theme for the lifetime of the returned scope.
     /// Window backgrounds remain under Dalamud's global theme so the plugin still feels native.
@@ -36,6 +38,29 @@ internal static class PoseKitUi
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(8f, 5f));
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(8f, 7f));
         return new ThemeScope();
+    }
+
+    /// A red/green status line for the two things PoseKit's fuller feature set depends on — Penumbra
+    /// (animation discovery) and SimpleHeels (optional offset sync) — so a user missing one notices
+    /// immediately instead of quietly getting a degraded experience.
+    public static void DrawDependencyStatus(Plugin plugin)
+    {
+        DrawStatus("Penumbra", plugin.PenumbraIpc.IsAvailable);
+        ImGui.SameLine();
+        DrawStatus("SimpleHeels", plugin.SimpleHeelsBridge.IsLoaded);
+    }
+
+    private static void DrawStatus(string name, bool detected)
+        => ImGui.TextColored(detected ? Good : Bad, $"{name}: {(detected ? "Detected" : "Not Found")}");
+
+    /// ImGui.TextDisabled doesn't wrap — fine for the short one-liners it's used for elsewhere, but a
+    /// longer explanatory sentence just gets clipped at the window edge instead of flowing to a new
+    /// line. This pushes the same muted color TextDisabled uses, but through TextWrapped.
+    public static void TextWrappedDisabled(string text)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1f));
+        ImGui.TextWrapped(text);
+        ImGui.PopStyleColor();
     }
 
     public static void SectionHeader(string text)

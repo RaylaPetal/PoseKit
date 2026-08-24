@@ -17,6 +17,13 @@ public sealed class PoseModGroup
     public required bool MultiSelect { get; init; }
     public required List<PoseModOption> Options { get; init; }
     public HashSet<string> Selected { get; set; } = new();
+
+    /// True for the synthetic group PenumbraPoseScanner builds from default_mod.json's always-active
+    /// files — needed because a mod with no group_*.json at all (just one fixed set of redirects,
+    /// nothing configurable) would otherwise never be scanned. Not a real Penumbra group: there's
+    /// nothing to select (only one implicit option), and it must never be sent in a
+    /// TrySetTemporarySettings payload — Penumbra has no group by this name.
+    public bool IsImplicit { get; init; }
 }
 
 public sealed class PoseModInfo
@@ -52,6 +59,8 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
 
     private sealed record OptionFileDto(string Name, Dictionary<string, string>? Files);
 
+    private sealed record DefaultModDto(Dictionary<string, string>? Files);
+
     public List<PoseModInfo> Scan()
     {
         var results = new List<PoseModInfo>();
@@ -66,16 +75,46 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
         {
             if (!modList.TryGetValue(modDirectory, out var modName)) continue; // mod no longer installed
 
+            // Disabled mods are scanned too (not skipped) — PoseKit.PlayTrigger enables one temporarily
+            // through Penumbra the moment it's played, so users don't have to flip it on there first.
             var (modEnabled, currentSelections) = ipc.TryGetCurrentSettings(cid, modDirectory);
-            if (!modEnabled) continue;
 
             var modPath = Path.Combine(modRoot, modDirectory);
             if (!Directory.Exists(modPath)) continue;
 
-            var groupFiles = Directory.GetFiles(modPath, "group_*.json", SearchOption.TopDirectoryOnly);
-            if (groupFiles.Length == 0) continue;
-
             var groups = new List<PoseModGroup>();
+
+            // default_mod.json holds the mod's always-active files — the ones outside any optional
+            // group. A mod with no configurable options at all (just one fixed redirect set, like
+            // "[Mittens] Fist Full of Dreams") has *only* this file and zero group_*.json ones, so it
+            // needs its own scan rather than being skipped for lack of groups.
+            var defaultModPath = Path.Combine(modPath, "default_mod.json");
+            if (File.Exists(defaultModPath))
+            {
+                DefaultModDto? defaultDto;
+                try { defaultDto = JsonSerializer.Deserialize<DefaultModDto>(File.ReadAllText(defaultModPath), JsonOptions); }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warning(ex, $"[PoseKit] Failed to parse {defaultModPath}, skipping default files.");
+                    defaultDto = null;
+                }
+
+                var defaultTriggers = PoseNameHeuristics.Detect(modName, modName,
+                    (IEnumerable<string>?)defaultDto?.Files?.Keys ?? Array.Empty<string>());
+                if (defaultTriggers.Count > 0)
+                {
+                    groups.Add(new PoseModGroup
+                    {
+                        Name = "Default",
+                        MultiSelect = false,
+                        IsImplicit = true,
+                        Options = [new PoseModOption { Name = "Default", Triggers = defaultTriggers }],
+                        Selected = new HashSet<string> { "Default" },
+                    });
+                }
+            }
+
+            var groupFiles = Directory.GetFiles(modPath, "group_*.json", SearchOption.TopDirectoryOnly);
             foreach (var groupFile in groupFiles)
             {
                 GroupFileDto? dto;

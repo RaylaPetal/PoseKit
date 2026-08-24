@@ -15,7 +15,8 @@ public class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 0;
 
-    public bool IsConfigWindowMovable { get; set; } = true;
+    /// Set once the welcome/tutorial window has been closed, so it never shows again after the first run.
+    public bool HasSeenWelcome { get; set; }
 
     /// Keyed by home world row ID then character name, mirroring SimpleHeels' WorldCharacterDictionary
     /// identity pattern so alts don't collide.
@@ -30,9 +31,9 @@ public class Configuration : IPluginConfiguration
     /// no filter (every enabled mod is offered, same as before this existed).
     public string PenumbraFolderFilter { get; set; } = "";
 
-    /// When on and SimpleHeels is loaded, PoseKit registers its offset onto the local player through
-    /// SimpleHeels' own IPC instead of applying it directly, so Mare/Snowcloak/etc. — which already
-    /// sync SimpleHeels offsets — pick it up automatically. See PoseKit.Sync.SimpleHeelsBridge.
+    /// When on and SimpleHeels is loaded, PoseKit drives SimpleHeels' own "/heels temp set" command
+    /// instead of applying its offset directly, so Mare/Snowcloak/etc. — which already sync SimpleHeels
+    /// offsets — pick it up automatically. See PoseKit.Sync.SimpleHeelsBridge.
     public bool BridgeOffsetToSimpleHeels { get; set; }
 
     /// One-shot latch so BridgeOffsetToSimpleHeels only gets auto-enabled the first time SimpleHeels
