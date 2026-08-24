@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.0.1",
+    "AssemblyVersion": "1.0.0.0",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0/PoseKit-1.0.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0/PoseKit-1.0.0.0.zip",
     "Changelog": "Initial release.",
-    "LastUpdate": "1787577886"
+    "LastUpdate": "1787578455"
   }
 ]
