@@ -17,7 +17,12 @@ public readonly record struct PoseTriggerHint(string? SlashCommand, PoseIdentifi
 ///    (e.g. "Buttslap - Hard (/highfive)", confirmed present in real GoonersLife+v3 group names).
 /// 2. Known sit/groundsit/doze filename patterns (j_pose/s_pose/l_pose) in the option's own redirected
 ///    game paths — ported from Synastry-main/EmoteLink/AnimationManifestScanner.cs's DetectPoseTargets,
-///    scoped to a single option's Files dict rather than a whole-mod recursive filesystem scan.
+///    scoped to a single option's Files dict rather than a whole-mod recursive filesystem scan. Also
+///    catches "jmn.pap" directly, which several races use as GroundSit's shared base-pose file instead
+///    of a numbered j_poseNN variant — confirmed against real installed mods (e.g. GoonersLife+v3's
+///    "Idle Animation Pack" group), where every option redirecting it is labelled GroundSit's first
+///    stage ("GroundSit0"/"GroundSit1"/"Gsit0" depending on the author). Synastry's own equivalent
+///    fallback only matches a "/jmn/" *directory* segment, so it misses this exact file too.
 /// 3. EmoteAnimationIndex — a reverse lookup from Lumina's own Emote/ActionTimeline sheets, catching
 ///    plain one-shot emotes (e.g. /confirm, /shiver, /highfive) that neither of the above catch.
 /// </summary>
@@ -65,7 +70,16 @@ public static class PoseNameHeuristics
                     AddPose(new PoseIdentifier(emoteModeId, index));
             }
 
-            if (normalized.EndsWith(".pap", System.StringComparison.OrdinalIgnoreCase))
+            // jmn.pap is also the exact file Lumina's own Emote sheet reverse-maps to the "/groundsit"
+            // command (it's what plays when you type /groundsit fresh — CPoseState 0). Without this
+            // guard, the EmoteAnimationIndex lookup below independently rediscovers the same file as a
+            // *command* hit, so the option ends up offering both "Sit on Ground Pose 1" and "/groundsit"
+            // as separate buttons for what is actually one and the same trigger.
+            var isGroundSitBasePose = normalized.EndsWith("/jmn.pap", System.StringComparison.OrdinalIgnoreCase);
+            if (isGroundSitBasePose)
+                AddPose(new PoseIdentifier(1, 0)); // GroundSit's shared base-pose file — see class doc
+
+            if (!isGroundSitBasePose && normalized.EndsWith(".pap", System.StringComparison.OrdinalIgnoreCase))
             {
                 var withoutExtension = normalized[..^4];
                 if (EmoteAnimationIndex.LookupCommand(withoutExtension) is { } command)
