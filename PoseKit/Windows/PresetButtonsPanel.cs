@@ -45,17 +45,14 @@ public static class PresetButtonsPanel
             }
 
             if (changed)
-            {
-                plugin.OffsetEngine.DesiredOffset = offset;
-                plugin.OffsetEngine.Active = true;
-            }
+                plugin.PoseTrigger.ApplyOffset(offset);
         }
 
         // Always available, regardless of current pose — this is the manual escape hatch for a
         // stuck offset, so it can't be hidden behind the very state that made it hard to fix.
         if (ImGui.Button("Reset##PoseKitOffsetReset"))
         {
-            plugin.OffsetEngine.Reset(localPlayer);
+            plugin.PoseTrigger.ClearOffset(localPlayer);
             plugin.LoadedPreset = null;
             plugin.LastPlayedPenumbraContext = null;
         }
@@ -80,7 +77,7 @@ public static class PresetButtonsPanel
             ImGui.SetNextItemWidth(150);
             ImGui.InputTextWithHint("##PoseKitPresetName", "Preset name", ref newPresetName, 64);
             ImGui.SameLine();
-            var canSave = plugin.OffsetEngine.Active && newPresetName.Trim().Length > 0;
+            var canSave = plugin.PoseTrigger.HasAppliedOffset && newPresetName.Trim().Length > 0;
             using (ImRaii.Disabled(!canSave))
             {
                 if (ImGui.Button("Save as preset##PoseKitSavePreset"))

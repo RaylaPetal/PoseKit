@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Utility;
 
@@ -65,6 +66,21 @@ public class ConfigWindow : Window, IDisposable
             configuration.IsConfigWindowMovable = movable;
             configuration.Save();
         }
+
+        PoseKitUi.SectionHeader("Sync");
+        var heelsLoaded = plugin.SimpleHeelsBridge.IsLoaded;
+        var bridgeToHeels = configuration.BridgeOffsetToSimpleHeels;
+        using (ImRaii.Disabled(!heelsLoaded))
+        {
+            if (ImGui.Checkbox("Bridge offset to SimpleHeels", ref bridgeToHeels))
+            {
+                configuration.BridgeOffsetToSimpleHeels = bridgeToHeels;
+                configuration.Save();
+            }
+        }
+        ImGui.TextDisabled(heelsLoaded
+            ? "SimpleHeels detected."
+            : "SimpleHeels not detected — install and enable it to sync your pose offset to nearby players.");
 
         PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
         ImGui.TextDisabled("Only currently-enabled mods are listed. Scanning is opt-in per mod.");

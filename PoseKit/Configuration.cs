@@ -30,6 +30,15 @@ public class Configuration : IPluginConfiguration
     /// no filter (every enabled mod is offered, same as before this existed).
     public string PenumbraFolderFilter { get; set; } = "";
 
+    /// When on and SimpleHeels is loaded, PoseKit registers its offset onto the local player through
+    /// SimpleHeels' own IPC instead of applying it directly, so Mare/Snowcloak/etc. — which already
+    /// sync SimpleHeels offsets — pick it up automatically. See PoseKit.Sync.SimpleHeelsBridge.
+    public bool BridgeOffsetToSimpleHeels { get; set; }
+
+    /// One-shot latch so BridgeOffsetToSimpleHeels only gets auto-enabled the first time SimpleHeels
+    /// is ever observed loaded — never again afterward, so a user who turns it back off stays off.
+    public bool HasOfferedSimpleHeelsBridge { get; set; }
+
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
     {
         if (!Characters.TryGetValue(homeWorldId, out var byName))

@@ -1,9 +1,9 @@
 using System;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
-using FFXIVClientStructs.FFXIV.Client.System.String;
-using FFXIVClientStructs.FFXIV.Client.UI;
 using PoseKit.Presets;
+using PoseKit.Sync;
 
 namespace PoseKit;
 
@@ -15,11 +15,16 @@ namespace PoseKit;
 /// chat command (per the design doc's stated fallback) — deliberately not porting Synastry's
 /// AOB-hooked AnywherePoseService/ActionTimelinePlayback, which bypass emote-unlock/server checks.
 /// </summary>
-public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
+public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
 {
     private (PoseIdentifier Pose, PoseOffset Offset)? cyclingTarget;
     private int attempts;
     private long nextAttemptTime;
+
+    /// True whenever an offset is currently applied through *either* path (OffsetEngine's own hook or
+    /// the SimpleHeels bridge) — OffsetEngine.Active alone isn't enough to tell, since bridging
+    /// deliberately leaves it false to avoid double-applying the offset.
+    public bool HasAppliedOffset { get; private set; }
 
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset);
 
@@ -33,11 +38,44 @@ public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
             default:
                 cyclingTarget = null;
                 if (pose.SlashCommand is not { } command) break; // no resolvable trigger — don't fake one
-                ExecuteCommand($"/{command} motion");
-                offsetEngine.DesiredOffset = offset;
-                offsetEngine.Active = true;
+                ChatCommand.Execute($"/{command} motion");
+                ApplyOffset(offset);
                 break;
         }
+    }
+
+    /// Routes the offset through SimpleHeels' "/heels temp set" command (so Mare/Snowcloak/etc. sync
+    /// it to nearby players) when bridging is enabled and SimpleHeels is actually loaded, otherwise
+    /// falls back to PoseKit's own local-only OffsetEngine hook. Never both at once — see
+    /// SimpleHeelsBridge's class doc for why. The only entry point for setting an offset — the
+    /// live-offset editor (PresetButtonsPanel) calls this too rather than touching OffsetEngine
+    /// directly, so bridging isn't silently bypassed.
+    public void ApplyOffset(PoseOffset offset)
+    {
+        // DesiredOffset is kept up to date regardless of routing — it's the single source of truth
+        // the live-offset editor reads back to display current values, bridging or not.
+        offsetEngine.DesiredOffset = offset;
+
+        if (configuration.BridgeOffsetToSimpleHeels && simpleHeelsBridge.IsLoaded)
+        {
+            offsetEngine.Active = false;
+            simpleHeelsBridge.Apply(offset);
+        }
+        else
+        {
+            offsetEngine.Active = true;
+        }
+
+        HasAppliedOffset = true;
+    }
+
+    /// Clears whichever path is currently applying the offset. Safe to call unconditionally — both
+    /// OffsetEngine.Reset and SimpleHeelsBridge.Clear are no-ops if nothing was applied.
+    public void ClearOffset(IPlayerCharacter? localPlayer)
+    {
+        offsetEngine.Reset(localPlayer);
+        simpleHeelsBridge.Clear();
+        HasAppliedOffset = false;
     }
 
     /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
@@ -45,7 +83,7 @@ public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
     public void TriggerCommand(string emoteCommand)
     {
         cyclingTarget = null;
-        ExecuteCommand($"/{emoteCommand} motion");
+        ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
     private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, EmoteController.PoseType poseType, string enterCommand)
@@ -57,7 +95,7 @@ public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
         {
             var state = PlayerState.Instance();
             if (state != null) state->SelectedPoses[(int)poseType] = pose.CPoseState;
-            ExecuteCommand(enterCommand);
+            ChatCommand.Execute(enterCommand);
         }
 
         cyclingTarget = (pose, offset);
@@ -81,22 +119,13 @@ public sealed unsafe class PoseTrigger(OffsetEngine offsetEngine)
 
         if (c.CPoseState == target.Pose.CPoseState)
         {
-            offsetEngine.DesiredOffset = target.Offset;
-            offsetEngine.Active = true;
+            ApplyOffset(target.Offset);
             cyclingTarget = null;
             return;
         }
 
-        ExecuteCommand("/cpose");
+        ChatCommand.Execute("/cpose");
         if (++attempts >= 8) cyclingTarget = null;
         else nextAttemptTime = Environment.TickCount64 + 100;
-    }
-
-    private static void ExecuteCommand(string command)
-    {
-        var ui = UIModule.Instance();
-        if (ui == null) return;
-        using var text = new Utf8String(command);
-        ui->ProcessChatBoxEntry(&text);
     }
 }

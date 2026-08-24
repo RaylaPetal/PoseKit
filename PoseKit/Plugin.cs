@@ -37,6 +37,7 @@ public sealed class Plugin : IDalamudPlugin
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
     public PoseTrigger PoseTrigger { get; init; }
+    public SimpleHeelsBridge SimpleHeelsBridge { get; init; }
     public PenumbraIpc PenumbraIpc { get; init; }
     public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
     public List<PoseModInfo> DiscoveredPoses { get; private set; } = new();
@@ -59,7 +60,8 @@ public sealed class Plugin : IDalamudPlugin
 
         OffsetEngine = new OffsetEngine();
         PresetManager = new PresetManager(Configuration);
-        PoseTrigger = new PoseTrigger(OffsetEngine);
+        SimpleHeelsBridge = new SimpleHeelsBridge();
+        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge);
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
@@ -107,12 +109,25 @@ public sealed class Plugin : IDalamudPlugin
         // leftover offset keeps fighting the game's own draw-offset updates during normal
         // movement (turning, walking) indefinitely, since the hook re-applies it on every write
         // regardless of what's actually playing. Mirrors SimpleHeels clearing its temp offset on
-        // emote change (SimpleHeels-master/Plugin.cs).
-        if (OffsetEngine.Active && PoseIdentifier.FromCharacter(localPlayer) == null)
+        // emote change (SimpleHeels-master/Plugin.cs). Checked via PoseTrigger.HasAppliedOffset,
+        // not OffsetEngine.Active alone — bridging to SimpleHeels deliberately leaves the latter
+        // false to avoid double-applying the offset.
+        if (PoseTrigger.HasAppliedOffset && PoseIdentifier.FromCharacter(localPlayer) == null)
         {
-            OffsetEngine.Reset(localPlayer);
+            PoseTrigger.ClearOffset(localPlayer);
             LoadedPreset = null;
             LastPlayedPenumbraContext = null;
+        }
+
+        // One-shot: the first time SimpleHeels is ever observed loaded (which may not be until well
+        // after PoseKit's own constructor runs — plugin load order isn't guaranteed), default the
+        // bridge on. HasOfferedSimpleHeelsBridge stops this from re-enabling it if the user turns it
+        // back off afterward.
+        if (!Configuration.HasOfferedSimpleHeelsBridge && SimpleHeelsBridge.IsLoaded)
+        {
+            Configuration.BridgeOffsetToSimpleHeels = true;
+            Configuration.HasOfferedSimpleHeelsBridge = true;
+            Configuration.Save();
         }
 
         OffsetEngine.Tick(localPlayer);
