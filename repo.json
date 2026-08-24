@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.6/PoseKit-0.0.0.6.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.6/PoseKit-0.0.0.6.zip",
     "Changelog": "Turn the Settings folder filter into a dropdown of real Penumbra sort-folders instead of free text, make the Settings window scroll when shrunk, and cache mod scans in memory instead of re-hitting Penumbra on every keystroke.",
-    "LastUpdate": "1787606125"
+    "LastUpdate": "1787614368"
   }
 ]
