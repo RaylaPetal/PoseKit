@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.0.4",
+    "AssemblyVersion": "0.0.0.5",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.4/PoseKit-0.0.0.4.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.4/PoseKit-0.0.0.4.zip",
-    "Changelog": "Add a Penumbra/SimpleHeels status header, versioned window titles, a first-run welcome tutorial, and disabled-mod support in the animation picker (PoseKit now enables a mod temporarily when you play from it). Removed the redundant movable-window toggle.",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.5/PoseKit-0.0.0.5.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.5/PoseKit-0.0.0.5.zip",
+    "Changelog": "Warn when two currently-selected animations claim the same gesture (only one can actually play), and shrink the animation picker's dropdown width.",
     "LastUpdate": "1787599371"
   }
 ]

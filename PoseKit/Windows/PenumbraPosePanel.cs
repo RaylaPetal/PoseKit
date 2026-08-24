@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Dalamud.Bindings.ImGui;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
@@ -66,6 +67,7 @@ public static class PenumbraPosePanel
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         var anyVisible = false;
+        var activePoses = BuildActivePoseMap(plugin.DiscoveredPoses);
 
         foreach (var mod in plugin.DiscoveredPoses)
         {
@@ -86,7 +88,7 @@ public static class PenumbraPosePanel
             foreach (var group in mod.Groups)
             {
                 if (GroupMatches(mod, group, animationSearch))
-                    DrawGroup(plugin, mod, group, collectionId, animationSearch);
+                    DrawGroup(plugin, mod, group, collectionId, animationSearch, activePoses);
             }
             ImGui.Unindent();
         }
@@ -95,7 +97,8 @@ public static class PenumbraPosePanel
             ImGui.TextDisabled("No animations match this search.");
     }
 
-    private static void DrawGroup(Plugin plugin, PoseModInfo mod, PoseModGroup group, Guid? collectionId, string filter)
+    private static void DrawGroup(Plugin plugin, PoseModInfo mod, PoseModGroup group, Guid? collectionId, string filter,
+        Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> activePoses)
     {
         ImGui.PushID(group.Name);
 
@@ -106,7 +109,11 @@ public static class PenumbraPosePanel
             // trigger buttons instead of a one-item combo that would falsely imply a choice exists.
             ImGui.TextUnformatted(group.Name);
             foreach (var option in group.Options)
+            {
+                if (DescribeConflict(activePoses, mod, option) is { } conflict)
+                    PoseKitUi.DrawConflictMarker(conflict);
                 DrawTriggerButtons(plugin, mod, option.Triggers, collectionId, "PoseKitDefaultPlay");
+            }
             ImGui.PopID();
             return;
         }
@@ -136,6 +143,9 @@ public static class PenumbraPosePanel
                         ApplyGroupChange(plugin, mod, group, newSelection, cid);
                     }
 
+                    if (isChecked && DescribeConflict(activePoses, mod, option) is { } conflict)
+                        PoseKitUi.DrawConflictMarker(conflict);
+
                     DrawTriggerButtons(plugin, mod, option.Triggers, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
                 }
                 ImGui.Unindent();
@@ -147,6 +157,7 @@ public static class PenumbraPosePanel
 
             var selectedOption = FindSelected(group);
             var currentLabel = selectedOption?.Name ?? "Disabled";
+            ImGui.SetNextItemWidth(Math.Min(260f, ImGui.GetContentRegionAvail().X));
             if (ImGui.BeginCombo("##PoseKitGroupCombo", currentLabel))
             {
                 foreach (var option in visibleOptions)
@@ -161,10 +172,62 @@ public static class PenumbraPosePanel
                 ImGui.EndCombo();
             }
 
+            if (selectedOption != null && DescribeConflict(activePoses, mod, selectedOption) is { } comboConflict)
+                PoseKitUi.DrawConflictMarker(comboConflict);
+
             DrawTriggerButtons(plugin, mod, selectedOption?.Triggers ?? [], collectionId, "PoseKitGroupPlay");
         }
 
         ImGui.PopID();
+    }
+
+    /// Every currently-*selected* option's pose triggers across the whole discovered-mods list, keyed
+    /// by PoseIdentifier — only selected options are actually "live" in Penumbra (an unselected option
+    /// contributes no file redirects), so those are the only ones that can genuinely collide. With a
+    /// large curated pack like GoonersLife, it's easy to have e.g. two different groups (or two
+    /// checked options in the same multi-select group) both claim "GroundSit Pose 3": only one of
+    /// their file redirects actually wins in Penumbra, so playing either button may not produce what
+    /// its own label promised.
+    private static Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> BuildActivePoseMap(List<PoseModInfo> mods)
+    {
+        var map = new Dictionary<PoseIdentifier, List<(PoseModInfo, PoseModOption)>>();
+        foreach (var mod in mods)
+        {
+            foreach (var group in mod.Groups)
+            {
+                foreach (var option in group.Options)
+                {
+                    if (!group.Selected.Contains(option.Name)) continue;
+                    foreach (var trigger in option.Triggers)
+                    {
+                        if (trigger.PoseIdentifier is not { } pid) continue;
+                        if (!map.TryGetValue(pid, out var claimants))
+                            map[pid] = claimants = [];
+                        claimants.Add((mod, option));
+                    }
+                }
+            }
+        }
+        return map;
+    }
+
+    /// Null unless this option is currently one of two-or-more selected options claiming the same
+    /// gesture — reports the first such collision found, naming the other claimant.
+    private static string? DescribeConflict(
+        Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> activePoses,
+        PoseModInfo mod, PoseModOption option)
+    {
+        foreach (var trigger in option.Triggers)
+        {
+            if (trigger.PoseIdentifier is not { } pid) continue;
+            if (!activePoses.TryGetValue(pid, out var claimants) || claimants.Count <= 1) continue;
+
+            var other = claimants.FirstOrDefault(c => c.Option != option);
+            if (other.Option != null)
+                return $"Also currently selected: \"{other.Option.Name}\" ({other.Mod.ModName}) — both claim {pid.DisplayName}. Only one will actually play.";
+        }
+
+        return null;
     }
 
     private static bool ModMatches(PoseModInfo mod, string filter)

@@ -12,7 +12,7 @@ internal static class PoseKitUi
     private static readonly Vector4 AccentHovered = new(0.55f, 0.41f, 0.74f, 1f);
     private static readonly Vector4 AccentActive = new(0.66f, 0.50f, 0.88f, 1f);
     private static readonly Vector4 Good = new(0.45f, 0.85f, 0.45f, 1f);
-    private static readonly Vector4 Bad = new(0.9f, 0.4f, 0.4f, 1f);
+    public static readonly Vector4 Bad = new(0.9f, 0.4f, 0.4f, 1f);
 
     /// Applies PoseKit's shared lavender control theme for the lifetime of the returned scope.
     /// Window backgrounds remain under Dalamud's global theme so the plugin still feels native.
@@ -61,6 +61,16 @@ internal static class PoseKitUi
         ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1f));
         ImGui.TextWrapped(text);
         ImGui.PopStyleColor();
+    }
+
+    /// Inline "(conflict)" marker in warning red with a hover tooltip carrying the full explanation —
+    /// used wherever a currently-selected option's gesture collides with another selected option's.
+    public static void DrawConflictMarker(string tooltip)
+    {
+        ImGui.SameLine();
+        ImGui.TextColored(Bad, "(conflict)");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(tooltip);
     }
 
     public static void SectionHeader(string text)
