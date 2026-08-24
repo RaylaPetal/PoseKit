@@ -32,6 +32,16 @@ public class ConfigWindow : Window, IDisposable
 
     public void Dispose() { }
 
+    /// Penumbra's collection/mod-settings IPC isn't reliably ready right after login (or right after
+    /// the game finishes loading), so a cache built on the window's first-ever draw can permanently
+    /// miss mods that hadn't synced yet. Dropping the cache each time the window opens means it
+    /// re-scans against Penumbra's current state instead of a stale snapshot, without needing a
+    /// manual "Refresh enabled mods" click.
+    public override void OnOpen()
+    {
+        enabledModsCache = null;
+    }
+
     public override void PreDraw()
     {
         // Flags must be added or removed before Draw() is being called, or they won't apply

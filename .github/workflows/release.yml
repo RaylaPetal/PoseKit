@@ -1,0 +1,87 @@
+name: Release Plugin
+
+# Triggered by pushing a tag like "v1.0.0". Before tagging, bump <Version> in
+# PoseKit/PoseKit.csproj to match (as a 4-part assembly version, e.g. 1.0.0.0) and
+# commit that first — this workflow builds whatever version is in the csproj, it
+# does not derive one from the tag name.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: 'true'
+          fetch-depth: 0
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+          Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+      - name: Build
+        run: dotnet build PoseKit/PoseKit.csproj --configuration Release
+
+      - name: Locate packaged plugin
+        id: package
+        shell: pwsh
+        run: |
+          $manifest = Get-ChildItem -Path PoseKit/bin -Recurse -Filter "PoseKit.json" |
+            Where-Object { $_.FullName -match '[\\/]Release[\\/]' } |
+            Select-Object -First 1
+          if (-not $manifest) { throw "Could not find built PoseKit.json manifest under PoseKit/bin/**/Release/**" }
+
+          $zipSource = Join-Path $manifest.DirectoryName "latest.zip"
+          if (-not (Test-Path $zipSource)) { throw "Could not find latest.zip next to $($manifest.FullName)" }
+
+          $version = (Get-Content $manifest.FullName -Raw | ConvertFrom-Json).AssemblyVersion
+          $zipName = "PoseKit-$version.zip"
+          Copy-Item $zipSource $zipName
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "zipName=$zipName" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PoseKit ${{ steps.package.outputs.version }}
+          files: ${{ steps.package.outputs.zipName }}
+          generate_release_notes: true
+
+      - name: Update repo.json
+        shell: pwsh
+        run: |
+          $version = "${{ steps.package.outputs.version }}"
+          $tag = "${{ github.ref_name }}"
+          $zipName = "${{ steps.package.outputs.zipName }}"
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$zipName"
+
+          $json = Get-Content repo.json -Raw | ConvertFrom-Json
+          $entry = $json | Where-Object { $_.InternalName -eq "PoseKit" }
+          $entry.AssemblyVersion = $version
+          $entry.DownloadLinkInstall = $downloadUrl
+          $entry.DownloadLinkUpdate = $downloadUrl
+          $entry.LastUpdate = [string][int](Get-Date -UFormat %s -Millisecond 0)
+
+          ($json | ConvertTo-Json -Depth 10) | Set-Content repo.json -Encoding utf8
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add repo.json
+          git diff --cached --quiet || git commit -m "Update repo.json for $tag"
+          git push origin HEAD:master
