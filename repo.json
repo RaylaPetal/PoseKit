@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.3/PoseKit-0.0.0.3.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.3/PoseKit-0.0.0.3.zip",
     "Changelog": "Add an opt-in bridge that drives SimpleHeels' own temp-offset command, so PoseKit's pose offset syncs to paired viewers through whatever sync tool they already use.",
-    "LastUpdate": "1787587925"
+    "LastUpdate": "1787596013"
   }
 ]
