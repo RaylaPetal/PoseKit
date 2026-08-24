@@ -72,14 +72,18 @@ jobs:
           $zipName = "${{ steps.package.outputs.zipName }}"
           $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$zipName"
 
-          $json = Get-Content repo.json -Raw | ConvertFrom-Json
-          $entry = $json | Where-Object { $_.InternalName -eq "PoseKit" }
+          # @() forces an array even when repo.json holds a single entry — ConvertFrom-Json
+          # otherwise collapses a 1-element JSON array into a bare object, and ConvertTo-Json
+          # would then write it back out as "{...}" instead of "[{...}]", which Dalamud's repo
+          # browser can't parse as a plugin list (it loads as valid JSON, just not as one).
+          $entries = @(Get-Content repo.json -Raw | ConvertFrom-Json)
+          $entry = $entries | Where-Object { $_.InternalName -eq "PoseKit" }
           $entry.AssemblyVersion = $version
           $entry.DownloadLinkInstall = $downloadUrl
           $entry.DownloadLinkUpdate = $downloadUrl
           $entry.LastUpdate = [string][int](Get-Date -UFormat %s -Millisecond 0)
 
-          ($json | ConvertTo-Json -Depth 10) | Set-Content repo.json -Encoding utf8
+          ($entries | ConvertTo-Json -Depth 10 -AsArray) | Set-Content repo.json -Encoding utf8
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

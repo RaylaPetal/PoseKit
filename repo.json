@@ -1,23 +1,20 @@
-{
-  "Author": "Rayla Petal",
-  "Name": "PoseKit",
-  "InternalName": "PoseKit",
-  "AssemblyVersion": "1.0.0.0",
-  "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
-  "ApplicableVersion": "any",
-  "DalamudApiLevel": 15,
-  "Punchline": "Offset, save, and replay poses; auto-discover Penumbra animation mods.",
-  "RepoUrl": "https://github.com/RaylaPetal/PoseKit",
-  "Tags": [
-    "pose",
-    "emote",
-    "offset",
-    "penumbra"
-  ],
-  "IsHide": false,
-  "IsTestingExclusive": false,
-  "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0/PoseKit-1.0.0.0.zip",
-  "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0/PoseKit-1.0.0.0.zip",
-  "Changelog": "Initial release.",
-  "LastUpdate": "1787577559"
-}
+[
+  {
+    "Author": "Rayla Petal",
+    "Name": "PoseKit",
+    "InternalName": "PoseKit",
+    "AssemblyVersion": "1.0.0.0",
+    "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Punchline": "Offset, save, and replay poses; auto-discover Penumbra animation mods.",
+    "RepoUrl": "https://github.com/RaylaPetal/PoseKit",
+    "Tags": [ "pose", "emote", "offset", "penumbra" ],
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0/PoseKit-1.0.0.0.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0/PoseKit-1.0.0.0.zip",
+    "Changelog": "Initial release.",
+    "LastUpdate": "1787577559"
+  }
+]
