@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.5/PoseKit-0.0.0.5.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.5/PoseKit-0.0.0.5.zip",
     "Changelog": "Warn when two currently-selected animations claim the same gesture (only one can actually play), and shrink the animation picker's dropdown width.",
-    "LastUpdate": "1787599371"
+    "LastUpdate": "1787606125"
   }
 ]
