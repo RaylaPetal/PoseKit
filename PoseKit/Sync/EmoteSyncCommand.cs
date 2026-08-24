@@ -1,13 +1,15 @@
 using System;
 using System.Globalization;
 using System.Threading;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
 
 namespace PoseKit.Sync;
 
-/// Resets the local player's currently playing emote loop timer, mirroring SimpleHeels' `/heels emotesync`.
-/// Purely local: no networking, no other-player involvement.
+/// Resets the currently playing emote loop timer for every nearby rendered player character.
+/// This is still client-side only: it changes how those actors are animated on this client and
+/// does not send a synchronization request to the other players.
 public sealed unsafe class EmoteSyncCommand : IDisposable
 {
     private readonly CancellationTokenSource cancellationTokenSource = new();
@@ -42,21 +44,28 @@ public sealed unsafe class EmoteSyncCommand : IDisposable
     {
         if (delaySeconds <= 0)
         {
-            Plugin.Framework.RunOnFrameworkThread(ResetLocalPlayerEmoteLoop);
+            Plugin.Framework.RunOnFrameworkThread(ResetNearbyPlayerEmoteLoops);
         }
         else
         {
-            Plugin.Framework.RunOnTick(ResetLocalPlayerEmoteLoop, TimeSpan.FromSeconds(delaySeconds),
+            Plugin.Framework.RunOnTick(ResetNearbyPlayerEmoteLoops, TimeSpan.FromSeconds(delaySeconds),
                 cancellationToken: cancellationTokenSource.Token);
         }
     }
 
-    private void ResetLocalPlayerEmoteLoop()
+    private static void ResetNearbyPlayerEmoteLoops()
     {
-        var localPlayer = Plugin.ObjectTable.LocalPlayer;
-        if (localPlayer == null) return;
+        foreach (var gameObject in Plugin.ObjectTable)
+        {
+            if (gameObject is IPlayerCharacter player)
+                ResetEmoteLoop(player);
+        }
+    }
 
-        var character = (Character*)localPlayer.Address;
+    private static void ResetEmoteLoop(IPlayerCharacter player)
+    {
+        var character = (Character*)player.Address;
+        if (character == null) return;
         if (character->DrawObject == null) return;
         if (character->DrawObject->GetObjectType() != ObjectType.CharacterBase) return;
         if (((CharacterBase*)character->DrawObject)->GetModelType() != CharacterBase.ModelType.Human) return;

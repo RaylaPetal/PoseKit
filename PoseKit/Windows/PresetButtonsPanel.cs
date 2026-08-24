@@ -6,19 +6,17 @@ using PoseKit.Presets;
 
 namespace PoseKit.Windows;
 
-/// <summary>Live-offset controls bound directly to OffsetEngine (the single source of truth — a
-/// separate "temp offset" copy previously went stale whenever a preset was loaded, leaving the
-/// controls showing the wrong values), and saved-preset buttons grouped by PoseIdentifier.</summary>
+/// <summary>Live-offset and saved-preset views. They share state but are drawn in separate main
+/// tabs so editing a pose and browsing the preset library each have room to breathe.</summary>
 public static class PresetButtonsPanel
 {
     private static string newPresetName = "";
 
-    public static void Draw(Plugin plugin)
+    public static void DrawOffsets(Plugin plugin)
     {
-        PoseKitUi.SectionHeader("Live Offset");
-
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
+        PoseKitUi.SectionHeader("Live Offset");
         ImGui.TextDisabled(currentPose?.DisplayName ?? "Not currently in a pose/emote loop.");
 
         using (ImRaii.Disabled(currentPose is null))
@@ -62,15 +60,23 @@ public static class PresetButtonsPanel
             plugin.LastPlayedPenumbraContext = null;
         }
 
+        if (currentPose is { } pose && plugin.LoadedPreset is { } loaded && loaded.Pose == pose)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Update preset##PoseKitUpdatePreset"))
+                plugin.PresetManager.Update(loaded, plugin.OffsetEngine.DesiredOffset);
+        }
+    }
+
+    public static void DrawPresets(Plugin plugin)
+    {
+        var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
+
+        PoseKitUi.SectionHeader("Save Current Offset");
+        ImGui.TextDisabled(currentPose?.DisplayName ?? "Start a pose or animation before saving a preset.");
+
         if (currentPose is { } pose)
         {
-            if (plugin.LoadedPreset is { } loaded && loaded.Pose == pose)
-            {
-                ImGui.SameLine();
-                if (ImGui.Button("Update preset##PoseKitUpdatePreset"))
-                    plugin.PresetManager.Update(loaded, plugin.OffsetEngine.DesiredOffset);
-            }
-
             ImGui.SetNextItemWidth(150);
             ImGui.InputTextWithHint("##PoseKitPresetName", "Preset name", ref newPresetName, 64);
             ImGui.SameLine();
@@ -87,13 +93,23 @@ public static class PresetButtonsPanel
             }
         }
 
-        PoseKitUi.SectionHeader("Saved Presets");
+        PoseKitUi.SectionHeader("Preset Library");
 
         var groups = plugin.PresetManager.Presets.GroupBy(p => p.Pose);
+        if (!groups.Any())
+        {
+            ImGui.TextDisabled("No saved presets yet.");
+            return;
+        }
+
         foreach (var group in groups)
         {
-            ImGui.TextDisabled(group.Key.DisplayName);
-            foreach (var namedPose in group)
+            if (!ImGui.CollapsingHeader($"{group.Key.DisplayName}##PoseKitPresetGroup{group.Key.GetHashCode()}",
+                    ImGuiTreeNodeFlags.DefaultOpen))
+                continue;
+
+            ImGui.Indent();
+            foreach (var namedPose in group.ToList())
             {
                 if (ImGui.Button($"{namedPose.Name}##PoseKitPreset{namedPose.GetHashCode()}"))
                     plugin.PlayPreset(namedPose);
@@ -102,6 +118,7 @@ public static class PresetButtonsPanel
                 if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))
                     plugin.PresetManager.Delete(namedPose);
             }
+            ImGui.Unindent();
         }
     }
 }

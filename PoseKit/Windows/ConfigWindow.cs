@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using Dalamud.Utility;
 
 namespace PoseKit.Windows;
 
@@ -72,26 +73,37 @@ public class ConfigWindow : Window, IDisposable
         if (enabledModsCache == null)
         {
             ImGui.TextDisabled("Penumbra not found.");
-            return;
         }
-
-        var changed = false;
-        foreach (var (modDirectory, modName) in enabledModsCache)
+        else
         {
-            var isSelected = configuration.SelectedPenumbraMods.Contains(modDirectory);
-            if (ImGui.Checkbox($"{modName}##PoseKitModPick{modDirectory.GetHashCode()}", ref isSelected))
+            var changed = false;
+            foreach (var (modDirectory, modName) in enabledModsCache)
             {
-                if (isSelected) configuration.SelectedPenumbraMods.Add(modDirectory);
-                else configuration.SelectedPenumbraMods.Remove(modDirectory);
-                changed = true;
+                var isSelected = configuration.SelectedPenumbraMods.Contains(modDirectory);
+                if (ImGui.Checkbox($"{modName}##PoseKitModPick{modDirectory.GetHashCode()}", ref isSelected))
+                {
+                    if (isSelected) configuration.SelectedPenumbraMods.Add(modDirectory);
+                    else configuration.SelectedPenumbraMods.Remove(modDirectory);
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                configuration.Save();
+                plugin.RefreshPenumbraPoses();
             }
         }
 
-        if (changed)
-        {
-            configuration.Save();
-            plugin.RefreshPenumbraPoses();
-        }
+        PoseKitUi.SectionHeader("Support");
+        ImGui.TextUnformatted("Discord: raylapetal");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Copy##PoseKitCopyDiscord"))
+            ImGui.SetClipboardText("raylapetal");
+
+        if (ImGui.Button("Report an issue on GitHub##PoseKitGitHubIssues"))
+            Util.OpenLink("https://github.com/RaylaPetal/PoseKit/issues");
+        ImGui.TextDisabled("Questions and bug reports are welcome.");
     }
 
     private List<(string, string)>? RefreshEnabledMods()

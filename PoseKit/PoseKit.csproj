@@ -8,7 +8,7 @@
     <Punchline>Offset, save, and replay poses; auto-discover Penumbra animation mods.</Punchline>
     <Description>Animation Assistance Plugin, offset your character's pose, save named presets and replay them, 
         auto-discover Penumbra pose mods, and manually resync emote timing with a partner.</Description>
-    <RepoUrl>https://github.com/your-name-here/PoseKit</RepoUrl>
+    <RepoUrl>https://github.com/RaylaPetal/PoseKit</RepoUrl>
     <Tags>pose;emote;offset;penumbra</Tags>
   </PropertyGroup>
   <ItemGroup>

@@ -1,12 +1,3 @@
-# TODO
-
-Read the posekit.d implementation. Read dalamud.dev plugin stuff and study them https://dalamud.dev/plugin-development/getting-started
-
-Give me a plan implementing all these features with:
-A friendly UI for offsetting and saving poses with a name and replaying them
-Syncing emotes
-Finding animation mods within a folder and playing them with a click of a button
-
 # PoseKit — Design Doc
 *(working name — rename freely; I'll call it "PoseKit" throughout)*
 
@@ -16,14 +7,14 @@ An Avsitter-for-FFXIV plugin: offset + save + replay poses, auto-discover Penumb
 
 ## 0. Correction on Feature #4 (important)
 
-I checked SimpleHeels' actual changelog before designing this. `/heels emotesync` is **not networked**. It's a local command:
+PoseKit's `/posekit sync` is **not networked**. It is a client-side command:
 
 ```
-/heels emotesync
-/heels emotesync delay [seconds]
+/posekit sync
+/posekit sync delay [seconds]
 ```
 
-It just resets *your own* emote's internal loop timer (optionally after a delay), so two people can manually count down in party/tell chat ("3, 2, 1, go") and both hit their own sync command to land back in phase with each other. There's no packet exchange, no relay server, no dependency on the other person even having the plugin.
+It resets the internal loop timer of every nearby rendered player character on the local client, optionally after a delay. This brings visible paired animations to the same local timeline without a packet exchange, relay server, or dependency on the other person having the plugin. Other players do not see the correction unless they perform their own sync.
 
 This is good news — it means feature #4 is by far the *simplest* of the four to build (no networking, no desync risk, no server), and it's what you asked for ("do the same as SimpleHeels emotesync"). Section 5 below designs it exactly this way.
 
@@ -36,7 +27,7 @@ This is good news — it means feature #4 is by far the *simplest* of the four t
 | 1 | Live offset like SimpleHeels | `OffsetEngine` + `TempOffsetOverlay` (gizmo) |
 | 2 | Save/name/replay offset per emote | `PoseIdentifier` + `PoseConfig` (presets) |
 | 3 | Read Penumbra mods in "Animations" folder, button per pose | `PenumbraPoseScanner` |
-| 4 | Manual timing re-sync | `EmoteSyncCommand` (local-only, no networking) |
+| 4 | Nearby timing re-sync | `EmoteSyncCommand` (client-side, no networking) |
 
 ---
 
@@ -179,11 +170,11 @@ This is why `PoseIdentifier` is the shared key across Features 2 and 3 — a but
 Chat command, mirroring SimpleHeels exactly:
 
 ```
-/posekit sync                → resets local emote loop timer immediately
-/posekit sync delay 2.5      → waits 2.5s, then resets it
+/posekit sync                → resets all nearby rendered player emote loops immediately
+/posekit sync delay 2.5      → waits 2.5s, then resets them
 ```
 
-Implementation: find whatever internal timer/frame-counter drives the currently-playing loop animation (SimpleHeels' emotesync code is public — read `PluginService.cs`/relevant command handler for the exact struct field it resets) and zero it out, optionally via a `Task.Delay` for the delay variant. No IPC, no other player involvement required — purely local.
+Implementation: enumerate nearby rendered player characters, find the internal timer/frame-counter driving each currently-playing loop animation, and zero it out on the same framework tick. The optional delay schedules that operation for later. No IPC is required; the result is purely local to the client running PoseKit.
 
 Also expose it as a button in the main UI window, not just a chat command, since your goal is "click a button."
 

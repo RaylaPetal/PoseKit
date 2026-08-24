@@ -71,7 +71,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the PoseKit window. Use '/posekit sync [delay <seconds>]' to resync your emote loop timer."
+            HelpMessage = "Toggle the PoseKit window. Use '/posekit sync [delay <seconds>]' to resync nearby rendered player emotes."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
