@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.2/PoseKit-0.0.0.2.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.0.2/PoseKit-0.0.0.2.zip",
     "Changelog": "Fix GroundSit detection missing mods that redirect jmn.pap, and remove the duplicate command/pose trigger it caused.",
-    "LastUpdate": "1787579860"
+    "LastUpdate": "1787587925"
   }
 ]
