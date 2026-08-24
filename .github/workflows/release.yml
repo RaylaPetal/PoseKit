@@ -40,17 +40,18 @@ jobs:
         id: package
         shell: pwsh
         run: |
-          $manifest = Get-ChildItem -Path PoseKit/bin -Recurse -Filter "PoseKit.json" |
-            Where-Object { $_.FullName -match '[\\/]Release[\\/]' } |
-            Select-Object -First 1
-          if (-not $manifest) { throw "Could not find built PoseKit.json manifest under PoseKit/bin/**/Release/**" }
+          # The packager writes two manifest copies (bin/Release/PoseKit.json for dev-plugin
+          # loading, and bin/Release/PoseKit/PoseKit.json next to latest.zip for distribution) —
+          # search from latest.zip since it's the one unambiguous file, then read its sibling.
+          $zip = Get-ChildItem -Path PoseKit/bin -Recurse -Filter "latest.zip" | Select-Object -First 1
+          if (-not $zip) { throw "Could not find latest.zip under PoseKit/bin" }
 
-          $zipSource = Join-Path $manifest.DirectoryName "latest.zip"
-          if (-not (Test-Path $zipSource)) { throw "Could not find latest.zip next to $($manifest.FullName)" }
+          $manifestPath = Join-Path $zip.DirectoryName "PoseKit.json"
+          if (-not (Test-Path $manifestPath)) { throw "Could not find PoseKit.json next to $($zip.FullName)" }
 
-          $version = (Get-Content $manifest.FullName -Raw | ConvertFrom-Json).AssemblyVersion
+          $version = (Get-Content $manifestPath -Raw | ConvertFrom-Json).AssemblyVersion
           $zipName = "PoseKit-$version.zip"
-          Copy-Item $zipSource $zipName
+          Copy-Item $zip.FullName $zipName
 
           "version=$version" >> $env:GITHUB_OUTPUT
           "zipName=$zipName" >> $env:GITHUB_OUTPUT
