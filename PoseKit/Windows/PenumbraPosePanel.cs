@@ -167,6 +167,15 @@ public static class PenumbraPosePanel
                     {
                         ApplyGroupChange(plugin, mod, group, [option.Name], cid);
                     }
+
+                    // Every option gets its own Play button here, not just whichever's already
+                    // selected — clicking one selects it first (if it isn't already) then plays
+                    // it, so picking and playing an option is one click instead of needing to
+                    // select it here, close the dropdown, then find its Play button outside.
+                    DrawTriggerButtons(plugin, mod, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
+                        beforePlay: isSelected || collectionId is null
+                            ? null
+                            : () => ApplyGroupChange(plugin, mod, group, [option.Name], collectionId.Value));
                 }
 
                 ImGui.EndCombo();
@@ -318,7 +327,11 @@ public static class PenumbraPosePanel
         return null;
     }
 
-    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModOption option, Guid? collectionId, string idPrefix)
+    /// <param name="beforePlay">Runs before enabling/playing — e.g. selecting the option in its
+    /// group first, for a not-yet-selected option played directly from the combo dropdown, so
+    /// picking it and playing it is one click instead of two separate steps.</param>
+    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModOption option, Guid? collectionId,
+        string idPrefix, Action? beforePlay = null)
     {
         var triggers = option.Triggers;
         for (var i = 0; i < triggers.Count; i++)
@@ -328,6 +341,7 @@ public static class PenumbraPosePanel
             ImGui.SameLine();
             if (ImGui.SmallButton($"{label}##{idPrefix}{i}"))
             {
+                beforePlay?.Invoke();
                 EnsureModEnabled(plugin, mod, collectionId);
                 CapturePenumbraContext(plugin, mod, option);
                 PlayTrigger(plugin, trigger);

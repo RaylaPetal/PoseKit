@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.1.0",
+    "AssemblyVersion": "0.0.1.1",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.0/PoseKit-0.0.1.0.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.0/PoseKit-0.0.1.0.zip",
-    "Changelog": "Add location-anchored presets: optionally save your world position/facing with a preset so replaying it corrects the offset back to that exact spot, entirely through the existing render-only draw-offset (no teleporting). Preset library entries now show the anchored location (with coordinates) and which Penumbra animation they'll enable and play.",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.1/PoseKit-0.0.1.1.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.1/PoseKit-0.0.1.1.zip",
+    "Changelog": "Fix a false self-conflict and unplayable options on mods with stale default_mod.json data (e.g. Kissing While Standing), let every dropdown option be selected and played in one click, and fix an off-by-one that showed GroundSit/Sit/Doze poses one stage higher than the mod actually labels them.",
     "LastUpdate": "1787689376"
   }
 ]

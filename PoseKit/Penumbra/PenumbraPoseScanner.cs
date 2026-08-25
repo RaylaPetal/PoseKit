@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 
 namespace PoseKit.Penumbra;
@@ -99,8 +100,18 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                     defaultDto = null;
                 }
 
-                var defaultTriggers = PoseNameHeuristics.Detect(modName, modName,
-                    (IEnumerable<string>?)defaultDto?.Files?.Keys ?? Array.Empty<string>());
+                // Some mods (e.g. "Kissing While Standing [groundsit1] [Mittens]") carry leftover
+                // default_mod.json entries whose keys aren't real game paths at all — e.g.
+                // "I am kissing partner number_/1/chara/human/.../j_pose01_loop.pap" instead of a
+                // real path starting with "chara/". Penumbra itself would never match these at
+                // runtime, but the regex-based detection below doesn't care where in the string it
+                // matches, so it'd otherwise pick up a bogus duplicate of a pose the mod's *real*
+                // group already covers properly — showing as a false self-conflict and a "Default"
+                // button that only enables the mod without ever selecting the real option.
+                var defaultFileKeys = (defaultDto?.Files?.Keys ?? Enumerable.Empty<string>())
+                    .Where(key => key.StartsWith("chara/", StringComparison.OrdinalIgnoreCase));
+
+                var defaultTriggers = PoseNameHeuristics.Detect(modName, modName, defaultFileKeys);
                 if (defaultTriggers.Count > 0)
                 {
                     groups.Add(new PoseModGroup

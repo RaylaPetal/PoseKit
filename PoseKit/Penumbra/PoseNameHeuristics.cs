@@ -66,8 +66,13 @@ public static class PoseNameHeuristics
             foreach (var (emoteModeId, pattern) in FilePatterns)
             {
                 var match = pattern.Match(normalized);
-                if (match.Success && byte.TryParse(match.Groups[1].Value, out var index) && index <= 6)
-                    AddPose(new PoseIdentifier(emoteModeId, index));
+                // Mod authors number these files 1-based ("j_pose01" is their "stage 1"/"GroundSit1"),
+                // matching PoseIdentifier.DisplayName's own "Pose {CPoseState + 1}" convention — but
+                // CPoseState itself is 0-based, so the parsed file number has to be decremented before
+                // use. Confirmed against real installed mods labelling themselves e.g. "groundsit1" and
+                // "Doze1_2" that were showing up one stage higher than intended before this adjustment.
+                if (match.Success && byte.TryParse(match.Groups[1].Value, out var fileNumber) && fileNumber is >= 1 and <= 7)
+                    AddPose(new PoseIdentifier(emoteModeId, (byte)(fileNumber - 1)));
             }
 
             // jmn.pap is also the exact file Lumina's own Emote sheet reverse-maps to the "/groundsit"
