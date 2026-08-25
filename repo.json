@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.1/PoseKit-0.0.1.1.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.1/PoseKit-0.0.1.1.zip",
     "Changelog": "Fix a false self-conflict and unplayable options on mods with stale default_mod.json data (e.g. Kissing While Standing), let every dropdown option be selected and played in one click, and fix an off-by-one that showed GroundSit/Sit/Doze poses one stage higher than the mod actually labels them.",
-    "LastUpdate": "1787689376"
+    "LastUpdate": "1787690595"
   }
 ]
