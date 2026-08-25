@@ -17,7 +17,7 @@ namespace PoseKit;
 /// </summary>
 public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
 {
-    private (PoseIdentifier Pose, PoseOffset Offset)? cyclingTarget;
+    private (PoseIdentifier Pose, PoseOffset Offset, LocationAnchor? Anchor)? cyclingTarget;
     private int attempts;
     private long nextAttemptTime;
 
@@ -26,20 +26,20 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// deliberately leaves it false to avoid double-applying the offset.
     public bool HasAppliedOffset { get; private set; }
 
-    public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset);
+    public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
-    public void Trigger(PoseIdentifier pose, PoseOffset offset)
+    public void Trigger(PoseIdentifier pose, PoseOffset offset, LocationAnchor? anchor = null)
     {
         switch (pose.EmoteModeId)
         {
-            case 1: EnterPoseCycle(pose, offset, EmoteController.PoseType.GroundSit, "/groundsit"); break;
-            case 2: EnterPoseCycle(pose, offset, EmoteController.PoseType.Sit, "/sit"); break;
-            case 3: EnterPoseCycle(pose, offset, EmoteController.PoseType.Doze, "/doze"); break;
+            case 1: EnterPoseCycle(pose, offset, anchor, EmoteController.PoseType.GroundSit, "/groundsit"); break;
+            case 2: EnterPoseCycle(pose, offset, anchor, EmoteController.PoseType.Sit, "/sit"); break;
+            case 3: EnterPoseCycle(pose, offset, anchor, EmoteController.PoseType.Doze, "/doze"); break;
             default:
                 cyclingTarget = null;
                 if (pose.SlashCommand is not { } command) break; // no resolvable trigger — don't fake one
                 ChatCommand.Execute($"/{command} motion");
-                ApplyOffset(offset);
+                ApplyOffset(ResolveOffset(offset, anchor));
                 break;
         }
     }
@@ -86,7 +86,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
-    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, EmoteController.PoseType poseType, string enterCommand)
+    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, LocationAnchor? anchor, EmoteController.PoseType poseType, string enterCommand)
     {
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         var alreadyInThatEmote = currentPose is { } c && c.EmoteModeId == pose.EmoteModeId;
@@ -98,7 +98,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
             ChatCommand.Execute(enterCommand);
         }
 
-        cyclingTarget = (pose, offset);
+        cyclingTarget = (pose, offset, anchor);
         attempts = 0;
         nextAttemptTime = Environment.TickCount64 + (alreadyInThatEmote ? 0 : 500);
     }
@@ -119,7 +119,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         if (c.CPoseState == target.Pose.CPoseState)
         {
-            ApplyOffset(target.Offset);
+            ApplyOffset(ResolveOffset(target.Offset, target.Anchor));
             cyclingTarget = null;
             return;
         }
@@ -127,5 +127,32 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute("/cpose");
         if (++attempts >= 8) cyclingTarget = null;
         else nextAttemptTime = Environment.TickCount64 + 100;
+    }
+
+    /// Folds a location anchor's correction into the base offset using the position/rotation at
+    /// the moment the offset is actually about to be applied — not whenever Trigger() was first
+    /// called. Sit/GroundSit/Doze poses can take several frames to actually settle into place
+    /// (EnterPoseCycle waits on CPoseState via Tick), and entering the pose can itself change the
+    /// character's facing (e.g. sitting snapping/settling rotation) before it's fully active — an
+    /// eagerly-computed correction would use stale rotation and land wrong.
+    private PoseOffset ResolveOffset(PoseOffset baseOffset, LocationAnchor? anchor)
+    {
+        if (anchor == null) return baseOffset;
+
+        var localPlayer = Plugin.ObjectTable.LocalPlayer;
+        var correction = localPlayer != null
+            ? anchor.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, baseOffset.Rotation)
+            : null;
+        if (correction is not { } c)
+        {
+            Plugin.ChatGui.PrintError("[PoseKit] Can't restore this preset's saved spot — different zone or too far away. Playing with just the offset.");
+            return baseOffset;
+        }
+
+        return new PoseOffset
+        {
+            Position = baseOffset.Position + c.Position,
+            Rotation = baseOffset.Rotation + c.Rotation,
+        };
     }
 }

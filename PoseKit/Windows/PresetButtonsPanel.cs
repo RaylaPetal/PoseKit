@@ -11,6 +11,7 @@ namespace PoseKit.Windows;
 public static class PresetButtonsPanel
 {
     private static string newPresetName = "";
+    private static bool anchorToSpot;
 
     public static void DrawOffsets(Plugin plugin)
     {
@@ -82,12 +83,21 @@ public static class PresetButtonsPanel
             {
                 if (ImGui.Button("Save as preset##PoseKitSavePreset"))
                 {
+                    var localPlayer = Plugin.ObjectTable.LocalPlayer;
+                    var anchor = anchorToSpot && localPlayer != null
+                        ? LocationAnchor.Capture(localPlayer, Plugin.ClientState.TerritoryType)
+                        : null;
+
                     var saved = plugin.PresetManager.Save(newPresetName.Trim(), pose, plugin.OffsetEngine.DesiredOffset,
-                        plugin.LastPlayedPenumbraContext);
+                        plugin.LastPlayedPenumbraContext, anchor);
                     plugin.LoadedPreset = saved;
                     newPresetName = "";
                 }
             }
+
+            ImGui.Checkbox("Anchor to current spot##PoseKitAnchorToSpot", ref anchorToSpot);
+            PoseKitUi.TextWrappedDisabled("Corrects the offset on replay so the character lands back in this exact " +
+                                           "world spot and facing, not just the same pose relative to wherever you are then.");
         }
 
         PoseKitUi.SectionHeader("Preset Library");
@@ -108,12 +118,26 @@ public static class PresetButtonsPanel
             ImGui.Indent();
             foreach (var namedPose in group.ToList())
             {
-                if (ImGui.Button($"{namedPose.Name}##PoseKitPreset{namedPose.GetHashCode()}"))
+                var label = namedPose.Anchor != null ? $"{namedPose.Name} (anchored)" : namedPose.Name;
+                if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
                     plugin.PlayPreset(namedPose);
 
                 ImGui.SameLine();
                 if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))
                     plugin.PresetManager.Delete(namedPose);
+
+                if (namedPose.Anchor is { } anchor)
+                {
+                    var p = anchor.Position;
+                    PoseKitUi.TextWrappedDisabled(
+                        $"Location: {anchor.ZoneName} ({p.X:0.0}, {p.Y:0.0}, {p.Z:0.0})");
+                }
+
+                if (namedPose.Penumbra is { ModName.Length: > 0 } link)
+                {
+                    var animation = link.OptionName is "" or "Default" ? link.ModName : $"{link.ModName} — {link.OptionName}";
+                    PoseKitUi.TextWrappedDisabled($"Animation: {animation} (enabled automatically when played)");
+                }
             }
             ImGui.Unindent();
         }

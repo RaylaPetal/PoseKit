@@ -15,12 +15,13 @@ public sealed class PresetManager(Configuration configuration)
 
     public IReadOnlyList<NamedPose> Presets => CurrentCharacterConfig()?.Presets ?? (IReadOnlyList<NamedPose>)System.Array.Empty<NamedPose>();
 
-    public NamedPose? Save(string name, PoseIdentifier pose, PoseOffset offset, PenumbraLink? penumbra = null)
+    public NamedPose? Save(string name, PoseIdentifier pose, PoseOffset offset, PenumbraLink? penumbra = null,
+        LocationAnchor? anchor = null)
     {
         var config = CurrentCharacterConfig();
         if (config == null) return null;
 
-        var namedPose = new NamedPose { Name = name, Pose = pose, Offset = offset, Penumbra = penumbra };
+        var namedPose = new NamedPose { Name = name, Pose = pose, Offset = offset, Penumbra = penumbra, Anchor = anchor };
         config.Presets.Add(namedPose);
         configuration.Save();
         return namedPose;

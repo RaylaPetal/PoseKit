@@ -112,7 +112,7 @@ public static class PenumbraPosePanel
             {
                 if (DescribeConflict(activePoses, mod, option) is { } conflict)
                     PoseKitUi.DrawConflictMarker(conflict);
-                DrawTriggerButtons(plugin, mod, option.Triggers, collectionId, "PoseKitDefaultPlay");
+                DrawTriggerButtons(plugin, mod, option, collectionId, "PoseKitDefaultPlay");
             }
             ImGui.PopID();
             return;
@@ -146,7 +146,7 @@ public static class PenumbraPosePanel
                     if (isChecked && DescribeConflict(activePoses, mod, option) is { } conflict)
                         PoseKitUi.DrawConflictMarker(conflict);
 
-                    DrawTriggerButtons(plugin, mod, option.Triggers, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
+                    DrawTriggerButtons(plugin, mod, option, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
                 }
                 ImGui.Unindent();
             }
@@ -175,7 +175,8 @@ public static class PenumbraPosePanel
             if (selectedOption != null && DescribeConflict(activePoses, mod, selectedOption) is { } comboConflict)
                 PoseKitUi.DrawConflictMarker(comboConflict);
 
-            DrawTriggerButtons(plugin, mod, selectedOption?.Triggers ?? [], collectionId, "PoseKitGroupPlay");
+            if (selectedOption != null)
+                DrawTriggerButtons(plugin, mod, selectedOption, collectionId, "PoseKitGroupPlay");
         }
 
         ImGui.PopID();
@@ -317,8 +318,9 @@ public static class PenumbraPosePanel
         return null;
     }
 
-    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, List<PoseTriggerHint> triggers, Guid? collectionId, string idPrefix)
+    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModOption option, Guid? collectionId, string idPrefix)
     {
+        var triggers = option.Triggers;
         for (var i = 0; i < triggers.Count; i++)
         {
             var trigger = triggers[i];
@@ -327,15 +329,15 @@ public static class PenumbraPosePanel
             if (ImGui.SmallButton($"{label}##{idPrefix}{i}"))
             {
                 EnsureModEnabled(plugin, mod, collectionId);
-                CapturePenumbraContext(plugin, mod);
+                CapturePenumbraContext(plugin, mod, option);
                 PlayTrigger(plugin, trigger);
             }
         }
     }
 
-    private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod)
+    private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod, PoseModOption option)
     {
-        var link = new PenumbraLink { ModDirectory = mod.ModDirectory };
+        var link = new PenumbraLink { ModDirectory = mod.ModDirectory, ModName = mod.ModName, OptionName = option.Name };
         foreach (var g in mod.Groups)
             link.GroupSelections[g.Name] = [.. g.Selected];
         plugin.LastPlayedPenumbraContext = link;
