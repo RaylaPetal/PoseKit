@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.0/PoseKit-0.0.1.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.0/PoseKit-0.0.1.0.zip",
     "Changelog": "Add location-anchored presets: optionally save your world position/facing with a preset so replaying it corrects the offset back to that exact spot, entirely through the existing render-only draw-offset (no teleporting). Preset library entries now show the anchored location (with coordinates) and which Penumbra animation they'll enable and play.",
-    "LastUpdate": "1787614368"
+    "LastUpdate": "1787689376"
   }
 ]
