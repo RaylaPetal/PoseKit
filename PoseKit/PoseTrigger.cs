@@ -91,7 +91,19 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         var alreadyInThatEmote = currentPose is { } c && c.EmoteModeId == pose.EmoteModeId;
 
-        if (!alreadyInThatEmote)
+        if (alreadyInThatEmote)
+        {
+            // Deliberately don't write SelectedPoses here — mirrors Synastry-main/EmoteLink's own
+            // ExecutePose, which notes doing so also changes CPoseState immediately, making the
+            // cycling check below believe the target's already reached before the animation has
+            // actually transitioned. Triggering a different option while already in the same
+            // pose loop needs a redraw instead: the currently-playing animation's resolved files
+            // are already loaded, and Penumbra won't re-check which file a redirect now points to
+            // without being told to — without this, switching options mid-pose can keep showing
+            // the previous animation.
+            ChatCommand.Execute("/penumbra redraw self");
+        }
+        else
         {
             var state = PlayerState.Instance();
             if (state != null) state->SelectedPoses[(int)poseType] = pose.CPoseState;
@@ -100,8 +112,15 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         cyclingTarget = (pose, offset, anchor);
         attempts = 0;
-        nextAttemptTime = Environment.TickCount64 + (alreadyInThatEmote ? 0 : 500);
+        // 150ms/500ms initial settle delay and the 100ms/8-attempt cycling budget below both match
+        // Synastry-main/EmoteLink/Plugin.cs's UpdatePoseCycling exactly, rather than guessing at
+        // different timing — that implementation is a real, field-tested reference for this same
+        // "/cpose" polling mechanism.
+        nextAttemptTime = Environment.TickCount64 + (alreadyInThatEmote ? 150 : 500);
     }
+
+    private const int CposeAttemptDelayMs = 100;
+    private const int MaxCposeAttempts = 8;
 
     /// Called every framework tick from Plugin; steps "/cpose" until the target CPoseState is
     /// reached, then hands the offset to OffsetEngine.
@@ -112,8 +131,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         var current = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         if (current is not { } c || c.EmoteModeId != target.Pose.EmoteModeId)
         {
-            if (++attempts >= 8) cyclingTarget = null;
-            else nextAttemptTime = Environment.TickCount64 + 100;
+            if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
+            else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
             return;
         }
 
@@ -125,8 +144,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         }
 
         ChatCommand.Execute("/cpose");
-        if (++attempts >= 8) cyclingTarget = null;
-        else nextAttemptTime = Environment.TickCount64 + 100;
+        if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
+        else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
     }
 
     /// Folds a location anchor's correction into the base offset using the position/rotation at

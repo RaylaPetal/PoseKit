@@ -66,13 +66,21 @@ public static class PoseNameHeuristics
             foreach (var (emoteModeId, pattern) in FilePatterns)
             {
                 var match = pattern.Match(normalized);
-                // Mod authors number these files 1-based ("j_pose01" is their "stage 1"/"GroundSit1"),
-                // matching PoseIdentifier.DisplayName's own "Pose {CPoseState + 1}" convention — but
-                // CPoseState itself is 0-based, so the parsed file number has to be decremented before
-                // use. Confirmed against real installed mods labelling themselves e.g. "groundsit1" and
-                // "Doze1_2" that were showing up one stage higher than intended before this adjustment.
-                if (match.Success && byte.TryParse(match.Groups[1].Value, out var fileNumber) && fileNumber is >= 1 and <= 7)
-                    AddPose(new PoseIdentifier(emoteModeId, (byte)(fileNumber - 1)));
+                // The parsed file number IS the CPoseState directly — no adjustment (matches
+                // Synastry-main/EmoteLink/AnimationManifestScanner.cs's DetectPoseTargets exactly).
+                // A prior version of this code decremented by 1, on the theory that mod authors
+                // number these files 1-based ("j_pose01" = their "stage 1"/"GroundSit1") while
+                // CPoseState is 0-based. That theory was wrong: labels like "GroundSit1"/"Csit2"
+                // name the raw CPoseState value itself, not a human-counted "1st/2nd stage" — mod
+                // authors have no reason to know about PoseIdentifier.DisplayName's own "+1 for
+                // display" convention, which is purely a PoseKit UI choice. Confirmed directly
+                // against "Lap Pillow (Dom-Csit2/Sub-Csit1)" (s_pose01/s_pose02): with the
+                // decrement, "Sit Pose 2" (meant to target Dom) instead played Sub, and "Sit Pose 1"
+                // played neither — exactly what decrementing would produce, since Csit1/Csit2 are
+                // really CPoseState 1/2, with 0 being the untouched vanilla default this mod never
+                // redirects at all.
+                if (match.Success && byte.TryParse(match.Groups[1].Value, out var index) && index <= 6)
+                    AddPose(new PoseIdentifier(emoteModeId, index));
             }
 
             // jmn.pap is also the exact file Lumina's own Emote sheet reverse-maps to the "/groundsit"
