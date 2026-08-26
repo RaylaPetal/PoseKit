@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.2/PoseKit-0.0.1.2.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.2/PoseKit-0.0.1.2.zip",
     "Changelog": "Correct 0.0.1.1's GroundSit/Sit/Doze stage-numbering fix, which was itself wrong (confirmed against Lap Pillow's Dom/Sub options) — mod authors label these files by raw CPoseState, not a human-counted stage, so no adjustment is needed. Also force a Penumbra redraw when switching options while already in a pose loop, so the old animation doesn't keep playing.",
-    "LastUpdate": "1787690595"
+    "LastUpdate": "1787779695"
   }
 ]
