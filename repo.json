@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.3/PoseKit-0.0.1.3.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.3/PoseKit-0.0.1.3.zip",
     "Changelog": "Fix a false conflict warning caused by disabled mods — Penumbra remembers a mod's last group selection even while it's off, so a disabled mod's stale selection was still being counted as an active claimant against whatever's actually enabled.",
-    "LastUpdate": "1787779695"
+    "LastUpdate": "1787848371"
   }
 ]
