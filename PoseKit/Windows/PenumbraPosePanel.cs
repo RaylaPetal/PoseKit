@@ -78,13 +78,28 @@ public static class PenumbraPosePanel
             var searchTreeFlags = string.IsNullOrWhiteSpace(animationSearch)
                 ? ImGuiTreeNodeFlags.None
                 : ImGuiTreeNodeFlags.DefaultOpen;
-            var headerLabel = mod.Enabled ? mod.ModName : $"{mod.ModName} (disabled)";
-            if (!ImGui.CollapsingHeader($"{headerLabel}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags))
+            var expanded = ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags);
+
+            // CollapsingHeader's clickable region spans the whole row, not just its label — without
+            // this, a widget placed after it via SameLine renders on top but the header underneath
+            // still eats the click, so the checkbox looked clickable but only ever toggled collapse.
+            ImGui.SetItemAllowOverlap();
+
+            // Always visible regardless of collapse state — explicit control over enabling *and*
+            // disabling, since Play/selection actions elsewhere only ever turn a mod on, never off,
+            // which left no way to back out of a mod once it got implicitly enabled (a real source
+            // of the stale-selection conflicts fixed last time).
+            ImGui.SameLine();
+            var modEnabled = mod.Enabled;
+            if (ImGui.Checkbox($"Enabled##PoseKitModEnabled{mod.ModDirectory.GetHashCode()}", ref modEnabled))
+                SetModEnabled(plugin, mod, collectionId, modEnabled);
+
+            if (!expanded)
                 continue;
 
             ImGui.Indent();
             if (!mod.Enabled)
-                PoseKitUi.TextWrappedDisabled("Disabled in Penumbra — playing anything below enables it temporarily.");
+                PoseKitUi.TextWrappedDisabled("Disabled in Penumbra — playing anything below enables it temporarily, or use the checkbox above.");
             foreach (var group in mod.Groups)
             {
                 if (GroupMatches(mod, group, animationSearch))
@@ -305,8 +320,17 @@ public static class PenumbraPosePanel
     /// for selection changes) with its current group selections, so the redirect is actually live by
     /// the time the pose is triggered.
     private static void EnsureModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId)
+        => SetModEnabled(plugin, mod, collectionId, true);
+
+    /// Explicit enable/disable, unlike EnsureModEnabled/ApplyGroupChange which only ever turn a mod
+    /// on — those left no way to back a mod back off once PoseKit had implicitly enabled it, which
+    /// was a real source of stale-selection conflicts (a disabled mod's remembered selection still
+    /// getting counted as active). Preserves the mod's current group selections either way, since
+    /// Penumbra's temporary-settings API sets any group left out of the map to its own default
+    /// rather than leaving it alone.
+    private static void SetModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId, bool enabled)
     {
-        if (mod.Enabled || collectionId is not { } cid) return;
+        if (mod.Enabled == enabled || collectionId is not { } cid) return;
 
         var allSelections = new Dictionary<string, IReadOnlyList<string>>();
         foreach (var g in mod.Groups)
@@ -315,10 +339,10 @@ public static class PenumbraPosePanel
             allSelections[g.Name] = [.. g.Selected];
         }
 
-        if (!plugin.PenumbraIpc.TrySetTemporarySettings(cid, mod.ModDirectory, true, allSelections))
+        if (!plugin.PenumbraIpc.TrySetTemporarySettings(cid, mod.ModDirectory, enabled, allSelections))
             return;
 
-        mod.Enabled = true;
+        mod.Enabled = enabled;
         plugin.PenumbraIpc.TryRedrawLocalPlayer();
     }
 

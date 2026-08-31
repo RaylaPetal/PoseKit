@@ -56,6 +56,12 @@ public sealed class Plugin : IDalamudPlugin
     /// afterward, same as any other snapshot.
     public PenumbraLink? LastPlayedPenumbraContext { get; set; }
 
+    /// One-shot latch for the Animations-tab scan, mirroring HasOfferedSimpleHeelsBridge below —
+    /// on a fresh full game launch, Penumbra (or the local player's collection specifically) may
+    /// not be resolvable yet at the exact moment this plugin's constructor runs, so the one eager
+    /// scan there can come back empty and never get retried without a manual "Rescan" click.
+    private bool hasScannedPenumbraPoses;
+
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -135,6 +141,15 @@ public sealed class Plugin : IDalamudPlugin
             Configuration.BridgeOffsetToSimpleHeels = true;
             Configuration.HasOfferedSimpleHeelsBridge = true;
             Configuration.Save();
+        }
+
+        // Same one-shot-retry idea for the Animations tab: keep checking every frame until the
+        // local player's Penumbra collection actually resolves (the constructor's own eager scan
+        // can miss this on a fresh full game launch), then scan exactly once and stop checking.
+        if (!hasScannedPenumbraPoses && PenumbraIpc.TryGetLocalPlayerCollectionId() != null)
+        {
+            RefreshPenumbraPoses();
+            hasScannedPenumbraPoses = true;
         }
 
         OffsetEngine.Tick(localPlayer);

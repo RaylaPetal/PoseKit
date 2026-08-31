@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.1.3",
+    "AssemblyVersion": "0.0.1.4",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.3/PoseKit-0.0.1.3.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.3/PoseKit-0.0.1.3.zip",
-    "Changelog": "Fix a false conflict warning caused by disabled mods — Penumbra remembers a mod's last group selection even while it's off, so a disabled mod's stale selection was still being counted as an active claimant against whatever's actually enabled.",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.4/PoseKit-0.0.1.4.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.4/PoseKit-0.0.1.4.zip",
+    "Changelog": "Fix the Animations tab sometimes staying empty until a manual Rescan after a full game restart, and add an explicit per-mod Enabled checkbox in the Animation Library (fixing it not being clickable due to overlapping the mod header's own click region).",
     "LastUpdate": "1787848371"
   }
 ]
