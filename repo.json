@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.5/PoseKit-0.0.1.5.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.5/PoseKit-0.0.1.5.zip",
     "Changelog": "Add furniture anchoring (pick a nearby placed item when saving a preset, and the offset corrects against its live position/rotation instead of a fixed world point) and couple pairing: pair with a partner over /tell from the Animations tab, then any preset you click while paired queues and highlights for both of you, playing together automatically once you've both picked something.",
-    "LastUpdate": "1788893793"
+    "LastUpdate": "1788893992"
   }
 ]
