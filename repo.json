@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.6/PoseKit-0.0.1.6.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.6/PoseKit-0.0.1.6.zip",
     "Changelog": "Fix couple pairing: saving a preset while paired now relays it to your partner so they get a matching copy (same pose, their own offset); queueing now works from the Animations tab too, not just saved presets, and carries the picked name so the Couple Pairing section shows what each of you chose before it plays.",
-    "LastUpdate": "1788894639"
+    "LastUpdate": "1788894745"
   }
 ]
