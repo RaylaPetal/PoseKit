@@ -22,7 +22,12 @@ public static class PairingPanel
             ImGui.SameLine();
             if (ImGui.Button("Unpair##PoseKitUnpair"))
                 plugin.PairingListener.Unpair();
-            PoseKitUi.TextWrappedDisabled("Click any preset to queue it — once you've both queued something, both poses play together.");
+
+            var queue = plugin.CoupleQueueService;
+            ImGui.TextUnformatted($"You picked: {queue.QueuedSelectionName ?? "(nothing yet)"}");
+            ImGui.TextUnformatted($"They picked: {queue.PartnerSelectionName ?? "(nothing yet)"}");
+
+            PoseKitUi.TextWrappedDisabled("Click any preset or animation to queue it — once you've both picked something, both play together.");
             return;
         }
 

@@ -82,7 +82,11 @@ public sealed class Plugin : IDalamudPlugin
 
         PairingState = new PairingState();
         PairingListener = new PairingListener(PairingState);
-        CoupleQueueService = new CoupleQueueService(this, PairingState, PairingListener);
+        CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
+
+        // A preset saved while paired lands here for the receiving side — same pose and name, never
+        // the sender's own offset (see PairingComposer.ComposePresetSync for why).
+        PairingListener.PresetSyncReceived += (_, pose, name) => PresetManager.Save(name, pose, PoseOffset.Zero);
 
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);

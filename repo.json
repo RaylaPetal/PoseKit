@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.1.5",
+    "AssemblyVersion": "0.0.1.6",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.5/PoseKit-0.0.1.5.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.5/PoseKit-0.0.1.5.zip",
-    "Changelog": "Add furniture anchoring (pick a nearby placed item when saving a preset, and the offset corrects against its live position/rotation instead of a fixed world point) and couple pairing: pair with a partner over /tell from the Animations tab, then any preset you click while paired queues and highlights for both of you, playing together automatically once you've both picked something.",
-    "LastUpdate": "1788893992"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.6/PoseKit-0.0.1.6.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.6/PoseKit-0.0.1.6.zip",
+    "Changelog": "Fix couple pairing: saving a preset while paired now relays it to your partner so they get a matching copy (same pose, their own offset); queueing now works from the Animations tab too, not just saved presets, and carries the picked name so the Couple Pairing section shows what each of you chose before it plays.",
+    "LastUpdate": "1788894639"
   }
 ]

@@ -365,14 +365,32 @@ public static class PenumbraPosePanel
         {
             var trigger = triggers[i];
             var label = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
+
+            var isQueued = plugin.CoupleQueueService.QueuedSelectionName == label;
+            if (isQueued)
+                ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerSelectionName != null ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
+
             ImGui.SameLine();
             if (ImGui.SmallButton($"{label}##{idPrefix}{i}"))
             {
-                beforePlay?.Invoke();
-                EnsureModEnabled(plugin, mod, collectionId);
-                CapturePenumbraContext(plugin, mod, option);
-                PlayTrigger(plugin, trigger);
+                void Play()
+                {
+                    beforePlay?.Invoke();
+                    EnsureModEnabled(plugin, mod, collectionId);
+                    CapturePenumbraContext(plugin, mod, option);
+                    PlayTrigger(plugin, trigger);
+                }
+
+                // While paired, nothing plays yet — this queues toward the partner and highlights
+                // once they've picked something too, same as a preset click (PresetButtonsPanel).
+                if (plugin.PairingState.Active)
+                    plugin.CoupleQueueService.QueueSelection(label, Play);
+                else
+                    Play();
             }
+
+            if (isQueued)
+                ImGui.PopStyleColor();
         }
     }
 

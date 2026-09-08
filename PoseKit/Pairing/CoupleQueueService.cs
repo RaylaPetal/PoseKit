@@ -1,14 +1,16 @@
 namespace PoseKit.Pairing;
 
 using System;
-using PoseKit.Presets;
 
 /// <summary>
-/// Queues a preset selection toward the current pairing peer and auto-plays it once the partner has
-/// also queued something of their own — no cross-side preset-id matching, each side always plays
-/// whatever it queued. Pairing itself is a standing, dedicated session state (see PairingState) that
-/// exists independently of any preset — this only reacts to it, never initiates it. Any preset can be
-/// queued while paired; nothing about a preset itself names a partner.
+/// Queues a selection toward the current pairing peer and auto-plays it once the partner has also
+/// queued something of their own — no cross-side matching, each side always plays whatever it
+/// queued. Pairing itself is a standing, dedicated session state (see PairingState) that exists
+/// independently of any preset — this only reacts to it, never initiates it.
+///
+/// Generalized over what "a selection" is (a display name + a callback to actually play it) rather
+/// than tied to NamedPose specifically, so both the Presets tab (saved presets) and the Animations
+/// tab (Penumbra-discovered poses, which aren't NamedPose at all) can queue through the same service.
 /// </summary>
 public sealed class CoupleQueueService : IDisposable
 {
@@ -17,23 +19,25 @@ public sealed class CoupleQueueService : IDisposable
     // PoseTrigger.Tick already uses for cpose cycling, just at a coarser, UI-facing timescale.
     private const long QueueTimeoutMs = 60_000;
 
-    private readonly Plugin plugin;
     private readonly PairingState pairingState;
     private readonly PairingListener pairingListener;
 
-    public NamedPose? QueuedSelection { get; private set; }
+    private Action? queuedPlay;
     private long queuedAt;
 
-    /// Whether the partner's own readiness has been heard yet for the currently queued selection —
-    /// UI-facing, so the preset library can show "waiting on partner" vs. "partner ready".
-    public bool PartnerReady { get; private set; }
-    private PartnerIdentity? partnerReadyFrom;
+    /// Display name of this side's own queued selection, or null if nothing's queued — UI-facing, so
+    /// both the preset library and the Animations tab can highlight whichever button was clicked.
+    public string? QueuedSelectionName { get; private set; }
+
+    /// Display name of whatever the partner queued, once their readiness tell has arrived — null
+    /// until then. Shown in the couple-pairing section so each side can see the other's pick.
+    public string? PartnerSelectionName { get; private set; }
+    private PartnerIdentity? partnerSelectionFrom;
 
     public event Action? Changed;
 
-    public CoupleQueueService(Plugin plugin, PairingState pairingState, PairingListener pairingListener)
+    public CoupleQueueService(PairingState pairingState, PairingListener pairingListener)
     {
-        this.plugin = plugin;
         this.pairingState = pairingState;
         this.pairingListener = pairingListener;
 
@@ -47,25 +51,27 @@ public sealed class CoupleQueueService : IDisposable
         pairingListener.QueueSignalReceived -= OnQueueSignalReceived;
     }
 
-    /// Clicking any preset while paired: queues it toward whoever the current pairing peer is.
-    /// Callers should only reach this while PairingState.Active is true — see
-    /// PresetButtonsPanel.DrawPresetEntry, which plays solo (PlayPreset) instead when unpaired.
-    public void QueueSelection(NamedPose preset)
+    /// Clicking anything while paired (a preset, or a Penumbra-discovered pose's trigger button):
+    /// queues it toward whoever the current pairing peer is, deferring `play` until both sides have
+    /// queued something — nothing happens locally yet, same as the partner's side. Callers should
+    /// only reach this while PairingState.Active is true; play immediately instead when unpaired.
+    public void QueueSelection(string displayName, Action play)
     {
         if (!pairingState.Active || pairingState.Peer is not { } partner) return;
 
         // Replaces rather than stacks — a fresh click always overwrites whatever was queued before.
-        QueuedSelection = preset;
+        QueuedSelectionName = displayName;
+        queuedPlay = play;
         queuedAt = Environment.TickCount64;
-        PairingSender.Send(PairingComposer.ComposeQueueSignal(partner));
+        PairingSender.Send(PairingComposer.ComposeQueueSignal(partner, displayName));
         Changed?.Invoke();
         TryPlayIfBothReady();
     }
 
-    private void OnQueueSignalReceived(PartnerIdentity sender)
+    private void OnQueueSignalReceived(PartnerIdentity sender, string name)
     {
-        PartnerReady = true;
-        partnerReadyFrom = sender;
+        PartnerSelectionName = name;
+        partnerSelectionFrom = sender;
         Changed?.Invoke();
         TryPlayIfBothReady();
     }
@@ -74,32 +80,32 @@ public sealed class CoupleQueueService : IDisposable
     {
         // A queued selection whose pairing changed peer (or dropped) underneath it is no longer
         // meaningful — clear it rather than let a stale readiness fire against the wrong partner.
-        if (QueuedSelection != null && !pairingState.Active)
+        if (!pairingState.Active)
             ClearQueue();
     }
 
     private void TryPlayIfBothReady()
     {
-        if (QueuedSelection is not { } preset) return;
-        if (!PartnerReady) return;
-        if (partnerReadyFrom is not { } readyFrom || pairingState.Peer is not { } partner || !readyFrom.Equals(partner)) return;
+        if (queuedPlay is not { } play) return;
+        if (partnerSelectionFrom is not { } readyFrom || pairingState.Peer is not { } partner || !readyFrom.Equals(partner)) return;
 
         ClearQueue();
-        plugin.PlayPreset(preset);
+        play();
     }
 
     private void ClearQueue()
     {
-        QueuedSelection = null;
-        PartnerReady = false;
-        partnerReadyFrom = null;
+        QueuedSelectionName = null;
+        queuedPlay = null;
+        PartnerSelectionName = null;
+        partnerSelectionFrom = null;
         Changed?.Invoke();
     }
 
     /// Called every framework tick: clears a queued selection that never heard back from the partner.
     public void Tick()
     {
-        if (QueuedSelection == null) return;
+        if (queuedPlay == null) return;
         if (Environment.TickCount64 - queuedAt > QueueTimeoutMs)
             ClearQueue();
     }

@@ -107,9 +107,16 @@ public static class PresetButtonsPanel
                         _ => null,
                     };
 
-                    var saved = plugin.PresetManager.Save(newPresetName.Trim(), pose, plugin.OffsetEngine.DesiredOffset,
+                    var name = newPresetName.Trim();
+                    var saved = plugin.PresetManager.Save(name, pose, plugin.OffsetEngine.DesiredOffset,
                         plugin.LastPlayedPenumbraContext, anchor);
                     plugin.LoadedPreset = saved;
+
+                    // While paired, the partner's client auto-saves a matching preset (same pose and
+                    // name, never this side's own offset) — see PairingComposer.ComposePresetSync.
+                    if (plugin.PairingState.Active)
+                        plugin.PairingListener.SyncPreset(pose, name);
+
                     newPresetName = "";
                 }
             }
@@ -192,14 +199,14 @@ public static class PresetButtonsPanel
             : "";
         var label = $"{namedPose.Name}{anchorSuffix}";
 
-        var isQueued = plugin.CoupleQueueService.QueuedSelection == namedPose;
+        var isQueued = plugin.CoupleQueueService.QueuedSelectionName == namedPose.Name;
         if (isQueued)
-            ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerReady ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
+            ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerSelectionName != null ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
 
         if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
         {
             if (plugin.PairingState.Active)
-                plugin.CoupleQueueService.QueueSelection(namedPose);
+                plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));
             else
                 plugin.PlayPreset(namedPose);
         }
@@ -225,7 +232,9 @@ public static class PresetButtonsPanel
 
         if (isQueued)
         {
-            var status = plugin.CoupleQueueService.PartnerReady ? "queued — partner ready!" : "queued — waiting on partner";
+            var status = plugin.CoupleQueueService.PartnerSelectionName is { } partnerPick
+                ? $"queued — partner picked \"{partnerPick}\", playing shortly!"
+                : "queued — waiting on partner";
             PoseKitUi.TextWrappedDisabled(status);
         }
     }
