@@ -43,12 +43,14 @@ public sealed class CoupleQueueService : IDisposable
 
         pairingState.Changed += OnPairingStateChanged;
         pairingListener.QueueSignalReceived += OnQueueSignalReceived;
+        pairingListener.ForceSelectionReceived += OnForceSelectionReceived;
     }
 
     public void Dispose()
     {
         pairingState.Changed -= OnPairingStateChanged;
         pairingListener.QueueSignalReceived -= OnQueueSignalReceived;
+        pairingListener.ForceSelectionReceived -= OnForceSelectionReceived;
     }
 
     /// Clicking anything while paired (a preset, or a Penumbra-discovered pose's trigger button):
@@ -94,6 +96,14 @@ public sealed class CoupleQueueService : IDisposable
         Changed?.Invoke();
         TryPlayIfBothReady();
     }
+
+    /// A forced selection ends this round regardless of whether it resolved to anything playable on
+    /// this side — the sender already played and cleared its own queue, so a leftover
+    /// PartnerSelectionName here (from whatever they'd queued *before* forcing) would otherwise sit
+    /// stale, showing "they picked X" for a round that already concluded. Cleared unconditionally,
+    /// even if this side had nothing of its own queued (queuedPlay was already null) — Plugin's own
+    /// resolve-and-play for the forced name has already happened by the time this runs.
+    private void OnForceSelectionReceived(PartnerIdentity sender, string name) => ClearQueue();
 
     private void OnPairingStateChanged()
     {
