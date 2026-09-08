@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.7/PoseKit-0.0.1.7.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.7/PoseKit-0.0.1.7.zip",
     "Changelog": "Fix Animations-tab queueing: the queued/highlighted identity is now the mod+option (e.g. \"GoonersLife — Animation 34\") instead of the ambiguous generic pose slot name, and the whole path (mod, group/option, Play button) highlights together. Fix preset sync: only the anchor and name travel to your partner now — pose, offset, and Penumbra link are captured from whatever they're already playing, not copied from you.",
-    "LastUpdate": "1788895684"
+    "LastUpdate": "1788895762"
   }
 ]
