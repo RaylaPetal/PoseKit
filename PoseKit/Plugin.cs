@@ -203,8 +203,12 @@ public sealed class Plugin : IDalamudPlugin
         CoupleQueueService.Tick();
     }
 
+    /// Resets every temporary Penumbra setting PoseKit itself applied this session before
+    /// re-scanning, so browsing/re-discovering poses starts from Penumbra's own default state
+    /// instead of leaving behind whatever was last enabled/selected while clicking around.
     public void RefreshPenumbraPoses()
     {
+        PenumbraIpc.ResetAllTemporarySettings();
         DiscoveredPoses = PenumbraPoseScanner.Scan();
     }
 

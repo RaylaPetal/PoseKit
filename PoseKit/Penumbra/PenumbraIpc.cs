@@ -32,6 +32,11 @@ public sealed class PenumbraIpc
     private readonly RemoveTemporaryModSettings removeTemporaryModSettings = new(Plugin.PluginInterface);
     private readonly RedrawObject redrawObject = new(Plugin.PluginInterface);
 
+    /// Every mod directory PoseKit has applied a temporary setting to this session — tracked so
+    /// ResetAllTemporarySettings can undo exactly what PoseKit itself put in place, regardless of
+    /// which mods happen to be in the current Animations-tab filter.
+    private readonly HashSet<string> touchedModDirectories = new();
+
     public bool IsAvailable
     {
         get
@@ -110,6 +115,7 @@ public sealed class PenumbraIpc
         {
             var ec = setTemporaryModSettings.Invoke(collectionId, modDirectory, inherit: false, enabled: enabled,
                 priority: 0, settings: allGroupSelections, source: Source);
+            if (ec == PenumbraApiEc.Success) touchedModDirectories.Add(modDirectory);
             return ec == PenumbraApiEc.Success;
         }
         catch { return false; }
@@ -119,6 +125,23 @@ public sealed class PenumbraIpc
     {
         try { return removeTemporaryModSettings.Invoke(collectionId, modDirectory) == PenumbraApiEc.Success; }
         catch { return false; }
+    }
+
+    /// Undoes every temporary setting PoseKit has applied this session (every mod enable/option
+    /// selection made from the Animations tab), restoring Penumbra's own default/inherited state —
+    /// called before a Rescan so browsing poses doesn't leave a trail of "last thing I clicked" still
+    /// active in Penumbra. Best-effort per mod: a failed removal still gets dropped from tracking,
+    /// since re-attempting it forever on a mod that's since been uninstalled/renamed would only spin.
+    public void ResetAllTemporarySettings()
+    {
+        if (touchedModDirectories.Count == 0) return;
+
+        if (TryGetLocalPlayerCollectionId() is { } collectionId)
+            foreach (var modDirectory in touchedModDirectories)
+                TryRemoveTemporarySettings(collectionId, modDirectory);
+
+        touchedModDirectories.Clear();
+        TryRedrawLocalPlayer();
     }
 
     /// A mod-setting change doesn't necessarily re-resolve files on an already-drawn character —

@@ -92,7 +92,12 @@ public static class PresetButtonsPanel
 
             var furnitureValid = anchorMode != AnchorMode.Furniture ||
                                   (nearbyFurniture is { Count: > 0 } && selectedFurnitureIndex >= 0 && selectedFurnitureIndex < nearbyFurniture.Count);
-            var canSave = plugin.PoseTrigger.HasAppliedOffset && newPresetName.Trim().Length > 0 && furnitureValid;
+            // Being in a pose (currentPose above) is already the real precondition for "there's
+            // something to save" — gating on HasAppliedOffset too meant a legitimate all-zero offset
+            // (the default, or right after clicking Reset) made Save unavailable, which broke
+            // anchor-only presets: the whole point of those is the anchor correction with no extra
+            // nudge on top.
+            var canSave = newPresetName.Trim().Length > 0 && furnitureValid;
 
             using (ImRaii.Disabled(!canSave))
             {
