@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.8/PoseKit-0.0.2.8.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.8/PoseKit-0.0.2.8.zip",
     "Changelog": "Add a native freecam (\"/posekit tfc\" or the main-window button): fly the camera independently with WASD/E/Q and right-drag to look, while your character's own controls stay locked and posing stays untouched. Freecam exits automatically on zoning, logout, GPose, or cutscenes, and restores your original camera settings.",
-    "LastUpdate": "1788907960"
+    "LastUpdate": "1788908154"
   }
 ]
