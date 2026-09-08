@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.2/PoseKit-0.0.2.2.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.2/PoseKit-0.0.2.2.zip",
     "Changelog": "Fix override queue not clearing after a forced selection — the Couple Pairing section could keep showing a stale \"they picked X\" after the forced animation already played. CoupleQueueService now clears its own queue state as soon as a forced selection arrives, so both sides start clean for the next pick.",
-    "LastUpdate": "1788898228"
+    "LastUpdate": "1788898328"
   }
 ]
