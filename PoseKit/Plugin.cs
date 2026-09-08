@@ -84,9 +84,16 @@ public sealed class Plugin : IDalamudPlugin
         PairingListener = new PairingListener(PairingState);
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
 
-        // A preset saved while paired lands here for the receiving side — same pose and name, never
-        // the sender's own offset (see PairingComposer.ComposePresetSync for why).
-        PairingListener.PresetSyncReceived += (_, pose, name) => PresetManager.Save(name, pose, PoseOffset.Zero);
+        // A preset saved while paired lands here for the receiving side: capture *this* side's own
+        // currently-playing pose/offset/Penumbra link under the synced name and anchor — never the
+        // sender's, since each side of a couple pose is typically already playing its own different
+        // half (own mod/option, own offset) by the time either one saves it as a preset. Silently
+        // does nothing if this side isn't currently in a pose — there's nothing meaningful to capture.
+        PairingListener.PresetSyncReceived += (_, payload) =>
+        {
+            if (PoseIdentifier.FromCharacter(ObjectTable.LocalPlayer) is not { } pose) return;
+            PresetManager.Save(payload.Name, pose, OffsetEngine.DesiredOffset, LastPlayedPenumbraContext, payload.Anchor);
+        };
 
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);

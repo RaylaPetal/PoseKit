@@ -112,10 +112,11 @@ public static class PresetButtonsPanel
                         plugin.LastPlayedPenumbraContext, anchor);
                     plugin.LoadedPreset = saved;
 
-                    // While paired, the partner's client auto-saves a matching preset (same pose and
-                    // name, never this side's own offset) — see PairingComposer.ComposePresetSync.
+                    // While paired, the partner's client auto-saves a matching preset under this same
+                    // name and anchor — their own currently-playing pose/offset/Penumbra link, not
+                    // this side's. See PairingComposer.ComposePresetSync.
                     if (plugin.PairingState.Active)
-                        plugin.PairingListener.SyncPreset(pose, name);
+                        plugin.PairingListener.SyncPreset(anchor, name);
 
                     newPresetName = "";
                 }

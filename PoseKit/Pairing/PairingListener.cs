@@ -3,11 +3,17 @@ namespace PoseKit.Pairing;
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Numerics;
 using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
-using PoseKit;
+using PoseKit.Presets;
+
+/// <summary>Everything a "posekitpresetsync" tell carries, already decoded — see
+/// PairingComposer.ComposePresetSync for the wire shape and why pose/offset/Penumbra deliberately
+/// aren't part of it.</summary>
+public readonly record struct PresetSyncPayload(PresetAnchor? Anchor, string Name);
 
 /// <summary>
 /// Session-scoped, non-networked pairing handshake over /tell — no relay, no signing, no persistent
@@ -34,9 +40,9 @@ public sealed class PairingListener : IDisposable
     public event Action<PartnerIdentity, string>? QueueSignalReceived;
 
     /// Raised when a "posekitpresetsync" tell arrives from the currently-paired peer — Plugin wires
-    /// this to PresetManager.Save so the receiving side ends up with a matching preset (same pose and
-    /// name, never the sender's offset). Nothing is ever sent back in response to it.
-    public event Action<PartnerIdentity, PoseIdentifier, string>? PresetSyncReceived;
+    /// this to capture the *receiving* side's own currently-playing pose/offset/Penumbra link under
+    /// the synced name and anchor (see PresetSyncPayload). Nothing is ever sent back in response.
+    public event Action<PartnerIdentity, PresetSyncPayload>? PresetSyncReceived;
 
     public PairingListener(PairingState state)
     {
@@ -66,10 +72,10 @@ public sealed class PairingListener : IDisposable
 
     /// Sends a preset-sync tell to the current pairing peer, if any — no-op while unpaired. Called
     /// from the save-preset flow; see PairingComposer.ComposePresetSync for what's (and isn't) sent.
-    public void SyncPreset(PoseIdentifier pose, string name)
+    public void SyncPreset(PresetAnchor? anchor, string name)
     {
         if (state.Peer is { } peer)
-            PairingSender.Send(PairingComposer.ComposePresetSync(peer, pose, name));
+            PairingSender.Send(PairingComposer.ComposePresetSync(peer, anchor, name));
     }
 
     /// One click: clears the pairing locally and best-effort notifies the peer so they aren't left
@@ -125,15 +131,47 @@ public sealed class PairingListener : IDisposable
         if (text.StartsWith(PresetSyncKeyword, StringComparison.OrdinalIgnoreCase))
         {
             if (!state.Active || state.Peer is not { } syncPeer || !syncPeer.Equals(sender)) return;
-
-            var (emoteModeToken, afterEmoteMode) = SplitFirstToken(text[PresetSyncKeyword.Length..].Trim());
-            var (cposeToken, name) = SplitFirstToken(afterEmoteMode);
-            if (name.Length == 0) return;
-            if (!uint.TryParse(emoteModeToken, NumberStyles.None, CultureInfo.InvariantCulture, out var emoteModeId)) return;
-            if (!byte.TryParse(cposeToken, NumberStyles.None, CultureInfo.InvariantCulture, out var cposeState)) return;
-
-            PresetSyncReceived?.Invoke(sender, new PoseIdentifier(emoteModeId, cposeState), name);
+            if (TryParsePresetSync(text[PresetSyncKeyword.Length..].Trim(), out var payload))
+                PresetSyncReceived?.Invoke(sender, payload);
         }
+    }
+
+    /// Mirrors PairingComposer.ComposePresetSync's wire shape exactly — see that method's doc for the
+    /// field layout. Fails closed: any malformed/truncated field drops the whole tell rather than
+    /// guessing at a partial preset.
+    private static bool TryParsePresetSync(string body, out PresetSyncPayload payload)
+    {
+        payload = default;
+
+        var (anchorKindToken, r1) = SplitFirstToken(body);
+        var (num1Token, r2) = SplitFirstToken(r1);
+        var (num2Token, r3) = SplitFirstToken(r2);
+        var (num3Token, r4) = SplitFirstToken(r3);
+        var (num4Token, r5) = SplitFirstToken(r4);
+        var (num5Token, compound) = SplitFirstToken(r5);
+
+        if (!int.TryParse(anchorKindToken, NumberStyles.None, CultureInfo.InvariantCulture, out var anchorKind)) return false;
+        if (!uint.TryParse(num1Token, NumberStyles.None, CultureInfo.InvariantCulture, out var num1)) return false;
+        if (!float.TryParse(num2Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num2)) return false;
+        if (!float.TryParse(num3Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num3)) return false;
+        if (!float.TryParse(num4Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num4)) return false;
+        if (!float.TryParse(num5Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num5)) return false;
+
+        var parts = compound.Split('|', 2);
+        if (parts.Length < 2) return false;
+        var (furnitureName, name) = (parts[0], parts[1]);
+        if (name.Length == 0) return false;
+
+        var position = new Vector3(num2, num3, num4);
+        PresetAnchor? anchor = anchorKind switch
+        {
+            1 => PresetAnchor.FromSpot(new LocationAnchor { TerritoryType = num1, Position = position, Rotation = num5 }),
+            2 => PresetAnchor.FromFurniture(new FurnitureAnchor { EntryId = num1, FurnitureName = furnitureName, RelativePosition = position, RelativeRotation = num5 }),
+            _ => null,
+        };
+
+        payload = new PresetSyncPayload(anchor, name);
+        return true;
     }
 
     private static (string First, string Remainder) SplitFirstToken(string text)

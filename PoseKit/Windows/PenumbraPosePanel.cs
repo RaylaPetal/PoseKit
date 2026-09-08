@@ -75,10 +75,19 @@ public static class PenumbraPosePanel
                 continue;
 
             anyVisible = true;
-            var searchTreeFlags = string.IsNullOrWhiteSpace(animationSearch)
+            var modHasQueuedPick = ModContainsPick(plugin, mod);
+            var searchTreeFlags = string.IsNullOrWhiteSpace(animationSearch) || modHasQueuedPick
                 ? ImGuiTreeNodeFlags.None
                 : ImGuiTreeNodeFlags.DefaultOpen;
+            if (modHasQueuedPick)
+                ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+
             var expanded = ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags);
+            if (modHasQueuedPick)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(PoseKitUi.Accent, "★ queued");
+            }
 
             // CollapsingHeader's clickable region spans the whole row, not just its label — without
             // this, a widget placed after it via SameLine renders on top but the header underneath
@@ -127,7 +136,8 @@ public static class PenumbraPosePanel
             {
                 if (DescribeConflict(activePoses, mod, option) is { } conflict)
                     PoseKitUi.DrawConflictMarker(conflict);
-                DrawTriggerButtons(plugin, mod, option, collectionId, "PoseKitDefaultPlay");
+                DrawOptionPickMarker(plugin, mod, option);
+                DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitDefaultPlay");
             }
             ImGui.PopID();
             return;
@@ -140,9 +150,13 @@ public static class PenumbraPosePanel
 
         if (group.MultiSelect)
         {
-            var searchTreeFlags = string.IsNullOrWhiteSpace(filter)
+            var groupHasPick = visibleOptions.Any(o => IsPick(plugin, mod, o));
+            var searchTreeFlags = string.IsNullOrWhiteSpace(filter) || groupHasPick
                 ? ImGuiTreeNodeFlags.None
                 : ImGuiTreeNodeFlags.DefaultOpen;
+            if (groupHasPick)
+                ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+
             if (ImGui.CollapsingHeader(group.Name, searchTreeFlags))
             {
                 ImGui.Indent();
@@ -160,8 +174,9 @@ public static class PenumbraPosePanel
 
                     if (isChecked && DescribeConflict(activePoses, mod, option) is { } conflict)
                         PoseKitUi.DrawConflictMarker(conflict);
+                    DrawOptionPickMarker(plugin, mod, option);
 
-                    DrawTriggerButtons(plugin, mod, option, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
+                    DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
                 }
                 ImGui.Unindent();
             }
@@ -183,11 +198,13 @@ public static class PenumbraPosePanel
                         ApplyGroupChange(plugin, mod, group, [option.Name], cid);
                     }
 
+                    DrawOptionPickMarker(plugin, mod, option);
+
                     // Every option gets its own Play button here, not just whichever's already
                     // selected — clicking one selects it first (if it isn't already) then plays
                     // it, so picking and playing an option is one click instead of needing to
                     // select it here, close the dropdown, then find its Play button outside.
-                    DrawTriggerButtons(plugin, mod, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
+                    DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
                         beforePlay: isSelected || collectionId is null
                             ? null
                             : () => ApplyGroupChange(plugin, mod, group, [option.Name], collectionId.Value));
@@ -198,13 +215,49 @@ public static class PenumbraPosePanel
 
             if (selectedOption != null && DescribeConflict(activePoses, mod, selectedOption) is { } comboConflict)
                 PoseKitUi.DrawConflictMarker(comboConflict);
+            if (selectedOption != null)
+                DrawOptionPickMarker(plugin, mod, selectedOption);
 
             if (selectedOption != null)
-                DrawTriggerButtons(plugin, mod, selectedOption, collectionId, "PoseKitGroupPlay");
+                DrawTriggerButtons(plugin, mod, group, selectedOption, collectionId, "PoseKitGroupPlay");
         }
 
         ImGui.PopID();
     }
+
+    /// True once anything queued (own or partner's pick) belongs to this mod — drives auto-expanding
+    /// the mod's header and the "★ queued" marker next to it, so the whole path down to the actual
+    /// option is easy to find rather than just the Play button at the bottom of it.
+    private static bool ModContainsPick(Plugin plugin, PoseModInfo mod)
+    {
+        var queue = plugin.CoupleQueueService;
+        if (queue.QueuedSelectionName == null && queue.PartnerSelectionName == null) return false;
+        return mod.Groups.Any(g => g.Options.Any(o => IsPick(plugin, mod, o)));
+    }
+
+    private static bool IsPick(Plugin plugin, PoseModInfo mod, PoseModOption option)
+    {
+        var label = DescribePlayLabel(mod, option);
+        var queue = plugin.CoupleQueueService;
+        return queue.QueuedSelectionName == label || queue.PartnerSelectionName == label;
+    }
+
+    /// Small inline marker next to a specific option (checkbox/selectable/implicit-option label) when
+    /// it's the one queued — completes the "highlight the whole path" ask alongside the mod-level
+    /// marker above and the Play-button highlight in DrawTriggerButtons.
+    private static void DrawOptionPickMarker(Plugin plugin, PoseModInfo mod, PoseModOption option)
+    {
+        if (!IsPick(plugin, mod, option)) return;
+        ImGui.SameLine();
+        ImGui.TextColored(PoseKitUi.Accent, "★");
+    }
+
+    /// "ModName — OptionName" (or just "ModName" for an implicit/Default option) — this, not the
+    /// generic pose slot name ("Sit Pose 2", shared by every mod redirecting that same game slot), is
+    /// what identifies a specific animation choice for queueing/highlighting/syncing. Mirrors the
+    /// "Animation: X" format the preset library already uses for a saved preset's Penumbra link.
+    private static string DescribePlayLabel(PoseModInfo mod, PoseModOption option) =>
+        option.Name is "" or "Default" ? mod.ModName : $"{mod.ModName} — {option.Name}";
 
     /// Every currently-*selected* option's pose triggers across the whole discovered-mods list, keyed
     /// by PoseIdentifier — only selected options in an *enabled* mod are actually "live" in Penumbra
@@ -357,46 +410,54 @@ public static class PenumbraPosePanel
     /// <param name="beforePlay">Runs before enabling/playing — e.g. selecting the option in its
     /// group first, for a not-yet-selected option played directly from the combo dropdown, so
     /// picking it and playing it is one click instead of two separate steps.</param>
-    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModOption option, Guid? collectionId,
-        string idPrefix, Action? beforePlay = null)
+    private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
+        Guid? collectionId, string idPrefix, Action? beforePlay = null)
     {
+        var playLabel = DescribePlayLabel(mod, option);
+        var isQueued = plugin.CoupleQueueService.QueuedSelectionName == playLabel;
+        if (isQueued)
+            ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerSelectionName != null ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
+
         var triggers = option.Triggers;
         for (var i = 0; i < triggers.Count; i++)
         {
             var trigger = triggers[i];
-            var label = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
-
-            var isQueued = plugin.CoupleQueueService.QueuedSelectionName == label;
-            if (isQueued)
-                ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerSelectionName != null ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
+            var buttonText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
 
             ImGui.SameLine();
-            if (ImGui.SmallButton($"{label}##{idPrefix}{i}"))
+            if (ImGui.SmallButton($"{buttonText}##{idPrefix}{i}"))
             {
                 void Play()
                 {
                     beforePlay?.Invoke();
                     EnsureModEnabled(plugin, mod, collectionId);
-                    CapturePenumbraContext(plugin, mod, option);
+                    CapturePenumbraContext(plugin, mod, group, option);
                     PlayTrigger(plugin, trigger);
                 }
 
                 // While paired, nothing plays yet — this queues toward the partner and highlights
-                // once they've picked something too, same as a preset click (PresetButtonsPanel).
+                // once they've picked something too, same as a preset click (PresetButtonsPanel). The
+                // queued identity is the mod+option (playLabel), not this specific trigger button —
+                // several trigger buttons (or several different mods redirecting the same game pose
+                // slot) can otherwise share an identical per-trigger label like "Sit Pose 2".
                 if (plugin.PairingState.Active)
-                    plugin.CoupleQueueService.QueueSelection(label, Play);
+                    plugin.CoupleQueueService.QueueSelection(playLabel, Play);
                 else
                     Play();
             }
-
-            if (isQueued)
-                ImGui.PopStyleColor();
         }
+
+        if (isQueued)
+            ImGui.PopStyleColor();
     }
 
-    private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod, PoseModOption option)
+    private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option)
     {
-        var link = new PenumbraLink { ModDirectory = mod.ModDirectory, ModName = mod.ModName, OptionName = option.Name };
+        var link = new PenumbraLink
+        {
+            ModDirectory = mod.ModDirectory, ModName = mod.ModName, OptionName = option.Name,
+            GroupName = group.IsImplicit ? "" : group.Name,
+        };
         foreach (var g in mod.Groups)
             link.GroupSelections[g.Name] = [.. g.Selected];
         plugin.LastPlayedPenumbraContext = link;

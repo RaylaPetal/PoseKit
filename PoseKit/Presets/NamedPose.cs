@@ -21,6 +21,12 @@ public class PenumbraLink
     /// PenumbraPoseScanner's synthetic default_mod.json group, since there's nothing more specific
     /// to name there.
     public string OptionName = "";
+
+    /// The group OptionName belongs to, or "" for an implicit (no real Penumbra group) mod — needed
+    /// separately from GroupSelections (which snapshots every group of the mod, for local replay)
+    /// whenever only the *one* relevant group/option pair matters, e.g. syncing a couple preset to a
+    /// partner without also sending every other group's selection.
+    public string GroupName = "";
 }
 
 public class NamedPose
