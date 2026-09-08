@@ -472,21 +472,48 @@ public static class PenumbraPosePanel
             if (option.Triggers.Count == 0) continue;
             if (DescribePlayLabel(mod, option) != label) continue;
 
-            // Unlike a real button click, nothing guarantees this option's group is actually
-            // selected in Penumbra yet — a forced/synced label only names the mod+option, not a
-            // prior click that would've selected it. Without this, EnsureModEnabled below only
-            // ever turns the mod *on* (preserving whatever group selection happens to already be
-            // active), so the animation played was whatever was last selected, not the forced one.
-            var alreadySelected = group.IsImplicit || group.Selected.Contains(option.Name);
-            Action? beforePlay = alreadySelected || collectionId is not { } cid
-                ? null
-                : () => ApplyGroupChange(plugin, mod, group,
-                    group.MultiSelect ? new HashSet<string>(group.Selected) { option.Name } : [option.Name], cid);
-
+            var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
             PlayOptionTrigger(plugin, mod, group, option, option.Triggers[0], collectionId, beforePlay);
             return true;
         }
         return false;
+    }
+
+    /// Draws just the trigger buttons (and its pick badge) for the single mod+option matching
+    /// `label` — used by PairingPanel to offer "your half" of whatever a paired partner just picked
+    /// right next to the pairing controls, without the user having to scroll down through the full
+    /// Animations tab to find the matching gesture themselves. Returns false (draws nothing) if no
+    /// discovered option currently matches — the receiving side may simply not have that mod.
+    public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
+    {
+        var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+        foreach (var mod in plugin.DiscoveredPoses)
+        foreach (var group in mod.Groups)
+        foreach (var option in group.Options)
+        {
+            if (option.Triggers.Count == 0) continue;
+            if (DescribePlayLabel(mod, option) != label) continue;
+
+            ImGui.TextUnformatted(label);
+            DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitQuickPlay",
+                SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
+            return true;
+        }
+        return false;
+    }
+
+    /// Unlike a real button click, nothing guarantees a label resolved from elsewhere (a forced/synced
+    /// selection, or this same lookup for the quick-pick panel above) has its option actually selected
+    /// in Penumbra yet — without this, EnsureModEnabled only ever turns the mod *on* (preserving
+    /// whatever group selection happens to already be active), so the animation played would be
+    /// whatever was last selected, not the intended one.
+    private static Action? SelectOptionBeforePlay(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid? collectionId)
+    {
+        var alreadySelected = group.IsImplicit || group.Selected.Contains(option.Name);
+        return alreadySelected || collectionId is not { } cid
+            ? null
+            : () => ApplyGroupChange(plugin, mod, group,
+                group.MultiSelect ? new HashSet<string>(group.Selected) { option.Name } : [option.Name], cid);
     }
 
     private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option)

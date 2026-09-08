@@ -1,3 +1,4 @@
+using System.Linq;
 using Dalamud.Bindings.ImGui;
 using PoseKit.Pairing;
 
@@ -30,7 +31,13 @@ public static class PairingPanel
                 ImGui.TextUnformatted("You picked: (nothing yet)");
 
             if (queue.PartnerSelectionName is { } theirs)
+            {
                 ImGui.TextColored(PoseKitUi.Info, $"They picked: {theirs}");
+                // Only while nothing's queued on this side yet — once it is, both plays fire
+                // immediately and PartnerSelectionName clears, so there'd be nothing left to pick.
+                if (queue.QueuedSelectionName == null)
+                    DrawQuickPick(plugin, theirs);
+            }
             else
                 ImGui.TextUnformatted("They picked: (nothing yet)");
 
@@ -86,5 +93,23 @@ public static class PairingPanel
 
         PoseKitUi.TextWrappedDisabled("Pair with a partner to queue presets together — once paired, clicking a preset " +
                                        "queues it and highlights it for both of you; the second selection plays both automatically.");
+    }
+
+    /// Offers "your half" of whatever the partner just picked right here, so picking it doesn't
+    /// require scrolling down to find the matching preset or animation elsewhere: a saved preset by
+    /// the same name if there is one, otherwise the matching Penumbra mod+option's own trigger
+    /// button(s) if this side has that mod discovered. Silently shows nothing found rather than
+    /// erroring — the partner's pick may simply not exist on this side yet.
+    private static void DrawQuickPick(Plugin plugin, string partnerSelectionName)
+    {
+        var preset = plugin.PresetManager.Presets.FirstOrDefault(p => p.Name == partnerSelectionName);
+        if (preset != null)
+        {
+            PresetButtonsPanel.DrawPresetEntry(plugin, preset);
+            return;
+        }
+
+        if (!PenumbraPosePanel.TryDrawQuickTriggerButtons(plugin, partnerSelectionName))
+            PoseKitUi.TextWrappedDisabled($"No matching preset or animation found on your side for \"{partnerSelectionName}\".");
     }
 }

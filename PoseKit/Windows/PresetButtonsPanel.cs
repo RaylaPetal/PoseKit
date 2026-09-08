@@ -198,7 +198,10 @@ public static class PresetButtonsPanel
         }
     }
 
-    private static void DrawPresetEntry(Plugin plugin, NamedPose namedPose)
+    /// Public so PairingPanel can offer the exact same clickable entry (click dispatch, pick
+    /// highlighting, anchor/animation info) for whatever a paired partner just picked, without the
+    /// user having to scroll down to find it in the Preset Library themselves.
+    public static void DrawPresetEntry(Plugin plugin, NamedPose namedPose)
     {
         var anchorSuffix = namedPose.Anchor?.Spot != null ? " (anchored)"
             : namedPose.Anchor?.Furniture is { } furnitureAnchor ? $" (anchored: {furnitureAnchor.FurnitureName})"
