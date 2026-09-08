@@ -205,7 +205,12 @@ public static class PresetButtonsPanel
         {
             if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
             {
-                if (plugin.PairingState.Active)
+                // Under mutual override, a second click (once this side already has its own queued
+                // pick) forces this preset onto the partner instead of replacing this side's own —
+                // see CoupleQueueService.TryForceSelect.
+                if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
+                    plugin.CoupleQueueService.TryForceSelect(namedPose.Name, () => plugin.PlayPreset(namedPose));
+                else if (plugin.PairingState.Active)
                     plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));
                 else
                     plugin.PlayPreset(namedPose);

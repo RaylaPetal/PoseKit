@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -93,6 +94,29 @@ public sealed class Plugin : IDalamudPlugin
         {
             if (PoseIdentifier.FromCharacter(ObjectTable.LocalPlayer) is not { } pose) return;
             PresetManager.Save(payload.Name, pose, OffsetEngine.DesiredOffset, LastPlayedPenumbraContext, payload.Anchor);
+        };
+
+        // A force-selected name arrives here with no local queue bookkeeping to do — it's resolved
+        // against what's actually available on *this* side (a saved preset by name, then a
+        // Penumbra-discovered animation by its "ModName — OptionName" label) and played immediately
+        // if found. Silently does nothing if neither resolves — the receiving side may simply not
+        // have that preset or mod, same best-effort tolerance as PresetSyncReceived above.
+        PairingListener.ForceSelectionReceived += (_, name) =>
+        {
+            var preset = PresetManager.Presets.FirstOrDefault(p => p.Name == name);
+            if (preset != null) { PlayPreset(preset); return; }
+            PenumbraPosePanel.TryPlayByLabel(this, name);
+        };
+
+        // Announces this side's current override-toggle state once whenever pairing activates — the
+        // toggle itself already sends on every change, but a toggle set before pairing existed (or
+        // set during a prior pairing) would otherwise never reach a newly-paired partner.
+        var wasPairingActive = false;
+        PairingState.Changed += () =>
+        {
+            if (PairingState.Active && !wasPairingActive)
+                PairingListener.SendOverrideToggle(PairingState.LocalOverrideEnabled);
+            wasPairingActive = PairingState.Active;
         };
 
         ConfigWindow = new ConfigWindow(this);

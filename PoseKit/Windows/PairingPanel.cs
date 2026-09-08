@@ -34,6 +34,18 @@ public static class PairingPanel
             else
                 ImGui.TextUnformatted("They picked: (nothing yet)");
 
+            var overrideEnabled = state.LocalOverrideEnabled;
+            if (ImGui.Checkbox("Override queue##PoseKitOverrideQueue", ref overrideEnabled))
+            {
+                state.SetLocalOverrideEnabled(overrideEnabled);
+                plugin.PairingListener.SendOverrideToggle(overrideEnabled);
+            }
+
+            if (state.MutualOverrideActive)
+                ImGui.TextColored(PoseKitUi.Good, "Override active — picking a second item plays your first pick and forces theirs.");
+            else if (state.LocalOverrideEnabled)
+                PoseKitUi.TextWrappedDisabled("Waiting on partner to enable override too — until then, a second click just replaces your own pick.");
+
             PoseKitUi.TextWrappedDisabled("Click any preset or animation to queue it — once you've both picked something, both play together.");
             return;
         }

@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.2.0",
+    "AssemblyVersion": "0.0.2.1",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.0/PoseKit-0.0.2.0.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.0/PoseKit-0.0.2.0.zip",
-    "Changelog": "Major: furniture anchoring and couple pairing. Anchor a preset to a nearby placed housing item (indoor or yard) instead of just a fixed world spot — the offset corrects against the item's live position, so it still lines up after the room's rearranged. Pair with a partner over /tell from the Animations tab (invite/accept/unpair, no relay, session-only); while paired, clicking any preset or animation queues and highlights it for both of you (color-coded: your pick, their pick, both-ready) instead of playing immediately, and fires both together once you've each picked something. Saving a preset while paired relays its anchor and name to your partner, who gets a matching entry built from whatever they're already playing.",
-    "LastUpdate": "1788896525"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.1/PoseKit-0.0.2.1.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.1/PoseKit-0.0.2.1.zip",
+    "Changelog": "Add override queue: once both partners check \"Override queue\" (mutual consent required), whoever already has a pick queued can force-select the other's animation with a second click instead of waiting for them to pick — the forcing side plays its own pick immediately, and the partner's client resolves the forced name against its own presets/animations and plays it if found.",
+    "LastUpdate": "1788897406"
   }
 ]

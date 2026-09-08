@@ -31,6 +31,8 @@ public sealed class PairingListener : IDisposable
     private const string UnpairKeyword = "posekitpair unpair";
     private const string QueueKeyword = "posekitqueue";
     private const string PresetSyncKeyword = "posekitpresetsync";
+    private const string OverrideToggleKeyword = "posekitoverride";
+    private const string ForceSelectKeyword = "posekitforcequeue";
 
     private readonly PairingState state;
 
@@ -43,6 +45,11 @@ public sealed class PairingListener : IDisposable
     /// this to capture the *receiving* side's own currently-playing pose/offset/Penumbra link under
     /// the synced name and anchor (see PresetSyncPayload). Nothing is ever sent back in response.
     public event Action<PartnerIdentity, PresetSyncPayload>? PresetSyncReceived;
+
+    /// Raised when a "posekitforcequeue" tell arrives from the currently-paired peer — Plugin wires
+    /// this to resolve the named item against this side's own presets/discovered animations and play
+    /// it if found. Nothing is ever sent back in response.
+    public event Action<PartnerIdentity, string>? ForceSelectionReceived;
 
     public PairingListener(PairingState state)
     {
@@ -76,6 +83,14 @@ public sealed class PairingListener : IDisposable
     {
         if (state.Peer is { } peer)
             PairingSender.Send(PairingComposer.ComposePresetSync(peer, anchor, name));
+    }
+
+    /// Sends this side's own override-toggle state to the current pairing peer, if any — no-op while
+    /// unpaired (there's nothing to announce it to yet; Plugin re-sends it once pairing activates).
+    public void SendOverrideToggle(bool enabled)
+    {
+        if (state.Peer is { } peer)
+            PairingSender.Send(PairingComposer.ComposeOverrideToggle(peer, enabled));
     }
 
     /// One click: clears the pairing locally and best-effort notifies the peer so they aren't left
@@ -133,6 +148,23 @@ public sealed class PairingListener : IDisposable
             if (!state.Active || state.Peer is not { } syncPeer || !syncPeer.Equals(sender)) return;
             if (TryParsePresetSync(text[PresetSyncKeyword.Length..].Trim(), out var payload))
                 PresetSyncReceived?.Invoke(sender, payload);
+            return;
+        }
+
+        if (text.StartsWith(OverrideToggleKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            var value = text[OverrideToggleKeyword.Length..].Trim();
+            if (!state.Active || state.Peer is not { } togglePeer || !togglePeer.Equals(sender)) return;
+            if (value.Equals("on", StringComparison.OrdinalIgnoreCase)) state.SetPartnerOverrideEnabled(true);
+            else if (value.Equals("off", StringComparison.OrdinalIgnoreCase)) state.SetPartnerOverrideEnabled(false);
+            return;
+        }
+
+        if (text.StartsWith(ForceSelectKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            var name = text[ForceSelectKeyword.Length..].Trim();
+            if (name.Length > 0 && state.Active && state.Peer is { } forcePeer && forcePeer.Equals(sender))
+                ForceSelectionReceived?.Invoke(sender, name);
         }
     }
 

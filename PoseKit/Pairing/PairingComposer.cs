@@ -21,6 +21,8 @@ public static class PairingComposer
     private const string UnpairKeyword = "posekitpair unpair";
     private const string QueueKeyword = "posekitqueue";
     private const string PresetSyncKeyword = "posekitpresetsync";
+    private const string OverrideToggleKeyword = "posekitoverride";
+    private const string ForceSelectKeyword = "posekitforcequeue";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
@@ -66,4 +68,17 @@ public static class PairingComposer
                $"{position.Y.ToString(CultureInfo.InvariantCulture)} {position.Z.ToString(CultureInfo.InvariantCulture)} " +
                $"{rotation.ToString(CultureInfo.InvariantCulture)} {compound}";
     }
+
+    /// Announces this side's own "override queue" checkbox state — sent whenever it's toggled, and
+    /// once more right after pairing activates, so the partner's MutualOverrideActive reading is
+    /// never stale.
+    public static string ComposeOverrideToggle(PartnerIdentity target, bool enabled) =>
+        $"/tell {target.TellAddress} {OverrideToggleKeyword} {(enabled ? "on" : "off")}";
+
+    /// Sent instead of the normal queue signal when the acting side already has its own queued pick
+    /// and mutual override is active — names the item the *partner* should play, not the sender's
+    /// own. No acknowledgement is expected or sent back; the sender plays its own already-queued pick
+    /// immediately rather than waiting for one.
+    public static string ComposeForceSelection(PartnerIdentity target, string name) =>
+        $"/tell {target.TellAddress} {ForceSelectKeyword} {name}";
 }

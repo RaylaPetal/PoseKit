@@ -422,21 +422,18 @@ public static class PenumbraPosePanel
                 ImGui.SameLine();
                 if (ImGui.SmallButton($"{buttonText}##{idPrefix}{i}"))
                 {
-                    void Play()
-                    {
-                        beforePlay?.Invoke();
-                        EnsureModEnabled(plugin, mod, collectionId);
-                        CapturePenumbraContext(plugin, mod, group, option);
-                        PlayTrigger(plugin, trigger);
-                    }
+                    void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
 
                     // While paired, nothing plays yet — this queues toward the partner and highlights
                     // once they've picked something too, same as a preset click (PresetButtonsPanel).
                     // The queued identity is the mod+option (playLabel), not this specific trigger
                     // button — several trigger buttons (or several different mods redirecting the
                     // same game pose slot) can otherwise share an identical per-trigger label like
-                    // "Sit Pose 2".
-                    if (plugin.PairingState.Active)
+                    // "Sit Pose 2". Under mutual override, a second click (once this side already has
+                    // its own queued pick) forces playLabel onto the partner instead.
+                    if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
+                        plugin.CoupleQueueService.TryForceSelect(playLabel, Play);
+                    else if (plugin.PairingState.Active)
                         plugin.CoupleQueueService.QueueSelection(playLabel, Play);
                     else
                         Play();
@@ -445,6 +442,40 @@ public static class PenumbraPosePanel
         }
 
         PoseKitUi.DrawPickBadge(pick);
+    }
+
+    /// The actual "make this play" sequence — enable the mod if needed, capture its Penumbra context
+    /// for the next preset save, then trigger. Shared by the per-button click (a specific trigger,
+    /// since one option can bind more than one) and TryPlayByLabel below (which, knowing only a
+    /// mod+option label and not which button was clicked, resolves to the option's first trigger).
+    private static void PlayOptionTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
+        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
+    {
+        beforePlay?.Invoke();
+        EnsureModEnabled(plugin, mod, collectionId);
+        CapturePenumbraContext(plugin, mod, group, option);
+        PlayTrigger(plugin, trigger);
+    }
+
+    /// Resolves a "ModName — OptionName" label (DescribePlayLabel's format) against the currently
+    /// discovered mods and plays its first trigger if found — used to act on a force-selected name
+    /// received from a pairing partner (see Plugin's ForceSelectionReceived wiring), where only the
+    /// label is known, not which specific button was clicked. Returns false (does nothing) if no
+    /// discovered option currently matches — the receiving side may simply not have that mod.
+    public static bool TryPlayByLabel(Plugin plugin, string label)
+    {
+        var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+        foreach (var mod in plugin.DiscoveredPoses)
+        foreach (var group in mod.Groups)
+        foreach (var option in group.Options)
+        {
+            if (option.Triggers.Count == 0) continue;
+            if (DescribePlayLabel(mod, option) != label) continue;
+
+            PlayOptionTrigger(plugin, mod, group, option, option.Triggers[0], collectionId);
+            return true;
+        }
+        return false;
     }
 
     private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option)

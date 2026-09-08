@@ -68,6 +68,25 @@ public sealed class CoupleQueueService : IDisposable
         TryPlayIfBothReady();
     }
 
+    /// Called instead of QueueSelection when mutual override is active and this side already has a
+    /// queued pick of its own — see PairingState.MutualOverrideActive. Forces `forcedDisplayName` on
+    /// the partner and plays this side's own already-queued pick immediately, without waiting on a
+    /// reply (this side already knows both halves by construction: its own first pick, and the
+    /// forced pick it just chose for the partner). Falls back to a normal QueueSelection if nothing
+    /// of this side's own was queued yet — there would be nothing to play immediately.
+    public void TryForceSelect(string forcedDisplayName, Action fallbackPlay)
+    {
+        if (queuedPlay is not { } ownPlay || pairingState.Peer is not { } partner)
+        {
+            QueueSelection(forcedDisplayName, fallbackPlay);
+            return;
+        }
+
+        PairingSender.Send(PairingComposer.ComposeForceSelection(partner, forcedDisplayName));
+        ClearQueue();
+        ownPlay();
+    }
+
     private void OnQueueSignalReceived(PartnerIdentity sender, string name)
     {
         PartnerSelectionName = name;

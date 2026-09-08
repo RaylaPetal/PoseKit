@@ -13,6 +13,18 @@ public sealed class PairingState
     public PartnerIdentity? Peer { get; private set; }
     public bool Active { get; private set; }
 
+    /// This side's own "override queue" checkbox.
+    public bool LocalOverrideEnabled { get; private set; }
+
+    /// Learned from the partner's own toggle tell — never assumed, always something they actually
+    /// sent. Reset on Clear()/Activate() so a stale reading from a previous pairing can never leak
+    /// into a new one.
+    public bool PartnerOverrideEnabled { get; private set; }
+
+    /// What force-select actually gates on: both sides confirmed on to each other, not just this
+    /// side's own checkbox.
+    public bool MutualOverrideActive => Active && LocalOverrideEnabled && PartnerOverrideEnabled;
+
     /// An invite this side sent and hasn't heard an accept for yet — kept so a stray/late/forged
     /// accept tell can be matched against something this side actually sent, rather than activating
     /// from an unsolicited claim.
@@ -48,6 +60,7 @@ public sealed class PairingState
         Active = true;
         OutgoingInvite = null;
         PendingInvite = null;
+        PartnerOverrideEnabled = false;
         Changed?.Invoke();
     }
 
@@ -57,6 +70,23 @@ public sealed class PairingState
         Active = false;
         OutgoingInvite = null;
         PendingInvite = null;
+        PartnerOverrideEnabled = false;
+        Changed?.Invoke();
+    }
+
+    /// This side's own checkbox — persists across a re-pair (it's a standing preference, not tied to
+    /// any one partner), unlike PartnerOverrideEnabled.
+    public void SetLocalOverrideEnabled(bool enabled)
+    {
+        LocalOverrideEnabled = enabled;
+        Changed?.Invoke();
+    }
+
+    /// Only ever called from a verified toggle tell the partner actually sent — see
+    /// PairingListener's OverrideToggleReceived dispatch.
+    public void SetPartnerOverrideEnabled(bool enabled)
+    {
+        PartnerOverrideEnabled = enabled;
         Changed?.Invoke();
     }
 }
