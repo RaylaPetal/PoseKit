@@ -3,7 +3,6 @@ namespace PoseKit.Pairing;
 using System;
 using System.Globalization;
 using System.Linq;
-using System.Numerics;
 using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
@@ -11,9 +10,11 @@ using Dalamud.Game.Text.SeStringHandling.Payloads;
 using PoseKit.Presets;
 
 /// <summary>Everything a "posekitpresetsync" tell carries, already decoded — see
-/// PairingComposer.ComposePresetSync for the wire shape and why pose/offset/Penumbra deliberately
-/// aren't part of it.</summary>
-public readonly record struct PresetSyncPayload(PresetAnchor? Anchor, string Name);
+/// PairingComposer.ComposePresetSync for the wire shape and why pose/offset/Penumbra/any captured
+/// anchor coordinates deliberately aren't part of it. AnchorKind: 0 = none, 1 = spot (the receiver
+/// should capture its own current spot), 2 = furniture (the receiver should capture its own position
+/// relative to the nearby furniture matching FurnitureEntryId).</summary>
+public readonly record struct PresetSyncPayload(int AnchorKind, uint FurnitureEntryId, string FurnitureName, string Name);
 
 /// <summary>
 /// Session-scoped, non-networked pairing handshake over /tell — no relay, no signing, no persistent
@@ -176,33 +177,17 @@ public sealed class PairingListener : IDisposable
         payload = default;
 
         var (anchorKindToken, r1) = SplitFirstToken(body);
-        var (num1Token, r2) = SplitFirstToken(r1);
-        var (num2Token, r3) = SplitFirstToken(r2);
-        var (num3Token, r4) = SplitFirstToken(r3);
-        var (num4Token, r5) = SplitFirstToken(r4);
-        var (num5Token, compound) = SplitFirstToken(r5);
+        var (entryIdToken, compound) = SplitFirstToken(r1);
 
         if (!int.TryParse(anchorKindToken, NumberStyles.None, CultureInfo.InvariantCulture, out var anchorKind)) return false;
-        if (!uint.TryParse(num1Token, NumberStyles.None, CultureInfo.InvariantCulture, out var num1)) return false;
-        if (!float.TryParse(num2Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num2)) return false;
-        if (!float.TryParse(num3Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num3)) return false;
-        if (!float.TryParse(num4Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num4)) return false;
-        if (!float.TryParse(num5Token, NumberStyles.Float, CultureInfo.InvariantCulture, out var num5)) return false;
+        if (!uint.TryParse(entryIdToken, NumberStyles.None, CultureInfo.InvariantCulture, out var entryId)) return false;
 
         var parts = compound.Split('|', 2);
         if (parts.Length < 2) return false;
         var (furnitureName, name) = (parts[0], parts[1]);
         if (name.Length == 0) return false;
 
-        var position = new Vector3(num2, num3, num4);
-        PresetAnchor? anchor = anchorKind switch
-        {
-            1 => PresetAnchor.FromSpot(new LocationAnchor { TerritoryType = num1, Position = position, Rotation = num5 }),
-            2 => PresetAnchor.FromFurniture(new FurnitureAnchor { EntryId = num1, FurnitureName = furnitureName, RelativePosition = position, RelativeRotation = num5 }),
-            _ => null,
-        };
-
-        payload = new PresetSyncPayload(anchor, name);
+        payload = new PresetSyncPayload(anchorKind, entryId, furnitureName, name);
         return true;
     }
 

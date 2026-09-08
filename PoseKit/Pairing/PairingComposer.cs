@@ -1,7 +1,6 @@
 namespace PoseKit.Pairing;
 
 using System.Globalization;
-using System.Numerics;
 using PoseKit.Presets;
 
 /// <summary>Only ever builds text and returns it — no dependency on any chat-send API, so there is no
@@ -42,31 +41,27 @@ public static class PairingComposer
         $"/tell {target.TellAddress} {QueueKeyword} {name}";
 
     /// Sent when saving a preset while paired, so the partner's own client auto-saves a matching
-    /// entry under the same name. Only the anchor (the shared physical context — which furniture, or
-    /// which world spot) and the name travel across; pose, offset, and Penumbra link are deliberately
-    /// NOT sent — the receiving side captures those from its *own* currently-playing pose instead
-    /// (see PairingListener's PresetSyncReceived wiring in Plugin.cs), since a couple pose typically
-    /// has each side already playing their own different half (their own mod/option, their own
-    /// offset) by the time one of them saves it as a preset — sending this side's own pose/offset
-    /// across would silently overwrite the correct thing already sitting on the receiver's client.
+    /// entry under the same name. Only the anchor *kind* (none/spot/furniture) and, for furniture,
+    /// which item — never a captured position/rotation — plus the name travel across; pose, offset,
+    /// Penumbra link, and any world-space anchor coordinates are deliberately NOT sent. The receiving
+    /// side captures its own current pose/offset/Penumbra link *and* its own anchor (its own current
+    /// spot, or its own position relative to a matching nearby furniture item) instead (see
+    /// PairingListener's PresetSyncReceived wiring in Plugin.cs) — a couple pose typically has each
+    /// side already sitting/standing in its own different spot on the same furniture (or standing
+    /// near, not on top of, each other for a spot anchor) by the time one of them saves it as a
+    /// preset, so sending this side's own anchor across would anchor the receiver to *this* side's
+    /// spot instead of their own.
     ///
-    /// Wire shape: "&lt;anchorKind 0/1/2&gt; &lt;num1&gt; &lt;num2&gt; &lt;num3&gt; &lt;num4&gt;
-    /// &lt;num5&gt; &lt;furnitureName&gt;|&lt;name&gt;" — num1..num5 are TerritoryType/EntryId,
-    /// Position.X/Y/Z (or RelativePosition), Rotation (or RelativeRotation), all 0 when anchorKind is
-    /// 0 (none).
+    /// Wire shape: "&lt;anchorKind 0/1/2&gt; &lt;furnitureEntryId&gt; &lt;furnitureName&gt;|&lt;name&gt;"
+    /// — furnitureEntryId is 0 and furnitureName is empty unless anchorKind is 2 (furniture).
     public static string ComposePresetSync(PartnerIdentity target, PresetAnchor? anchor, string name)
     {
         var anchorKind = anchor?.Spot != null ? 1 : anchor?.Furniture != null ? 2 : 0;
-        var num1 = anchor?.Spot?.TerritoryType ?? anchor?.Furniture?.EntryId ?? 0u;
-        var position = anchor?.Spot?.Position ?? anchor?.Furniture?.RelativePosition ?? Vector3.Zero;
-        var rotation = anchor?.Spot?.Rotation ?? anchor?.Furniture?.RelativeRotation ?? 0f;
-
+        var entryId = anchor?.Furniture?.EntryId ?? 0u;
         var compound = string.Join('|', anchor?.Furniture?.FurnitureName ?? "", name);
 
         return $"/tell {target.TellAddress} {PresetSyncKeyword} {anchorKind} " +
-               $"{num1.ToString(CultureInfo.InvariantCulture)} {position.X.ToString(CultureInfo.InvariantCulture)} " +
-               $"{position.Y.ToString(CultureInfo.InvariantCulture)} {position.Z.ToString(CultureInfo.InvariantCulture)} " +
-               $"{rotation.ToString(CultureInfo.InvariantCulture)} {compound}";
+               $"{entryId.ToString(CultureInfo.InvariantCulture)} {compound}";
     }
 
     /// Announces this side's own "override queue" checkbox state — sent whenever it's toggled, and

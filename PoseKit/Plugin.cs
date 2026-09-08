@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using PoseKit.Furniture;
 using PoseKit.Pairing;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
@@ -68,6 +71,11 @@ public sealed class Plugin : IDalamudPlugin
     /// scan there can come back empty and never get retried without a manual "Rescan" click.
     private bool hasScannedPenumbraPoses;
 
+    /// Used only to resolve a synced furniture anchor's EntryId against this side's own nearby
+    /// furniture (see the PresetSyncReceived wiring below) — PresetButtonsPanel and PoseTrigger each
+    /// keep their own instance for the same reason (a live furniture scan can't be cached).
+    private readonly FurnitureScanner furnitureScanner = new();
+
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -86,14 +94,27 @@ public sealed class Plugin : IDalamudPlugin
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
 
         // A preset saved while paired lands here for the receiving side: capture *this* side's own
-        // currently-playing pose/offset/Penumbra link under the synced name and anchor — never the
-        // sender's, since each side of a couple pose is typically already playing its own different
-        // half (own mod/option, own offset) by the time either one saves it as a preset. Silently
-        // does nothing if this side isn't currently in a pose — there's nothing meaningful to capture.
+        // currently-playing pose/offset/Penumbra link — AND its own anchor (own current spot, or own
+        // position relative to a matching nearby furniture item) — under the synced name, never the
+        // sender's, since each side of a couple pose is typically already sitting/standing in its own
+        // different spot (own mod/option, own offset, own seat on the same sofa) by the time either
+        // one saves it as a preset; reusing the sender's captured position/rotation would anchor this
+        // side to the SENDER's spot instead of its own. Silently does nothing if this side isn't
+        // currently in a pose, or (for a furniture anchor) can't find a matching item nearby — there's
+        // nothing meaningful to capture.
         PairingListener.PresetSyncReceived += (_, payload) =>
         {
             if (PoseIdentifier.FromCharacter(ObjectTable.LocalPlayer) is not { } pose) return;
-            PresetManager.Save(payload.Name, pose, OffsetEngine.DesiredOffset, LastPlayedPenumbraContext, payload.Anchor);
+            var localPlayer = ObjectTable.LocalPlayer;
+            if (localPlayer == null) return;
+
+            PresetAnchor? anchor = payload.AnchorKind switch
+            {
+                1 => PresetAnchor.FromSpot(LocationAnchor.Capture(localPlayer, ClientState.TerritoryType)),
+                2 => TryCaptureOwnFurnitureAnchor(localPlayer, payload.FurnitureEntryId),
+                _ => null,
+            };
+            PresetManager.Save(payload.Name, pose, OffsetEngine.DesiredOffset, LastPlayedPenumbraContext, anchor);
         };
 
         // A force-selected name arrives here with no local queue bookkeeping to do — it's resolved
@@ -250,6 +271,19 @@ public sealed class Plugin : IDalamudPlugin
         var error = EmoteSync.HandleArgs(splitArgs[1..]);
         if (error != null)
             ChatGui.PrintError($"[PoseKit] {error}");
+    }
+
+    /// Finds the nearest currently-live furniture instance matching the synced EntryId and captures
+    /// this side's own position/rotation relative to it — null if none is nearby (the receiving side
+    /// may simply not be standing near the same furniture yet).
+    private PresetAnchor? TryCaptureOwnFurnitureAnchor(IPlayerCharacter localPlayer, uint entryId)
+    {
+        var nearby = furnitureScanner.ScanNearby(localPlayer);
+        var match = nearby.Where(f => f.EntryId == entryId)
+            .OrderBy(f => Vector3.Distance(f.Position, localPlayer.Position))
+            .Cast<NearbyFurniture?>()
+            .FirstOrDefault();
+        return match is { } furniture ? PresetAnchor.FromFurniture(FurnitureAnchor.Capture(localPlayer, furniture)) : null;
     }
 
     public void ToggleConfigUi() => ConfigWindow.Toggle();

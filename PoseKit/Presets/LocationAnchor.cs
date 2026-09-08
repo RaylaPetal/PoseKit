@@ -50,19 +50,30 @@ public class LocationAnchor
     /// applied), not their pre-offset facing. Mirrors SimpleHeels-master/GizmoOverlay.cs's own
     /// WorldToLocal call, which builds its rotation from `character->Rotation + target.R` (the
     /// offset's own existing rotation value), not raw character rotation alone.</param>
-    public PoseOffset? TryComputeCorrection(IPlayerCharacter localPlayer, uint currentTerritoryType, float baseRotationOffset)
+    /// <param name="rotationOffsetApplies">OffsetEngine.RotationHookResolved — whether a rotation
+    /// offset actually reaches the model at all. When the rotation hook didn't resolve (a known
+    /// possibility per OffsetEngine's own doc), the game keeps rendering at the character's plain
+    /// native rotation no matter what baseRotationOffset/this correction's own rotation say —
+    /// folding either into the facing used for the POSITION transform then rotates the position
+    /// correction by an angle the model was never actually turned by, which gets worse the further
+    /// the saved facing is from the current one (can look fully mirrored around 180°). Skipping
+    /// both terms when the hook is unresolved keeps the position correction in the frame that's
+    /// actually rendered.</param>
+    public PoseOffset? TryComputeCorrection(IPlayerCharacter localPlayer, uint currentTerritoryType, float baseRotationOffset, bool rotationOffsetApplies)
     {
         if (currentTerritoryType != TerritoryType) return null;
 
         var worldDelta = Position - localPlayer.Position;
         if (worldDelta.Length() > MaxCorrectionDistance) return null;
 
-        var rotationCorrection = MathF.IEEERemainder(Rotation - localPlayer.Rotation, MathF.Tau);
+        var rotationCorrection = rotationOffsetApplies
+            ? MathF.IEEERemainder(Rotation - localPlayer.Rotation, MathF.Tau)
+            : 0f;
 
         // Same WorldToLocal pattern as SimpleHeels-master/GizmoOverlay.cs: inverse-rotate the
         // world-space delta by the character's FINAL facing (native + base offset + this
         // correction), since that's the frame the engine applies DesiredOffset.Position in.
-        var finalFacing = localPlayer.Rotation + baseRotationOffset + rotationCorrection;
+        var finalFacing = localPlayer.Rotation + (rotationOffsetApplies ? baseRotationOffset : 0f) + rotationCorrection;
         var inverseFacing = Quaternion.Inverse(Quaternion.CreateFromYawPitchRoll(finalFacing, 0, 0));
         var localCorrection = Vector3.Transform(worldDelta, inverseFacing);
 

@@ -472,7 +472,18 @@ public static class PenumbraPosePanel
             if (option.Triggers.Count == 0) continue;
             if (DescribePlayLabel(mod, option) != label) continue;
 
-            PlayOptionTrigger(plugin, mod, group, option, option.Triggers[0], collectionId);
+            // Unlike a real button click, nothing guarantees this option's group is actually
+            // selected in Penumbra yet — a forced/synced label only names the mod+option, not a
+            // prior click that would've selected it. Without this, EnsureModEnabled below only
+            // ever turns the mod *on* (preserving whatever group selection happens to already be
+            // active), so the animation played was whatever was last selected, not the forced one.
+            var alreadySelected = group.IsImplicit || group.Selected.Contains(option.Name);
+            Action? beforePlay = alreadySelected || collectionId is not { } cid
+                ? null
+                : () => ApplyGroupChange(plugin, mod, group,
+                    group.MultiSelect ? new HashSet<string>(group.Selected) { option.Name } : [option.Name], cid);
+
+            PlayOptionTrigger(plugin, mod, group, option, option.Triggers[0], collectionId, beforePlay);
             return true;
         }
         return false;

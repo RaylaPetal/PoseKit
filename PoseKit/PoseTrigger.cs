@@ -165,9 +165,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         if (localPlayer == null) return baseOffset;
 
+        var rotationOffsetApplies = offsetEngine.RotationHookResolved;
         PoseOffset? correction = anchor.Spot != null
-            ? anchor.Spot.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, baseOffset.Rotation)
-            : ResolveFurnitureCorrection(anchor.Furniture!, localPlayer, baseOffset.Rotation);
+            ? anchor.Spot.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, baseOffset.Rotation, rotationOffsetApplies)
+            : ResolveFurnitureCorrection(anchor.Furniture!, localPlayer, baseOffset.Rotation, rotationOffsetApplies);
 
         if (correction is not { } c)
         {
@@ -183,10 +184,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         };
     }
 
-    private PoseOffset? ResolveFurnitureCorrection(FurnitureAnchor furnitureAnchor, IPlayerCharacter localPlayer, float baseRotationOffset)
+    private PoseOffset? ResolveFurnitureCorrection(FurnitureAnchor furnitureAnchor, IPlayerCharacter localPlayer, float baseRotationOffset, bool rotationOffsetApplies)
     {
         var nearby = furnitureScanner.ScanNearby(localPlayer);
         var live = furnitureAnchor.TryFindLiveInstance(nearby, localPlayer.Position);
-        return live is { } furniture ? furnitureAnchor.TryComputeCorrection(localPlayer, furniture, baseRotationOffset) : null;
+        return live is { } furniture ? furnitureAnchor.TryComputeCorrection(localPlayer, furniture, baseRotationOffset, rotationOffsetApplies) : null;
     }
 }

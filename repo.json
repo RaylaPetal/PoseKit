@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.2.3",
+    "AssemblyVersion": "0.0.2.4",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.3/PoseKit-0.0.2.3.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.3/PoseKit-0.0.2.3.zip",
-    "Changelog": "Fix Rescan leaving old temporary Penumbra changes active — it now removes every temporary mod setting PoseKit applied this session, restoring Penumbra's own default state, before re-scanning. Fix saving an anchored preset with an all-zero offset (e.g. right after clicking Reset) being blocked — the Save button no longer requires a non-zero offset to have been applied, since being in a pose is already the real precondition.",
-    "LastUpdate": "1788899062"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.4/PoseKit-0.0.2.4.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.4/PoseKit-0.0.2.4.zip",
+    "Changelog": "Fix a forced/synced animation from a paired partner not applying its Penumbra mod option before playing, so it played whatever was already selected instead of the intended one. Fix anchored offsets (spot or furniture) landing wrong — sometimes badly mirrored — the further your current facing was from when the preset was saved, on any anchored preset, not just paired ones; the correction no longer assumes a rotation offset is being applied when the rotation hook hasn't resolved. Fix a synced preset saved by a paired partner anchoring to the sender's own spot/seat instead of the receiver's — each side now anchors to its own current spot or its own seat on the same furniture.",
+    "LastUpdate": "1788901032"
   }
 ]

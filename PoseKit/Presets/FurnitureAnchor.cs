@@ -73,8 +73,9 @@ public class FurnitureAnchor
     /// Null if the correction isn't meaningful right now (the computed target is implausibly far
     /// away) — mirrors LocationAnchor.TryComputeCorrection's contract and math exactly, just against
     /// a live-computed target instead of a frozen point. See that method's doc for why
-    /// baseRotationOffset is needed.
-    public PoseOffset? TryComputeCorrection(IPlayerCharacter localPlayer, NearbyFurniture liveFurniture, float baseRotationOffset)
+    /// baseRotationOffset is needed, and LocationAnchor.TryComputeCorrection's rotationOffsetApplies
+    /// doc for why that's gated on OffsetEngine.RotationHookResolved.
+    public PoseOffset? TryComputeCorrection(IPlayerCharacter localPlayer, NearbyFurniture liveFurniture, float baseRotationOffset, bool rotationOffsetApplies)
     {
         var furnitureFacing = Quaternion.CreateFromYawPitchRoll(liveFurniture.Rotation, 0, 0);
         var targetPosition = liveFurniture.Position + Vector3.Transform(RelativePosition, furnitureFacing);
@@ -83,9 +84,11 @@ public class FurnitureAnchor
         var worldDelta = targetPosition - localPlayer.Position;
         if (worldDelta.Length() > MaxCorrectionDistance) return null;
 
-        var rotationCorrection = MathF.IEEERemainder(targetRotation - localPlayer.Rotation, MathF.Tau);
+        var rotationCorrection = rotationOffsetApplies
+            ? MathF.IEEERemainder(targetRotation - localPlayer.Rotation, MathF.Tau)
+            : 0f;
 
-        var finalFacing = localPlayer.Rotation + baseRotationOffset + rotationCorrection;
+        var finalFacing = localPlayer.Rotation + (rotationOffsetApplies ? baseRotationOffset : 0f) + rotationCorrection;
         var inverseFacing = Quaternion.Inverse(Quaternion.CreateFromYawPitchRoll(finalFacing, 0, 0));
         var localCorrection = Vector3.Transform(worldDelta, inverseFacing);
 
