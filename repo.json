@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.1/PoseKit-0.0.2.1.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.1/PoseKit-0.0.2.1.zip",
     "Changelog": "Add override queue: once both partners check \"Override queue\" (mutual consent required), whoever already has a pick queued can force-select the other's animation with a second click instead of waiting for them to pick — the forcing side plays its own pick immediately, and the partner's client resolves the forced name against its own presets/animations and plays it if found.",
-    "LastUpdate": "1788897406"
+    "LastUpdate": "1788897539"
   }
 ]
