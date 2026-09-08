@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.7/PoseKit-0.0.2.7.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.7/PoseKit-0.0.2.7.zip",
     "Changelog": "Fix pick highlighting on the Animations tab (and its \"● you\"/\"● them\" badges) lighting up every trigger button under a mod option, not just the specific pose/gesture that was actually picked — an option bound to more than one trigger (e.g. a redirect spanning two emote slots at once) shared one identity across all of them. Each trigger button now has its own identity, so queueing, force-select, and the pairing quick-pick highlight only the exact one chosen.",
-    "LastUpdate": "1788903505"
+    "LastUpdate": "1788903610"
   }
 ]
