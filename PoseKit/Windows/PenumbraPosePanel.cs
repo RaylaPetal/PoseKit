@@ -238,8 +238,19 @@ public static class PenumbraPosePanel
         return best;
     }
 
-    private static PoseKitUi.PickState OptionPickState(Plugin plugin, PoseModInfo mod, PoseModOption option) =>
-        PoseKitUi.GetPickState(plugin, DescribePlayLabel(mod, option));
+    /// True if ANY of the option's own triggers is queued — a checkbox/mod-header badge still wants
+    /// to light up regardless of which specific trigger button under it was the one actually picked.
+    private static PoseKitUi.PickState OptionPickState(Plugin plugin, PoseModInfo mod, PoseModOption option)
+    {
+        var best = PoseKitUi.PickState.None;
+        foreach (var trigger in option.Triggers)
+        {
+            var state = PoseKitUi.GetPickState(plugin, DescribeTriggerLabel(mod, option, trigger));
+            if (state == PoseKitUi.PickState.Both) return state;
+            if (state != PoseKitUi.PickState.None) best = state;
+        }
+        return best;
+    }
 
     /// Badge next to a specific option (checkbox/selectable/implicit-option label) when it's the one
     /// queued — completes the "highlight the whole path" ask alongside the mod-level badge above and
@@ -249,10 +260,25 @@ public static class PenumbraPosePanel
 
     /// "ModName — OptionName" (or just "ModName" for an implicit/Default option) — this, not the
     /// generic pose slot name ("Sit Pose 2", shared by every mod redirecting that same game slot), is
-    /// what identifies a specific animation choice for queueing/highlighting/syncing. Mirrors the
-    /// "Animation: X" format the preset library already uses for a saved preset's Penumbra link.
+    /// what identifies a specific animation *choice* for queueing/highlighting/syncing at the
+    /// option/checkbox level. Mirrors the "Animation: X" format the preset library already uses for a
+    /// saved preset's Penumbra link.
     private static string DescribePlayLabel(PoseModInfo mod, PoseModOption option) =>
         option.Name is "" or "Default" ? mod.ModName : $"{mod.ModName} — {option.Name}";
+
+    /// DescribePlayLabel, narrowed to one specific trigger *button* under that option. Identical to
+    /// DescribePlayLabel for the overwhelming majority of options (exactly one trigger), so queueing/
+    /// syncing/force-select keep working exactly as before for those. Only an option bound to more
+    /// than one trigger (e.g. a redirect spanning two emote slots at once, "Sit"+"Doze") gets a
+    /// per-trigger suffix — without it, queueing/highlighting one specific pose button lit up every
+    /// other trigger button under the same option too, since they all shared one identity.
+    private static string DescribeTriggerLabel(PoseModInfo mod, PoseModOption option, PoseTriggerHint trigger)
+    {
+        var optionLabel = DescribePlayLabel(mod, option);
+        if (option.Triggers.Count <= 1) return optionLabel;
+        var triggerText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
+        return $"{optionLabel} ({triggerText})";
+    }
 
     /// Every currently-*selected* option's pose triggers across the whole discovered-mods list, keyed
     /// by PoseIdentifier — only selected options in an *enabled* mod are actually "live" in Penumbra
@@ -408,17 +434,20 @@ public static class PenumbraPosePanel
     private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
         Guid? collectionId, string idPrefix, Action? beforePlay = null)
     {
-        var playLabel = DescribePlayLabel(mod, option);
-        var pick = PoseKitUi.GetPickState(plugin, playLabel);
-
-        using (PoseKitUi.PushPickButtonStyle(pick))
+        var triggers = option.Triggers;
+        for (var i = 0; i < triggers.Count; i++)
         {
-            var triggers = option.Triggers;
-            for (var i = 0; i < triggers.Count; i++)
-            {
-                var trigger = triggers[i];
-                var buttonText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
+            var trigger = triggers[i];
+            // Each trigger button gets its own queued identity (DescribeTriggerLabel), not just the
+            // option's — an option bound to more than one trigger (e.g. a redirect spanning two emote
+            // slots at once) would otherwise highlight every one of its buttons as picked whenever any
+            // one of them was actually queued/force-selected/synced.
+            var triggerLabel = DescribeTriggerLabel(mod, option, trigger);
+            var pick = PoseKitUi.GetPickState(plugin, triggerLabel);
+            var buttonText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
 
+            using (PoseKitUi.PushPickButtonStyle(pick))
+            {
                 ImGui.SameLine();
                 if (ImGui.SmallButton($"{buttonText}##{idPrefix}{i}"))
                 {
@@ -426,28 +455,23 @@ public static class PenumbraPosePanel
 
                     // While paired, nothing plays yet — this queues toward the partner and highlights
                     // once they've picked something too, same as a preset click (PresetButtonsPanel).
-                    // The queued identity is the mod+option (playLabel), not this specific trigger
-                    // button — several trigger buttons (or several different mods redirecting the
-                    // same game pose slot) can otherwise share an identical per-trigger label like
-                    // "Sit Pose 2". Under mutual override, a second click (once this side already has
-                    // its own queued pick) forces playLabel onto the partner instead.
+                    // Under mutual override, a second click (once this side already has its own
+                    // queued pick) forces triggerLabel onto the partner instead.
                     if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
-                        plugin.CoupleQueueService.TryForceSelect(playLabel, Play);
+                        plugin.CoupleQueueService.TryForceSelect(triggerLabel, Play);
                     else if (plugin.PairingState.Active)
-                        plugin.CoupleQueueService.QueueSelection(playLabel, Play);
+                        plugin.CoupleQueueService.QueueSelection(triggerLabel, Play);
                     else
                         Play();
                 }
             }
-        }
 
-        PoseKitUi.DrawPickBadge(pick);
+            PoseKitUi.DrawPickBadge(pick);
+        }
     }
 
     /// The actual "make this play" sequence — enable the mod if needed, capture its Penumbra context
-    /// for the next preset save, then trigger. Shared by the per-button click (a specific trigger,
-    /// since one option can bind more than one) and TryPlayByLabel below (which, knowing only a
-    /// mod+option label and not which button was clicked, resolves to the option's first trigger).
+    /// for the next preset save, then trigger. Shared by the per-button click and TryPlayByLabel below.
     private static void PlayOptionTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
         PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
     {
@@ -457,33 +481,42 @@ public static class PenumbraPosePanel
         PlayTrigger(plugin, trigger);
     }
 
-    /// Resolves a "ModName — OptionName" label (DescribePlayLabel's format) against the currently
-    /// discovered mods and plays its first trigger if found — used to act on a force-selected name
-    /// received from a pairing partner (see Plugin's ForceSelectionReceived wiring), where only the
-    /// label is known, not which specific button was clicked. Returns false (does nothing) if no
-    /// discovered option currently matches — the receiving side may simply not have that mod.
-    public static bool TryPlayByLabel(Plugin plugin, string label)
+    /// Finds the mod/group/option/trigger whose DescribeTriggerLabel matches `label` exactly, or null
+    /// tuple if none currently matches — the receiving side may simply not have that mod.
+    private static (PoseModInfo Mod, PoseModGroup Group, PoseModOption Option, PoseTriggerHint Trigger)? FindByTriggerLabel(
+        Plugin plugin, string label)
     {
-        var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         foreach (var mod in plugin.DiscoveredPoses)
         foreach (var group in mod.Groups)
         foreach (var option in group.Options)
+        foreach (var trigger in option.Triggers)
         {
-            if (option.Triggers.Count == 0) continue;
-            if (DescribePlayLabel(mod, option) != label) continue;
-
-            var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
-            PlayOptionTrigger(plugin, mod, group, option, option.Triggers[0], collectionId, beforePlay);
-            return true;
+            if (DescribeTriggerLabel(mod, option, trigger) == label)
+                return (mod, group, option, trigger);
         }
-        return false;
+        return null;
     }
 
-    /// Draws just the trigger buttons (and pick badge) for the mod+option matching `label` — used by
-    /// PairingPanel to offer "your half" of whatever a paired partner just picked right next to the
-    /// pairing controls, without the user having to scroll down through the full Animations tab to
-    /// find the matching gesture themselves. Returns false (draws nothing) if no discovered option
-    /// currently matches — the receiving side may simply not have that mod.
+    /// Resolves a DescribeTriggerLabel-format label against the currently discovered mods and plays
+    /// its exact matching trigger if found — used to act on a force-selected name received from a
+    /// pairing partner (see Plugin's ForceSelectionReceived wiring). Returns false (does nothing) if
+    /// no discovered trigger currently matches.
+    public static bool TryPlayByLabel(Plugin plugin, string label)
+    {
+        if (FindByTriggerLabel(plugin, label) is not { } found) return false;
+        var (mod, group, option, trigger) = found;
+
+        var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+        var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
+        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+        return true;
+    }
+
+    /// Draws just the trigger buttons (and pick badge) for the mod+option owning the trigger matching
+    /// `label` — used by PairingPanel to offer "your half" of whatever a paired partner just picked
+    /// right next to the pairing controls, without the user having to scroll down through the full
+    /// Animations tab to find the matching gesture themselves. Returns false (draws nothing) if no
+    /// discovered trigger currently matches — the receiving side may simply not have that mod.
     ///
     /// For a multi-select group (e.g. a large checkbox-per-role pack like "417"), a single picked
     /// checkbox names only the picker's own role — the partner's own end of the same two-(or more-)
@@ -492,33 +525,27 @@ public static class PenumbraPosePanel
     /// single-select (combo) or implicit group still only ever has the one meaningful option.
     public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
     {
+        if (FindByTriggerLabel(plugin, label) is not { } found) return false;
+        var (mod, group, option, _) = found;
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
-        foreach (var mod in plugin.DiscoveredPoses)
-        foreach (var group in mod.Groups)
-        foreach (var option in group.Options)
+
+        if (!group.MultiSelect)
         {
-            if (option.Triggers.Count == 0) continue;
-            if (DescribePlayLabel(mod, option) != label) continue;
-
-            if (!group.MultiSelect)
-            {
-                ImGui.TextUnformatted(label);
-                DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitQuickPlay",
-                    SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
-                return true;
-            }
-
-            ImGui.TextUnformatted($"{mod.ModName} — {group.Name}:");
-            foreach (var sibling in group.Options)
-            {
-                if (sibling.Triggers.Count == 0) continue;
-                ImGui.TextUnformatted(sibling.Name);
-                DrawTriggerButtons(plugin, mod, group, sibling, collectionId, $"PoseKitQuickPlay{sibling.Name.GetHashCode()}",
-                    SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
-            }
+            ImGui.TextUnformatted(DescribePlayLabel(mod, option));
+            DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitQuickPlay",
+                SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
             return true;
         }
-        return false;
+
+        ImGui.TextUnformatted($"{mod.ModName} — {group.Name}:");
+        foreach (var sibling in group.Options)
+        {
+            if (sibling.Triggers.Count == 0) continue;
+            ImGui.TextUnformatted(sibling.Name);
+            DrawTriggerButtons(plugin, mod, group, sibling, collectionId, $"PoseKitQuickPlay{sibling.Name.GetHashCode()}",
+                SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
+        }
+        return true;
     }
 
     /// Unlike a real button click, nothing guarantees a label resolved from elsewhere (a forced/synced

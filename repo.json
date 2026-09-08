@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.2.6",
+    "AssemblyVersion": "0.0.2.7",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.6/PoseKit-0.0.2.6.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.6/PoseKit-0.0.2.6.zip",
-    "Changelog": "Couple Pairing's \"your half\" quick-pick now handles multi-select (checkbox) mods correctly — picking one checkbox from a group like a multi-role animation pack shows every sibling checkbox in that group for your partner, not just the one they picked, so they can find their own role's checkbox instead of scrolling the Animations tab. Add a Cancel button for a pending outgoing pairing invite, so a mistyped name/world doesn't get you stuck — you can back out and retype it.",
-    "LastUpdate": "1788902881"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.7/PoseKit-0.0.2.7.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.7/PoseKit-0.0.2.7.zip",
+    "Changelog": "Fix pick highlighting on the Animations tab (and its \"● you\"/\"● them\" badges) lighting up every trigger button under a mod option, not just the specific pose/gesture that was actually picked — an option bound to more than one trigger (e.g. a redirect spanning two emote slots at once) shared one identity across all of them. Each trigger button now has its own identity, so queueing, force-select, and the pairing quick-pick highlight only the exact one chosen.",
+    "LastUpdate": "1788903505"
   }
 ]
