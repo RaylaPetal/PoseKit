@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.9/PoseKit-0.0.2.9.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.9/PoseKit-0.0.2.9.zip",
     "Changelog": "Move the freecam button and its status/controls hint from the top of the main window into the Offsets tab, under a new \"Freecam\" section below Emote Sync.",
-    "LastUpdate": "1788910049"
+    "LastUpdate": "1788910192"
   }
 ]
