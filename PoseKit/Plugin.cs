@@ -15,6 +15,7 @@ using PoseKit.Penumbra;
 using PoseKit.Presets;
 using PoseKit.Sync;
 using PoseKit.Windows;
+using PoseKit.Camera;
 
 namespace PoseKit;
 
@@ -29,6 +30,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static ICondition Condition { get; private set; } = null!;
+    [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
 
     private const string CommandName = "/posekit";
 
@@ -42,6 +45,7 @@ public sealed class Plugin : IDalamudPlugin
     private WelcomeWindow WelcomeWindow { get; init; }
 
     public EmoteSyncCommand EmoteSync { get; init; }
+    public FreeCamService FreeCam { get; init; }
 
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
@@ -81,6 +85,7 @@ public sealed class Plugin : IDalamudPlugin
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
         EmoteSync = new EmoteSyncCommand();
+        FreeCam = new FreeCamService();
 
         OffsetEngine = new OffsetEngine();
         PresetManager = new PresetManager(Configuration);
@@ -150,7 +155,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the PoseKit window. Use '/posekit sync [delay <seconds>]' to resync nearby rendered player emotes."
+            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -164,6 +169,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        FreeCam.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
@@ -183,6 +189,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        FreeCam.Tick((float)framework.UpdateDelta.TotalSeconds);
         var localPlayer = ObjectTable.LocalPlayer;
 
         // Auto-clear once the character leaves the pose/emote loop entirely — without this, a
@@ -259,6 +266,18 @@ public sealed class Plugin : IDalamudPlugin
         if (splitArgs.Length == 0)
         {
             MainWindow.Toggle();
+            return;
+        }
+
+        if (string.Equals(splitArgs[0], "tfc", StringComparison.OrdinalIgnoreCase))
+        {
+            if (splitArgs.Length != 1)
+                ChatGui.PrintError("[PoseKit] Usage: /posekit tfc");
+            else
+            {
+                FreeCam.Toggle();
+                ChatGui.Print($"[PoseKit] {FreeCam.Status}");
+            }
             return;
         }
 
