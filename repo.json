@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.1.7",
+    "AssemblyVersion": "0.0.2.0",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.7/PoseKit-0.0.1.7.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.7/PoseKit-0.0.1.7.zip",
-    "Changelog": "Fix Animations-tab queueing: the queued/highlighted identity is now the mod+option (e.g. \"GoonersLife — Animation 34\") instead of the ambiguous generic pose slot name, and the whole path (mod, group/option, Play button) highlights together. Fix preset sync: only the anchor and name travel to your partner now — pose, offset, and Penumbra link are captured from whatever they're already playing, not copied from you.",
-    "LastUpdate": "1788895762"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.0/PoseKit-0.0.2.0.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.0/PoseKit-0.0.2.0.zip",
+    "Changelog": "Major: furniture anchoring and couple pairing. Anchor a preset to a nearby placed housing item (indoor or yard) instead of just a fixed world spot — the offset corrects against the item's live position, so it still lines up after the room's rearranged. Pair with a partner over /tell from the Animations tab (invite/accept/unpair, no relay, session-only); while paired, clicking any preset or animation queues and highlights it for both of you (color-coded: your pick, their pick, both-ready) instead of playing immediately, and fires both together once you've each picked something. Saving a preset while paired relays its anchor and name to your partner, who gets a matching entry built from whatever they're already playing.",
+    "LastUpdate": "1788896437"
   }
 ]

@@ -200,20 +200,18 @@ public static class PresetButtonsPanel
             : "";
         var label = $"{namedPose.Name}{anchorSuffix}";
 
-        var isQueued = plugin.CoupleQueueService.QueuedSelectionName == namedPose.Name;
-        if (isQueued)
-            ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerSelectionName != null ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
-
-        if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
+        var pick = PoseKitUi.GetPickState(plugin, namedPose.Name);
+        using (PoseKitUi.PushPickButtonStyle(pick))
         {
-            if (plugin.PairingState.Active)
-                plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));
-            else
-                plugin.PlayPreset(namedPose);
+            if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
+            {
+                if (plugin.PairingState.Active)
+                    plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));
+                else
+                    plugin.PlayPreset(namedPose);
+            }
         }
-
-        if (isQueued)
-            ImGui.PopStyleColor();
+        PoseKitUi.DrawPickBadge(pick);
 
         ImGui.SameLine();
         if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))
@@ -231,12 +229,14 @@ public static class PresetButtonsPanel
             PoseKitUi.TextWrappedDisabled($"Animation: {animation} (enabled automatically when played)");
         }
 
-        if (isQueued)
+        var status = pick switch
         {
-            var status = plugin.CoupleQueueService.PartnerSelectionName is { } partnerPick
-                ? $"queued — partner picked \"{partnerPick}\", playing shortly!"
-                : "queued — waiting on partner";
+            PoseKitUi.PickState.Both => "both picked — playing shortly!",
+            PoseKitUi.PickState.Own => "queued — waiting on partner",
+            PoseKitUi.PickState.Partner => "your partner picked this — pick it too to play together",
+            _ => null,
+        };
+        if (status != null)
             PoseKitUi.TextWrappedDisabled(status);
-        }
     }
 }

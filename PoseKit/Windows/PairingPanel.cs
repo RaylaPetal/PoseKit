@@ -24,8 +24,15 @@ public static class PairingPanel
                 plugin.PairingListener.Unpair();
 
             var queue = plugin.CoupleQueueService;
-            ImGui.TextUnformatted($"You picked: {queue.QueuedSelectionName ?? "(nothing yet)"}");
-            ImGui.TextUnformatted($"They picked: {queue.PartnerSelectionName ?? "(nothing yet)"}");
+            if (queue.QueuedSelectionName is { } own)
+                ImGui.TextColored(PoseKitUi.Accent, $"You picked: {own}");
+            else
+                ImGui.TextUnformatted("You picked: (nothing yet)");
+
+            if (queue.PartnerSelectionName is { } theirs)
+                ImGui.TextColored(PoseKitUi.Info, $"They picked: {theirs}");
+            else
+                ImGui.TextUnformatted("They picked: (nothing yet)");
 
             PoseKitUi.TextWrappedDisabled("Click any preset or animation to queue it — once you've both picked something, both play together.");
             return;

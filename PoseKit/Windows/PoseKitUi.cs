@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility.Raii;
 
 namespace PoseKit.Windows;
 
@@ -11,8 +12,14 @@ internal static class PoseKitUi
     public static readonly Vector4 AccentMuted = new(0.43f, 0.32f, 0.58f, 1f);
     private static readonly Vector4 AccentHovered = new(0.55f, 0.41f, 0.74f, 1f);
     private static readonly Vector4 AccentActive = new(0.66f, 0.50f, 0.88f, 1f);
-    private static readonly Vector4 Good = new(0.45f, 0.85f, 0.45f, 1f);
+    public static readonly Vector4 Good = new(0.45f, 0.85f, 0.45f, 1f);
     public static readonly Vector4 Bad = new(0.9f, 0.4f, 0.4f, 1f);
+
+    /// A distinct hue from the plugin's own lavender accent — used only for "this is the partner's
+    /// pick, not yours" so the two are never confusable at a glance.
+    public static readonly Vector4 Info = new(0.4f, 0.65f, 0.95f, 1f);
+    private static readonly Vector4 InfoMuted = new(0.24f, 0.36f, 0.55f, 1f);
+    private static readonly Vector4 GoodMuted = new(0.24f, 0.5f, 0.24f, 1f);
 
     /// Applies PoseKit's shared lavender control theme for the lifetime of the returned scope.
     /// Window backgrounds remain under Dalamud's global theme so the plugin still feels native.
@@ -91,6 +98,73 @@ internal static class PoseKitUi
         ImGui.SameLine();
         ImGui.TextUnformatted(label);
         return changed;
+    }
+
+    /// Whether — and whose — pick a given queueable item (a preset name, or a Penumbra "ModName —
+    /// OptionName" label) currently is, relative to the couple queue. Shared by the Presets and
+    /// Animations tabs so both highlight consistently instead of each reinventing the comparison
+    /// (the Presets tab previously only checked its own pick, missing the partner's entirely).
+    public enum PickState { None, Own, Partner, Both }
+
+    public static PickState GetPickState(Plugin plugin, string label)
+    {
+        var queue = plugin.CoupleQueueService;
+        var isOwn = queue.QueuedSelectionName == label;
+        var isPartner = queue.PartnerSelectionName == label;
+        return isOwn && isPartner ? PickState.Both : isOwn ? PickState.Own : isPartner ? PickState.Partner : PickState.None;
+    }
+
+    /// Strong, unmistakable styling for a queued item's button — filled background, a colored border,
+    /// and bright text, not just a small marker — so a pick reads clearly even at a glance. Own pick
+    /// is the plugin's usual accent color; the partner's pick uses a distinct blue so the two are
+    /// never confused; both-picked (about to fire) turns green. Dispose the returned scope (or just
+    /// `using`) to restore normal styling regardless of which branch was taken — PickState.None
+    /// pushes nothing and returns a no-op scope, so callers don't need to branch themselves.
+    public static PickStyleScope PushPickButtonStyle(PickState state)
+    {
+        (Vector4 Fill, Vector4 Border)? colors = state switch
+        {
+            PickState.Own => (AccentMuted, Accent),
+            PickState.Partner => (InfoMuted, Info),
+            PickState.Both => (GoodMuted, Good),
+            _ => null,
+        };
+        if (colors is not { } c) return new PickStyleScope(null, false);
+
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 2f);
+        var pushedColors = ImRaii.PushColor(ImGuiCol.Button, c.Fill)
+            .Push(ImGuiCol.ButtonHovered, c.Fill)
+            .Push(ImGuiCol.ButtonActive, c.Fill)
+            .Push(ImGuiCol.Border, c.Border)
+            .Push(ImGuiCol.Text, Vector4.One);
+        return new PickStyleScope(pushedColors, true);
+    }
+
+    /// Inline "● you" / "● them" / "● ready!" tag matching PushPickButtonStyle's color choice — put
+    /// next to a mod header or option label so the *whole path* to a pick reads clearly, not just its
+    /// own Play button.
+    public static void DrawPickBadge(PickState state)
+    {
+        (Vector4 Color, string Text)? badge = state switch
+        {
+            PickState.Own => (Accent, "● you"),
+            PickState.Partner => (Info, "● them"),
+            PickState.Both => (Good, "● ready!"),
+            _ => null,
+        };
+        if (badge is not { } b) return;
+
+        ImGui.SameLine();
+        ImGui.TextColored(b.Color, b.Text);
+    }
+
+    public readonly struct PickStyleScope(ImRaii.ColorDisposable? colors, bool pushedBorderVar) : System.IDisposable
+    {
+        public void Dispose()
+        {
+            colors?.Dispose();
+            if (pushedBorderVar) ImGui.PopStyleVar();
+        }
     }
 
     public readonly struct ThemeScope : System.IDisposable
