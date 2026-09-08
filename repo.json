@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.3/PoseKit-0.0.2.3.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.3/PoseKit-0.0.2.3.zip",
     "Changelog": "Fix Rescan leaving old temporary Penumbra changes active — it now removes every temporary mod setting PoseKit applied this session, restoring Penumbra's own default state, before re-scanning. Fix saving an anchored preset with an all-zero offset (e.g. right after clicking Reset) being blocked — the Save button no longer requires a non-zero offset to have been applied, since being in a pose is already the real precondition.",
-    "LastUpdate": "1788898978"
+    "LastUpdate": "1788899062"
   }
 ]
