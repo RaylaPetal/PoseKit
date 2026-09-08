@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.0/PoseKit-0.0.2.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.0/PoseKit-0.0.2.0.zip",
     "Changelog": "Major: furniture anchoring and couple pairing. Anchor a preset to a nearby placed housing item (indoor or yard) instead of just a fixed world spot — the offset corrects against the item's live position, so it still lines up after the room's rearranged. Pair with a partner over /tell from the Animations tab (invite/accept/unpair, no relay, session-only); while paired, clicking any preset or animation queues and highlights it for both of you (color-coded: your pick, their pick, both-ready) instead of playing immediately, and fires both together once you've each picked something. Saving a preset while paired relays its anchor and name to your partner, who gets a matching entry built from whatever they're already playing.",
-    "LastUpdate": "1788896437"
+    "LastUpdate": "1788896525"
   }
 ]
