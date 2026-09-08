@@ -54,6 +54,17 @@ public sealed class PairingState
         Changed?.Invoke();
     }
 
+    /// This side backing out of an invite it sent — e.g. a mistyped name/world with no accept
+    /// coming, and no other way back to the entry field otherwise. Purely local: the target never
+    /// gets told, since it never activates anything on their side by itself (only their own Accept
+    /// click, matched against this exact invite id, would) — a late accept arriving after this just
+    /// finds no matching OutgoingInvite and is ignored, same as any other unsolicited accept.
+    public void CancelOutgoingInvite()
+    {
+        OutgoingInvite = null;
+        Changed?.Invoke();
+    }
+
     public void Activate(PartnerIdentity peer)
     {
         Peer = peer;

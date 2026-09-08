@@ -71,6 +71,8 @@ public static class PairingPanel
         if (state.OutgoingInvite is { } outgoing)
         {
             ImGui.TextUnformatted($"Invite sent to {outgoing.Target}, waiting for them to accept...");
+            if (ImGui.Button("Cancel##PoseKitCancelInvite"))
+                state.CancelOutgoingInvite();
             return;
         }
 

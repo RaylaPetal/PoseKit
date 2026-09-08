@@ -479,11 +479,17 @@ public static class PenumbraPosePanel
         return false;
     }
 
-    /// Draws just the trigger buttons (and its pick badge) for the single mod+option matching
-    /// `label` — used by PairingPanel to offer "your half" of whatever a paired partner just picked
-    /// right next to the pairing controls, without the user having to scroll down through the full
-    /// Animations tab to find the matching gesture themselves. Returns false (draws nothing) if no
-    /// discovered option currently matches — the receiving side may simply not have that mod.
+    /// Draws just the trigger buttons (and pick badge) for the mod+option matching `label` — used by
+    /// PairingPanel to offer "your half" of whatever a paired partner just picked right next to the
+    /// pairing controls, without the user having to scroll down through the full Animations tab to
+    /// find the matching gesture themselves. Returns false (draws nothing) if no discovered option
+    /// currently matches — the receiving side may simply not have that mod.
+    ///
+    /// For a multi-select group (e.g. a large checkbox-per-role pack like "417"), a single picked
+    /// checkbox names only the picker's own role — the partner's own end of the same two-(or more-)
+    /// person animation is a *different* checkbox in that same group, not the one that was picked.
+    /// So every sibling option in the group gets its own row here, not just the matched one; a
+    /// single-select (combo) or implicit group still only ever has the one meaningful option.
     public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
     {
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
@@ -494,9 +500,22 @@ public static class PenumbraPosePanel
             if (option.Triggers.Count == 0) continue;
             if (DescribePlayLabel(mod, option) != label) continue;
 
-            ImGui.TextUnformatted(label);
-            DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitQuickPlay",
-                SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
+            if (!group.MultiSelect)
+            {
+                ImGui.TextUnformatted(label);
+                DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitQuickPlay",
+                    SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
+                return true;
+            }
+
+            ImGui.TextUnformatted($"{mod.ModName} — {group.Name}:");
+            foreach (var sibling in group.Options)
+            {
+                if (sibling.Triggers.Count == 0) continue;
+                ImGui.TextUnformatted(sibling.Name);
+                DrawTriggerButtons(plugin, mod, group, sibling, collectionId, $"PoseKitQuickPlay{sibling.Name.GetHashCode()}",
+                    SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
+            }
             return true;
         }
         return false;
