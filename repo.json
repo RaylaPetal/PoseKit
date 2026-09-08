@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.2.8",
+    "AssemblyVersion": "0.0.2.9",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.8/PoseKit-0.0.2.8.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.8/PoseKit-0.0.2.8.zip",
-    "Changelog": "Add a native freecam (\"/posekit tfc\" or the main-window button): fly the camera independently with WASD/E/Q and right-drag to look, while your character's own controls stay locked and posing stays untouched. Freecam exits automatically on zoning, logout, GPose, or cutscenes, and restores your original camera settings.",
-    "LastUpdate": "1788908154"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.9/PoseKit-0.0.2.9.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.9/PoseKit-0.0.2.9.zip",
+    "Changelog": "Move the freecam button and its status/controls hint from the top of the main window into the Offsets tab, under a new \"Freecam\" section below Emote Sync.",
+    "LastUpdate": "1788910049"
   }
 ]

@@ -47,13 +47,6 @@ public class MainWindow : Window, IDisposable
 
         PoseKitUi.DrawDependencyStatus(plugin);
 
-        if (ImGui.Button(plugin.FreeCam.Enabled ? "Disable freecam" : "Enable freecam"))
-            plugin.FreeCam.Toggle();
-        ImGui.SameLine();
-        PoseKitUi.TextWrappedDisabled(plugin.FreeCam.Status);
-        if (plugin.FreeCam.Enabled)
-            PoseKitUi.TextWrappedDisabled("WASD: move | E/Q: up/down | Right drag: look | /posekit tfc: exit");
-
         if (!ImGui.BeginTabBar("##PoseKitMainTabs", ImGuiTabBarFlags.None))
             return;
 
@@ -78,6 +71,14 @@ public class MainWindow : Window, IDisposable
                     plugin.EmoteSync.Sync();
                 ImGui.SameLine();
                 PoseKitUi.TextWrappedDisabled("Resets all nearby rendered players together on your client.");
+
+                PoseKitUi.SectionHeader("Freecam");
+                if (ImGui.Button(plugin.FreeCam.Enabled ? "Disable freecam" : "Enable freecam"))
+                    plugin.FreeCam.Toggle();
+                ImGui.SameLine();
+                PoseKitUi.TextWrappedDisabled(plugin.FreeCam.Status);
+                if (plugin.FreeCam.Enabled)
+                    PoseKitUi.TextWrappedDisabled("WASD: move | E/Q: up/down | Right drag: look | /posekit tfc: exit");
             }
             ImGui.EndChild();
             ImGui.EndTabItem();
