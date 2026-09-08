@@ -16,7 +16,7 @@ public sealed class PresetManager(Configuration configuration)
     public IReadOnlyList<NamedPose> Presets => CurrentCharacterConfig()?.Presets ?? (IReadOnlyList<NamedPose>)System.Array.Empty<NamedPose>();
 
     public NamedPose? Save(string name, PoseIdentifier pose, PoseOffset offset, PenumbraLink? penumbra = null,
-        LocationAnchor? anchor = null)
+        PresetAnchor? anchor = null)
     {
         var config = CurrentCharacterConfig();
         if (config == null) return null;

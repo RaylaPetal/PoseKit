@@ -52,6 +52,7 @@ public class MainWindow : Window, IDisposable
 
         if (ImGui.BeginTabItem("Animations"))
         {
+            PairingPanel.Draw(plugin);
             PenumbraPosePanel.DrawToolbar(plugin);
             if (ImGui.BeginChild("##PoseKitAnimationsScroll", Vector2.Zero, false, ImGuiWindowFlags.None))
                 PenumbraPosePanel.Draw(plugin);

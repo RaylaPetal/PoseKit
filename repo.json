@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.1.4",
+    "AssemblyVersion": "0.0.1.5",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.4/PoseKit-0.0.1.4.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.4/PoseKit-0.0.1.4.zip",
-    "Changelog": "Fix the Animations tab sometimes staying empty until a manual Rescan after a full game restart, and add an explicit per-mod Enabled checkbox in the Animation Library (fixing it not being clickable due to overlapping the mod header's own click region).",
-    "LastUpdate": "1788219565"
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.5/PoseKit-0.0.1.5.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.1.5/PoseKit-0.0.1.5.zip",
+    "Changelog": "Add furniture anchoring (pick a nearby placed item when saving a preset, and the offset corrects against its live position/rotation instead of a fixed world point) and couple pairing: pair with a partner over /tell from the Animations tab, then any preset you click while paired queues and highlights for both of you, playing together automatically once you've both picked something.",
+    "LastUpdate": "1788893793"
   }
 ]

@@ -8,3 +8,12 @@ bin/
 # Reference-only material, not part of PoseKit itself.
 PoseKit/SimpleHeels-master/
 PoseKit/Synastry-main/
+
+# OpenSpec planning artifacts (proposals/specs/design/tasks) — local working docs, not shipped code.
+openspec/
+
+# Agent/assistant tooling config — local dev setup, not part of PoseKit itself.
+.agents/
+.claude/
+.cline/
+.clinerules/

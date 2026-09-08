@@ -30,9 +30,10 @@ public class NamedPose
     public PoseOffset Offset;
     public PenumbraLink? Penumbra;
 
-    /// Where the player was standing when this preset was saved, if the user opted in — lets
-    /// replaying it fold a correction into the offset instead of only looking right from the
-    /// exact same spot. Null (the default, including for every preset saved before this existed)
-    /// means "not anchored," which is unaffected. See LocationAnchor.
-    public LocationAnchor? Anchor;
+    /// Where the player was standing (or which furniture they were near) when this preset was
+    /// saved, if the user opted in — lets replaying it fold a correction into the offset instead of
+    /// only looking right from the exact same spot/furniture instance. Null (the default, including
+    /// for every preset saved before this existed) means "not anchored," which is unaffected. See
+    /// PresetAnchor.
+    public PresetAnchor? Anchor;
 }

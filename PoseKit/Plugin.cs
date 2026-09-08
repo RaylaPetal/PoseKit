@@ -6,6 +6,7 @@ using Dalamud.IoC;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using PoseKit.Pairing;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
 using PoseKit.Sync;
@@ -46,6 +47,10 @@ public sealed class Plugin : IDalamudPlugin
     public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
     public List<PoseModInfo> DiscoveredPoses { get; private set; } = new();
 
+    public PairingState PairingState { get; init; }
+    public PairingListener PairingListener { get; init; }
+    public CoupleQueueService CoupleQueueService { get; init; }
+
     /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
     /// "update this preset" instead of only ever "save as new".
     public NamedPose? LoadedPreset { get; set; }
@@ -74,6 +79,10 @@ public sealed class Plugin : IDalamudPlugin
         PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge);
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
+
+        PairingState = new PairingState();
+        PairingListener = new PairingListener(PairingState);
+        CoupleQueueService = new CoupleQueueService(this, PairingState, PairingListener);
 
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);
@@ -110,6 +119,8 @@ public sealed class Plugin : IDalamudPlugin
         WelcomeWindow.Dispose();
         EmoteSync.Dispose();
         OffsetEngine.Dispose();
+        CoupleQueueService.Dispose();
+        PairingListener.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
     }
@@ -154,6 +165,7 @@ public sealed class Plugin : IDalamudPlugin
 
         OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
+        CoupleQueueService.Tick();
     }
 
     public void RefreshPenumbraPoses()

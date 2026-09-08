@@ -1,17 +1,25 @@
 using System;
 using System.Linq;
+using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
+using PoseKit.Furniture;
 using PoseKit.Presets;
 
 namespace PoseKit.Windows;
 
 /// <summary>Live-offset and saved-preset views. They share state but are drawn in separate main
-/// tabs so editing a pose and browsing the preset library each have room to breathe.</summary>
+/// tabs so editing a pose and browsing the preset library each have room to breathe. Pairing itself
+/// lives in PairingPanel (Animations tab) — presets don't name a partner; see DrawPresetEntry.</summary>
 public static class PresetButtonsPanel
 {
+    private enum AnchorMode { None, Spot, Furniture }
+
+    private static readonly FurnitureScanner furnitureScanner = new();
+
     private static string newPresetName = "";
-    private static bool anchorToSpot;
+    private static AnchorMode anchorMode = AnchorMode.None;
+    private static int selectedFurnitureIndex = -1;
 
     public static void DrawOffsets(Plugin plugin)
     {
@@ -75,18 +83,29 @@ public static class PresetButtonsPanel
 
         if (currentPose is { } pose)
         {
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
+            var nearbyFurniture = anchorMode == AnchorMode.Furniture ? furnitureScanner.ScanNearby(localPlayer) : null;
+
             ImGui.SetNextItemWidth(150);
             ImGui.InputTextWithHint("##PoseKitPresetName", "Preset name", ref newPresetName, 64);
             ImGui.SameLine();
-            var canSave = plugin.PoseTrigger.HasAppliedOffset && newPresetName.Trim().Length > 0;
+
+            var furnitureValid = anchorMode != AnchorMode.Furniture ||
+                                  (nearbyFurniture is { Count: > 0 } && selectedFurnitureIndex >= 0 && selectedFurnitureIndex < nearbyFurniture.Count);
+            var canSave = plugin.PoseTrigger.HasAppliedOffset && newPresetName.Trim().Length > 0 && furnitureValid;
+
             using (ImRaii.Disabled(!canSave))
             {
                 if (ImGui.Button("Save as preset##PoseKitSavePreset"))
                 {
-                    var localPlayer = Plugin.ObjectTable.LocalPlayer;
-                    var anchor = anchorToSpot && localPlayer != null
-                        ? LocationAnchor.Capture(localPlayer, Plugin.ClientState.TerritoryType)
-                        : null;
+                    PresetAnchor? anchor = anchorMode switch
+                    {
+                        AnchorMode.Spot when localPlayer != null =>
+                            PresetAnchor.FromSpot(LocationAnchor.Capture(localPlayer, Plugin.ClientState.TerritoryType)),
+                        AnchorMode.Furniture when localPlayer != null && nearbyFurniture is { } list && selectedFurnitureIndex < list.Count =>
+                            PresetAnchor.FromFurniture(FurnitureAnchor.Capture(localPlayer, list[selectedFurnitureIndex])),
+                        _ => null,
+                    };
 
                     var saved = plugin.PresetManager.Save(newPresetName.Trim(), pose, plugin.OffsetEngine.DesiredOffset,
                         plugin.LastPlayedPenumbraContext, anchor);
@@ -95,9 +114,53 @@ public static class PresetButtonsPanel
                 }
             }
 
-            ImGui.Checkbox("Anchor to current spot##PoseKitAnchorToSpot", ref anchorToSpot);
-            PoseKitUi.TextWrappedDisabled("Corrects the offset on replay so the character lands back in this exact " +
-                                           "world spot and facing, not just the same pose relative to wherever you are then.");
+            var mode = (int)anchorMode;
+            ImGui.RadioButton("No anchor##PoseKitAnchorNone", ref mode, (int)AnchorMode.None);
+            ImGui.SameLine();
+            ImGui.RadioButton("Anchor to current spot##PoseKitAnchorSpot", ref mode, (int)AnchorMode.Spot);
+            ImGui.SameLine();
+            ImGui.RadioButton("Anchor to furniture##PoseKitAnchorFurniture", ref mode, (int)AnchorMode.Furniture);
+            anchorMode = (AnchorMode)mode;
+
+            if (anchorMode == AnchorMode.Spot)
+            {
+                PoseKitUi.TextWrappedDisabled("Corrects the offset on replay so the character lands back in this exact " +
+                                               "world spot and facing, not just the same pose relative to wherever you are then.");
+            }
+            else if (anchorMode == AnchorMode.Furniture)
+            {
+                if (nearbyFurniture is { Count: > 0 } unsorted && localPlayer != null)
+                {
+                    // Nearest first — ScanNearby already limits to nearby items, this just orders
+                    // them by distance so the closest (most likely "the one you're on") sorts to the
+                    // top of the dropdown instead of object-array order.
+                    var list = unsorted.OrderBy(f => Vector3.Distance(f.Position, localPlayer.Position)).ToList();
+                    if (selectedFurnitureIndex < 0 || selectedFurnitureIndex >= list.Count) selectedFurnitureIndex = 0;
+
+                    string LabelFor(NearbyFurniture f) => $"{f.Name} ({Vector3.Distance(f.Position, localPlayer.Position):0.0}y)";
+
+                    ImGui.SetNextItemWidth(220);
+                    var preview = LabelFor(list[selectedFurnitureIndex]);
+                    if (ImGui.BeginCombo("##PoseKitFurniturePicker", preview))
+                    {
+                        for (var i = 0; i < list.Count; i++)
+                        {
+                            var isSelected = i == selectedFurnitureIndex;
+                            if (ImGui.Selectable($"{LabelFor(list[i])}##PoseKitFurniture{i}", isSelected))
+                                selectedFurnitureIndex = i;
+                        }
+                        ImGui.EndCombo();
+                    }
+                    PoseKitUi.TextWrappedDisabled("Corrects the offset on replay against this furniture item's current " +
+                                                   "position, so it still lands right even in a differently laid-out room.");
+                }
+                else
+                {
+                    PoseKitUi.TextWrappedDisabled("No furniture nearby to anchor to.");
+                    if (furnitureScanner.LastDiagnostic is { } diagnostic)
+                        PoseKitUi.TextWrappedDisabled($"Debug: {diagnostic}");
+                }
+            }
         }
 
         PoseKitUi.SectionHeader("Preset Library");
@@ -117,29 +180,53 @@ public static class PresetButtonsPanel
 
             ImGui.Indent();
             foreach (var namedPose in group.ToList())
-            {
-                var label = namedPose.Anchor != null ? $"{namedPose.Name} (anchored)" : namedPose.Name;
-                if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
-                    plugin.PlayPreset(namedPose);
-
-                ImGui.SameLine();
-                if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))
-                    plugin.PresetManager.Delete(namedPose);
-
-                if (namedPose.Anchor is { } anchor)
-                {
-                    var p = anchor.Position;
-                    PoseKitUi.TextWrappedDisabled(
-                        $"Location: {anchor.ZoneName} ({p.X:0.0}, {p.Y:0.0}, {p.Z:0.0})");
-                }
-
-                if (namedPose.Penumbra is { ModName.Length: > 0 } link)
-                {
-                    var animation = link.OptionName is "" or "Default" ? link.ModName : $"{link.ModName} — {link.OptionName}";
-                    PoseKitUi.TextWrappedDisabled($"Animation: {animation} (enabled automatically when played)");
-                }
-            }
+                DrawPresetEntry(plugin, namedPose);
             ImGui.Unindent();
+        }
+    }
+
+    private static void DrawPresetEntry(Plugin plugin, NamedPose namedPose)
+    {
+        var anchorSuffix = namedPose.Anchor?.Spot != null ? " (anchored)"
+            : namedPose.Anchor?.Furniture is { } furnitureAnchor ? $" (anchored: {furnitureAnchor.FurnitureName})"
+            : "";
+        var label = $"{namedPose.Name}{anchorSuffix}";
+
+        var isQueued = plugin.CoupleQueueService.QueuedSelection == namedPose;
+        if (isQueued)
+            ImGui.PushStyleColor(ImGuiCol.Button, plugin.CoupleQueueService.PartnerReady ? PoseKitUi.Accent : PoseKitUi.AccentMuted);
+
+        if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
+        {
+            if (plugin.PairingState.Active)
+                plugin.CoupleQueueService.QueueSelection(namedPose);
+            else
+                plugin.PlayPreset(namedPose);
+        }
+
+        if (isQueued)
+            ImGui.PopStyleColor();
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))
+            plugin.PresetManager.Delete(namedPose);
+
+        if (namedPose.Anchor?.Spot is { } spot)
+        {
+            var p = spot.Position;
+            PoseKitUi.TextWrappedDisabled($"Location: {spot.ZoneName} ({p.X:0.0}, {p.Y:0.0}, {p.Z:0.0})");
+        }
+
+        if (namedPose.Penumbra is { ModName.Length: > 0 } link)
+        {
+            var animation = link.OptionName is "" or "Default" ? link.ModName : $"{link.ModName} — {link.OptionName}";
+            PoseKitUi.TextWrappedDisabled($"Animation: {animation} (enabled automatically when played)");
+        }
+
+        if (isQueued)
+        {
+            var status = plugin.CoupleQueueService.PartnerReady ? "queued — partner ready!" : "queued — waiting on partner";
+            PoseKitUi.TextWrappedDisabled(status);
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using PoseKit.Furniture;
 using PoseKit.Presets;
 using PoseKit.Sync;
 
@@ -17,7 +18,9 @@ namespace PoseKit;
 /// </summary>
 public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
 {
-    private (PoseIdentifier Pose, PoseOffset Offset, LocationAnchor? Anchor)? cyclingTarget;
+    private readonly FurnitureScanner furnitureScanner = new();
+
+    private (PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor)? cyclingTarget;
     private int attempts;
     private long nextAttemptTime;
 
@@ -28,7 +31,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
-    public void Trigger(PoseIdentifier pose, PoseOffset offset, LocationAnchor? anchor = null)
+    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null)
     {
         switch (pose.EmoteModeId)
         {
@@ -86,7 +89,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
-    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, LocationAnchor? anchor, EmoteController.PoseType poseType, string enterCommand)
+    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, EmoteController.PoseType poseType, string enterCommand)
     {
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         var alreadyInThatEmote = currentPose is { } c && c.EmoteModeId == pose.EmoteModeId;
@@ -148,23 +151,28 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
     }
 
-    /// Folds a location anchor's correction into the base offset using the position/rotation at
-    /// the moment the offset is actually about to be applied — not whenever Trigger() was first
-    /// called. Sit/GroundSit/Doze poses can take several frames to actually settle into place
-    /// (EnterPoseCycle waits on CPoseState via Tick), and entering the pose can itself change the
-    /// character's facing (e.g. sitting snapping/settling rotation) before it's fully active — an
-    /// eagerly-computed correction would use stale rotation and land wrong.
-    private PoseOffset ResolveOffset(PoseOffset baseOffset, LocationAnchor? anchor)
+    /// Folds an anchor's correction into the base offset using the position/rotation at the moment
+    /// the offset is actually about to be applied — not whenever Trigger() was first called.
+    /// Sit/GroundSit/Doze poses can take several frames to actually settle into place (EnterPoseCycle
+    /// waits on CPoseState via Tick), and entering the pose can itself change the character's facing
+    /// (e.g. sitting snapping/settling rotation) before it's fully active — an eagerly-computed
+    /// correction would use stale rotation and land wrong. Dispatches to whichever of spot/furniture
+    /// the preset's PresetAnchor actually carries (the two are structurally exclusive already).
+    private PoseOffset ResolveOffset(PoseOffset baseOffset, PresetAnchor? anchor)
     {
-        if (anchor == null) return baseOffset;
+        if (anchor is not { IsSet: true }) return baseOffset;
 
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
-        var correction = localPlayer != null
-            ? anchor.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, baseOffset.Rotation)
-            : null;
+        if (localPlayer == null) return baseOffset;
+
+        PoseOffset? correction = anchor.Spot != null
+            ? anchor.Spot.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, baseOffset.Rotation)
+            : ResolveFurnitureCorrection(anchor.Furniture!, localPlayer, baseOffset.Rotation);
+
         if (correction is not { } c)
         {
-            Plugin.ChatGui.PrintError("[PoseKit] Can't restore this preset's saved spot — different zone or too far away. Playing with just the offset.");
+            var what = anchor.Spot != null ? "saved spot — different zone or too far away" : "furniture — none nearby";
+            Plugin.ChatGui.PrintError($"[PoseKit] Can't restore this preset's {what}. Playing with just the offset.");
             return baseOffset;
         }
 
@@ -173,5 +181,12 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
             Position = baseOffset.Position + c.Position,
             Rotation = baseOffset.Rotation + c.Rotation,
         };
+    }
+
+    private PoseOffset? ResolveFurnitureCorrection(FurnitureAnchor furnitureAnchor, IPlayerCharacter localPlayer, float baseRotationOffset)
+    {
+        var nearby = furnitureScanner.ScanNearby(localPlayer);
+        var live = furnitureAnchor.TryFindLiveInstance(nearby, localPlayer.Position);
+        return live is { } furniture ? furnitureAnchor.TryComputeCorrection(localPlayer, furniture, baseRotationOffset) : null;
     }
 }
