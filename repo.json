@@ -20,6 +20,6 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.10/PoseKit-0.0.2.10.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.10/PoseKit-0.0.2.10.zip",
     "Changelog": "Fix the paired quick-pick panel only offering the exact option a partner already picked for single-select animation dropdowns with per-person poses (e.g. animation 316); it now offers every option in that dropdown so the other person can pick a different pose.",
-    "LastUpdate": "1788963581"
+    "LastUpdate": "1788963901"
   }
 ]
