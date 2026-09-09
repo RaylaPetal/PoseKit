@@ -518,19 +518,31 @@ public static class PenumbraPosePanel
     /// Animations tab to find the matching gesture themselves. Returns false (draws nothing) if no
     /// discovered trigger currently matches — the receiving side may simply not have that mod.
     ///
-    /// The picker's chosen option names only the picker's own role or pose — the partner's own end of
-    /// the same two-(or more-)person animation is a *different* option in that same group, not the one
-    /// that was picked. This holds for a multi-select group (e.g. a large checkbox-per-role pack like
-    /// "417") but also for a single-select combo group whose options are per-participant poses rather
-    /// than interchangeable variants of one pose (nothing in the mod data distinguishes the two cases).
-    /// So every sibling option in the group gets its own row here, not just the matched one.
+    /// When the matched option itself already has more than one trigger (a combo option redirecting
+    /// both participants' animation files at once — confirmed against real GoonersLife groups like
+    /// "Sitting Animation List* 160 - 175" and "404 Bounce Ride"), that option alone already offers
+    /// every role's button via DrawTriggerButtons, so only it is shown. Only when the matched option
+    /// has exactly one trigger — meaning the role split lives *across* sibling options instead, e.g.
+    /// "316 Heated Cuddles"'s "Hugger"/"Hugged" pair, or a large checkbox-per-role pack like "417" —
+    /// does every sibling option in the group get its own row too; showing every sibling of a
+    /// multi-trigger option instead buries its own correct buttons under every unrelated scene/toggle
+    /// also in that group.
     public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
-        var (mod, group, _, _) = found;
+        var (mod, group, matchedOption, _) = found;
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
 
         ImGui.TextUnformatted($"{mod.ModName} — {group.Name}:");
+
+        if (matchedOption.Triggers.Count > 1)
+        {
+            ImGui.TextUnformatted(matchedOption.Name);
+            DrawTriggerButtons(plugin, mod, group, matchedOption, collectionId, $"PoseKitQuickPlay{matchedOption.Name.GetHashCode()}",
+                SelectOptionBeforePlay(plugin, mod, group, matchedOption, collectionId));
+            return true;
+        }
+
         foreach (var sibling in group.Options)
         {
             if (sibling.Triggers.Count == 0) continue;
