@@ -20,7 +20,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 {
     private readonly FurnitureScanner furnitureScanner = new();
 
-    private (PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor)? cyclingTarget;
+    private (PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor, bool Silent)? cyclingTarget;
     private int attempts;
     private long nextAttemptTime;
 
@@ -31,18 +31,23 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
-    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null)
+    /// <param name="silent">Suppresses the chat notice ResolveOffset would otherwise print when the
+    /// anchor can't be resolved — used for an accepted/auto-accepted relayed couple-preset half,
+    /// where couple-preset-relay's spec calls for the pose/offset to still play with no error shown,
+    /// unlike a local preset's own anchor failing (where the notice is useful, established
+    /// feedback).</param>
+    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false)
     {
         switch (pose.EmoteModeId)
         {
-            case 1: EnterPoseCycle(pose, offset, anchor, EmoteController.PoseType.GroundSit, "/groundsit"); break;
-            case 2: EnterPoseCycle(pose, offset, anchor, EmoteController.PoseType.Sit, "/sit"); break;
-            case 3: EnterPoseCycle(pose, offset, anchor, EmoteController.PoseType.Doze, "/doze"); break;
+            case 1: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.GroundSit, "/groundsit"); break;
+            case 2: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.Sit, "/sit"); break;
+            case 3: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.Doze, "/doze"); break;
             default:
                 cyclingTarget = null;
                 if (pose.SlashCommand is not { } command) break; // no resolvable trigger — don't fake one
                 ChatCommand.Execute($"/{command} motion");
-                ApplyOffset(ResolveOffset(offset, anchor));
+                ApplyOffset(ResolveOffset(offset, anchor, silent));
                 break;
         }
     }
@@ -89,7 +94,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
-    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, EmoteController.PoseType poseType, string enterCommand)
+    private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent, EmoteController.PoseType poseType, string enterCommand)
     {
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         var alreadyInThatEmote = currentPose is { } c && c.EmoteModeId == pose.EmoteModeId;
@@ -113,7 +118,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
             ChatCommand.Execute(enterCommand);
         }
 
-        cyclingTarget = (pose, offset, anchor);
+        cyclingTarget = (pose, offset, anchor, silent);
         attempts = 0;
         // 150ms/500ms initial settle delay and the 100ms/8-attempt cycling budget below both match
         // Synastry-main/EmoteLink/Plugin.cs's UpdatePoseCycling exactly, rather than guessing at
@@ -141,7 +146,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         if (c.CPoseState == target.Pose.CPoseState)
         {
-            ApplyOffset(ResolveOffset(target.Offset, target.Anchor));
+            ApplyOffset(ResolveOffset(target.Offset, target.Anchor, target.Silent));
             cyclingTarget = null;
             return;
         }
@@ -158,7 +163,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// (e.g. sitting snapping/settling rotation) before it's fully active — an eagerly-computed
     /// correction would use stale rotation and land wrong. Dispatches to whichever of spot/furniture
     /// the preset's PresetAnchor actually carries (the two are structurally exclusive already).
-    private PoseOffset ResolveOffset(PoseOffset baseOffset, PresetAnchor? anchor)
+    private PoseOffset ResolveOffset(PoseOffset baseOffset, PresetAnchor? anchor, bool silent = false)
     {
         if (anchor is not { IsSet: true }) return baseOffset;
 
@@ -172,8 +177,11 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         if (correction is not { } c)
         {
-            var what = anchor.Spot != null ? "saved spot — different zone or too far away" : "furniture — none nearby";
-            Plugin.ChatGui.PrintError($"[PoseKit] Can't restore this preset's {what}. Playing with just the offset.");
+            if (!silent)
+            {
+                var what = anchor.Spot != null ? "saved spot — different zone or too far away" : "furniture — none nearby";
+                Plugin.ChatGui.PrintError($"[PoseKit] Can't restore this preset's {what}. Playing with just the offset.");
+            }
             return baseOffset;
         }
 

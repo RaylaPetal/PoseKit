@@ -2,6 +2,7 @@ namespace PoseKit.Presets;
 
 using System.Collections.Generic;
 using PoseKit;
+using PoseKit.Pairing;
 
 /// <summary>Which Penumbra mod (and exact group selections) a preset was captured from, if any —
 /// lets replaying the preset re-enable that mod/option automatically instead of just applying the
@@ -41,5 +42,25 @@ public class NamedPose
     /// only looking right from the exact same spot/furniture instance. Null (the default, including
     /// for every preset saved before this existed) means "not anchored," which is unaffected. See
     /// PresetAnchor.
+    public PresetAnchor? Anchor;
+
+    /// The paired partner's own pose/offset/anchor/mod state, captured (via a request/reply over
+    /// /tell) at the moment this preset was saved with "include partner" enabled — null (the
+    /// default, including for every preset saved before this existed, or saved without that option)
+    /// means this is an ordinary, saver-only preset. Stored only here, never written to the
+    /// partner's own config — see couple-preset-relay's spec for why: the old model (partner
+    /// auto-saves its own matching copy) is what let the two sides silently diverge.
+    public PartnerHalf? PartnerHalf;
+}
+
+/// <summary>A partner's own pose/offset/anchor/mod state captured into one side's preset, plus who it
+/// was captured from — see NamedPose.PartnerHalf. Playing a preset with this set relays it back to
+/// that exact partner instead of the ordinary queue-and-match flow (see couple-preset-relay).</summary>
+public class PartnerHalf
+{
+    public PartnerIdentity Partner;
+    public PoseIdentifier Pose;
+    public PoseOffset Offset;
+    public PenumbraLink? Penumbra;
     public PresetAnchor? Anchor;
 }

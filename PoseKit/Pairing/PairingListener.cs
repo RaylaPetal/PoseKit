@@ -1,6 +1,7 @@
 namespace PoseKit.Pairing;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Dalamud.Game.Chat;
@@ -9,12 +10,17 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using PoseKit.Presets;
 
-/// <summary>Everything a "posekitpresetsync" tell carries, already decoded — see
-/// PairingComposer.ComposePresetSync for the wire shape and why pose/offset/Penumbra/any captured
-/// anchor coordinates deliberately aren't part of it. AnchorKind: 0 = none, 1 = spot (the receiver
-/// should capture its own current spot), 2 = furniture (the receiver should capture its own position
-/// relative to the nearby furniture matching FurnitureEntryId).</summary>
-public readonly record struct PresetSyncPayload(int AnchorKind, uint FurnitureEntryId, string FurnitureName, string Name);
+/// <summary>Which kind of anchor a "posekitcouplecapture" request is hinting the partner should
+/// capture for its own reply — see PairingComposer.ComposeCoupleCaptureRequest. AnchorKind: 0 = none,
+/// 1 = spot (the partner should capture its own current spot), 2 = furniture (the partner should
+/// capture its own position relative to the nearby furniture matching FurnitureEntryId, so both sides
+/// anchor to the same physical item).</summary>
+public readonly record struct AnchorHint(int AnchorKind, uint FurnitureEntryId, string FurnitureName);
+
+/// <summary>A fully decoded captured pose/offset/anchor/Penumbra state — the shared payload shape
+/// carried by both a "posekitcouplecapturereply" and a "posekitcoupleplay" relay. See
+/// PairingComposer's ComposeCapturedStateTail for the wire shape.</summary>
+public readonly record struct CapturedPoseState(PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor, PenumbraLink? Penumbra);
 
 /// <summary>
 /// Session-scoped, non-networked pairing handshake over /tell — no relay, no signing, no persistent
@@ -31,9 +37,11 @@ public sealed class PairingListener : IDisposable
     private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
     private const string QueueKeyword = "posekitqueue";
-    private const string PresetSyncKeyword = "posekitpresetsync";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
+    private const string CoupleCaptureKeyword = "posekitcouplecapture";
+    private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
+    private const string CoupleRelayKeyword = "posekitcoupleplay";
 
     private readonly PairingState state;
 
@@ -42,10 +50,19 @@ public sealed class PairingListener : IDisposable
     /// ever sent back in response to it.
     public event Action<PartnerIdentity, string>? QueueSignalReceived;
 
-    /// Raised when a "posekitpresetsync" tell arrives from the currently-paired peer — Plugin wires
-    /// this to capture the *receiving* side's own currently-playing pose/offset/Penumbra link under
-    /// the synced name and anchor (see PresetSyncPayload). Nothing is ever sent back in response.
-    public event Action<PartnerIdentity, PresetSyncPayload>? PresetSyncReceived;
+    /// Raised when a "posekitcouplecapture" request arrives from the currently-paired peer — Plugin
+    /// wires this to reply once with this side's own current pose/offset/anchor/Penumbra state (see
+    /// ReplyToCoupleCapture), or to send nothing at all if there's nothing to capture.
+    public event Action<PartnerIdentity, string, AnchorHint>? PartnerCaptureRequested;
+
+    /// Raised when a "posekitcouplecapturereply" tell arrives — carries the request id so the
+    /// requester can match it against its own in-flight save and discard anything stale/unmatched.
+    public event Action<PartnerIdentity, string, CapturedPoseState>? CoupleCaptureReplyReceived;
+
+    /// Raised when a "posekitcoupleplay" relay arrives from the currently-paired peer, naming the
+    /// preset and carrying the captured partner-half state to (depending on mutual override) either
+    /// prompt for accept/deny or apply immediately. Nothing is ever sent back in response.
+    public event Action<PartnerIdentity, string, CapturedPoseState>? CoupleRelayReceived;
 
     /// Raised when a "posekitforcequeue" tell arrives from the currently-paired peer — Plugin wires
     /// this to resolve the named item against this side's own presets/discovered animations and play
@@ -78,12 +95,25 @@ public sealed class PairingListener : IDisposable
         state.Activate(pending.Sender);
     }
 
-    /// Sends a preset-sync tell to the current pairing peer, if any — no-op while unpaired. Called
-    /// from the save-preset flow; see PairingComposer.ComposePresetSync for what's (and isn't) sent.
-    public void SyncPreset(PresetAnchor? anchor, string name)
+    /// Sends a capture request to the current pairing peer, if any — no-op while unpaired. Called
+    /// from the save-preset flow when "include partner" is enabled; see
+    /// PairingComposer.ComposeCoupleCaptureRequest for what's (and isn't) sent.
+    public void RequestPartnerCapture(string requestId, PresetAnchor? anchorHint)
     {
         if (state.Peer is { } peer)
-            PairingSender.Send(PairingComposer.ComposePresetSync(peer, anchor, name));
+            PairingSender.Send(PairingComposer.ComposeCoupleCaptureRequest(peer, requestId, anchorHint));
+    }
+
+    /// Replies once to a capture request with this side's own captured state — never sent unprompted.
+    public void ReplyToCoupleCapture(PartnerIdentity target, string requestId, CapturedPoseState captured) =>
+        PairingSender.Send(PairingComposer.ComposeCoupleCaptureReply(target, requestId, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+
+    /// Relays a captured partner half to the current pairing peer when playing a preset that carries
+    /// one — no-op while unpaired. See PairingComposer.ComposeCoupleRelay.
+    public void RelayCouplePreset(string presetName, CapturedPoseState captured)
+    {
+        if (state.Peer is { } peer)
+            PairingSender.Send(PairingComposer.ComposeCoupleRelay(peer, presetName, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
     }
 
     /// Sends this side's own override-toggle state to the current pairing peer, if any — no-op while
@@ -144,11 +174,30 @@ public sealed class PairingListener : IDisposable
             return;
         }
 
-        if (text.StartsWith(PresetSyncKeyword, StringComparison.OrdinalIgnoreCase))
+        if (text.StartsWith(CoupleCaptureReplyKeyword, StringComparison.OrdinalIgnoreCase))
         {
-            if (!state.Active || state.Peer is not { } syncPeer || !syncPeer.Equals(sender)) return;
-            if (TryParsePresetSync(text[PresetSyncKeyword.Length..].Trim(), out var payload))
-                PresetSyncReceived?.Invoke(sender, payload);
+            // Checked before CoupleCaptureKeyword below since it's a prefix of this longer keyword.
+            if (!state.Active || state.Peer is not { } replyPeer || !replyPeer.Equals(sender)) return;
+            var (requestId, tail) = SplitFirstToken(text[CoupleCaptureReplyKeyword.Length..].Trim());
+            if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 5, out var captured, out _))
+                CoupleCaptureReplyReceived?.Invoke(sender, requestId, captured);
+            return;
+        }
+
+        if (text.StartsWith(CoupleCaptureKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Active || state.Peer is not { } capturePeer || !capturePeer.Equals(sender)) return;
+            if (TryParseAnchorHint(text[CoupleCaptureKeyword.Length..].Trim(), out var requestId, out var hint) && requestId.Length > 0)
+                PartnerCaptureRequested?.Invoke(sender, requestId, hint);
+            return;
+        }
+
+        if (text.StartsWith(CoupleRelayKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Active || state.Peer is not { } relayPeer || !relayPeer.Equals(sender)) return;
+            if (TryParseCapturedState(text[CoupleRelayKeyword.Length..].Trim(), compoundParts: 6, out var captured, out var presetName)
+                && presetName.Length > 0)
+                CoupleRelayReceived?.Invoke(sender, presetName, captured);
             return;
         }
 
@@ -169,25 +218,79 @@ public sealed class PairingListener : IDisposable
         }
     }
 
-    /// Mirrors PairingComposer.ComposePresetSync's wire shape exactly — see that method's doc for the
-    /// field layout. Fails closed: any malformed/truncated field drops the whole tell rather than
-    /// guessing at a partial preset.
-    private static bool TryParsePresetSync(string body, out PresetSyncPayload payload)
+    /// Mirrors PairingComposer.ComposeCoupleCaptureRequest's wire shape: "&lt;requestId&gt;
+    /// &lt;anchorKind&gt; &lt;entryId&gt; &lt;furnitureName&gt;". Fails closed: any malformed/
+    /// truncated field drops the whole tell.
+    private static bool TryParseAnchorHint(string body, out string requestId, out AnchorHint hint)
     {
-        payload = default;
-
-        var (anchorKindToken, r1) = SplitFirstToken(body);
-        var (entryIdToken, compound) = SplitFirstToken(r1);
+        hint = default;
+        var (idToken, r1) = SplitFirstToken(body);
+        var (anchorKindToken, r2) = SplitFirstToken(r1);
+        var (entryIdToken, furnitureName) = SplitFirstToken(r2);
+        requestId = idToken;
 
         if (!int.TryParse(anchorKindToken, NumberStyles.None, CultureInfo.InvariantCulture, out var anchorKind)) return false;
         if (!uint.TryParse(entryIdToken, NumberStyles.None, CultureInfo.InvariantCulture, out var entryId)) return false;
 
-        var parts = compound.Split('|', 2);
-        if (parts.Length < 2) return false;
-        var (furnitureName, name) = (parts[0], parts[1]);
-        if (name.Length == 0) return false;
+        hint = new AnchorHint(anchorKind, entryId, furnitureName);
+        return true;
+    }
 
-        payload = new PresetSyncPayload(anchorKind, entryId, furnitureName, name);
+    /// Mirrors PairingComposer.ComposeCapturedStateTail's wire shape exactly — see that method's doc
+    /// for the field layout and free-text ordering. Fails closed: any malformed/truncated field drops
+    /// the whole tell rather than guessing at a partial capture. `compoundParts` is 5 for a capture
+    /// reply (no preset name) or 6 for a play relay (preset name last); `extra` carries that 6th
+    /// field (the preset name) when present, empty otherwise.
+    private static bool TryParseCapturedState(string body, int compoundParts, out CapturedPoseState state, out string extra)
+    {
+        state = default;
+        extra = "";
+
+        var (tokens, remainder) = SplitTokens(body, 13);
+        if (tokens.Length < 13) return false;
+        var ic = CultureInfo.InvariantCulture;
+
+        if (!uint.TryParse(tokens[0], NumberStyles.None, ic, out var emoteModeId)) return false;
+        if (!byte.TryParse(tokens[1], NumberStyles.None, ic, out var cposeState)) return false;
+        if (!float.TryParse(tokens[2], NumberStyles.Float, ic, out var offX)) return false;
+        if (!float.TryParse(tokens[3], NumberStyles.Float, ic, out var offY)) return false;
+        if (!float.TryParse(tokens[4], NumberStyles.Float, ic, out var offZ)) return false;
+        if (!float.TryParse(tokens[5], NumberStyles.Float, ic, out var offRot)) return false;
+        if (!int.TryParse(tokens[6], NumberStyles.None, ic, out var anchorKind)) return false;
+        if (!uint.TryParse(tokens[7], NumberStyles.None, ic, out var anchorNum)) return false;
+        if (!float.TryParse(tokens[8], NumberStyles.Float, ic, out var ax)) return false;
+        if (!float.TryParse(tokens[9], NumberStyles.Float, ic, out var ay)) return false;
+        if (!float.TryParse(tokens[10], NumberStyles.Float, ic, out var az)) return false;
+        if (!float.TryParse(tokens[11], NumberStyles.Float, ic, out var arot)) return false;
+        if (!int.TryParse(tokens[12], NumberStyles.None, ic, out var hasPenumbra)) return false;
+
+        var compound = remainder.Split('|', compoundParts);
+        if (compound.Length < compoundParts) return false;
+        var (furnitureName, groupName, optionName, modName, modDirectory) =
+            (compound[0], compound[1], compound[2], compound[3], compound[4]);
+        if (compoundParts > 5) extra = compound[5];
+
+        PresetAnchor? anchor = anchorKind switch
+        {
+            1 => PresetAnchor.FromSpot(new LocationAnchor
+            {
+                TerritoryType = anchorNum, Position = new System.Numerics.Vector3(ax, ay, az), Rotation = arot,
+            }),
+            2 => PresetAnchor.FromFurniture(new FurnitureAnchor
+            {
+                EntryId = anchorNum, FurnitureName = furnitureName,
+                RelativePosition = new System.Numerics.Vector3(ax, ay, az), RelativeRotation = arot,
+            }),
+            _ => null,
+        };
+
+        PenumbraLink? penumbra = hasPenumbra != 0
+            ? new PenumbraLink { ModDirectory = modDirectory, ModName = modName, GroupName = groupName, OptionName = optionName }
+            : null;
+        if (penumbra != null && groupName.Length > 0)
+            penumbra.GroupSelections[groupName] = [optionName];
+
+        state = new CapturedPoseState(new PoseIdentifier(emoteModeId, cposeState), new PoseOffset { Position = new System.Numerics.Vector3(offX, offY, offZ), Rotation = offRot }, anchor, penumbra);
         return true;
     }
 
@@ -196,6 +299,23 @@ public sealed class PairingListener : IDisposable
         var trimmed = text.Trim();
         var spaceIndex = trimmed.IndexOf(' ');
         return spaceIndex < 0 ? (trimmed, "") : (trimmed[..spaceIndex], trimmed[(spaceIndex + 1)..].Trim());
+    }
+
+    /// Reads up to `count` leading whitespace-separated tokens, leaving everything after the last one
+    /// (including any further whitespace-separated words) as the untouched remainder — used ahead of
+    /// a trailing '|'-joined compound whose own fields may themselves contain spaces.
+    private static (string[] Tokens, string Remainder) SplitTokens(string text, int count)
+    {
+        var tokens = new List<string>(count);
+        var remaining = text;
+        for (var i = 0; i < count; i++)
+        {
+            var (token, rest) = SplitFirstToken(remaining);
+            if (token.Length == 0) break;
+            tokens.Add(token);
+            remaining = rest;
+        }
+        return (tokens.ToArray(), remaining);
     }
 
     /// Prefers a PlayerPayload when present (structured, unambiguous); falls back to parsing the

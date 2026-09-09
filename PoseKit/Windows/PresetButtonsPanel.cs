@@ -20,6 +20,7 @@ public static class PresetButtonsPanel
     private static string newPresetName = "";
     private static AnchorMode anchorMode = AnchorMode.None;
     private static int selectedFurnitureIndex = -1;
+    private static bool includePartner;
 
     public static void DrawOffsets(Plugin plugin)
     {
@@ -113,18 +114,31 @@ public static class PresetButtonsPanel
                     };
 
                     var name = newPresetName.Trim();
-                    var saved = plugin.PresetManager.Save(name, pose, plugin.OffsetEngine.DesiredOffset,
-                        plugin.LastPlayedPenumbraContext, anchor);
-                    plugin.LoadedPreset = saved;
-
-                    // While paired, the partner's client auto-saves a matching preset under this same
-                    // name and anchor — their own currently-playing pose/offset/Penumbra link, not
-                    // this side's. See PairingComposer.ComposePresetSync.
-                    if (plugin.PairingState.Active)
-                        plugin.PairingListener.SyncPreset(anchor, name);
+                    if (includePartner && plugin.PairingState.Active)
+                    {
+                        // Asynchronous: captures the partner's own current state over a /tell
+                        // request/reply and completes the save once it arrives (or times out) — see
+                        // CouplePresetCaptureService. LoadedPreset is picked up via its Saved event
+                        // rather than set here, since the save doesn't happen synchronously.
+                        plugin.CouplePresetCaptureService.RequestAndSave(name, pose, plugin.OffsetEngine.DesiredOffset,
+                            plugin.LastPlayedPenumbraContext, anchor);
+                    }
+                    else
+                    {
+                        var saved = plugin.PresetManager.Save(name, pose, plugin.OffsetEngine.DesiredOffset,
+                            plugin.LastPlayedPenumbraContext, anchor);
+                        plugin.LoadedPreset = saved;
+                    }
 
                     newPresetName = "";
                 }
+            }
+
+            if (plugin.PairingState.Active)
+            {
+                ImGui.Checkbox("Include partner##PoseKitIncludePartner", ref includePartner);
+                PoseKitUi.TextWrappedDisabled("Captures your partner's current pose/offset/anchor/mod too, saved only in " +
+                                               "your own library. Playing it later relays their half to them for accept/deny.");
             }
 
             var mode = (int)anchorMode;
@@ -206,17 +220,23 @@ public static class PresetButtonsPanel
         var anchorSuffix = namedPose.Anchor?.Spot != null ? " (anchored)"
             : namedPose.Anchor?.Furniture is { } furnitureAnchor ? $" (anchored: {furnitureAnchor.FurnitureName})"
             : "";
-        var label = $"{namedPose.Name}{anchorSuffix}";
+        var coupleSuffix = namedPose.PartnerHalf != null ? " (couple)" : "";
+        var label = $"{namedPose.Name}{anchorSuffix}{coupleSuffix}";
 
         var pick = PoseKitUi.GetPickState(plugin, namedPose.Name);
         using (PoseKitUi.PushPickButtonStyle(pick))
         {
             if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
             {
+                // A preset with a captured partner half plays and relays immediately rather than
+                // going through the queue-and-wait-for-a-matching-selection flow — see
+                // couple-preset-relay's spec and Plugin.PlayCouplePreset.
+                if (namedPose.PartnerHalf != null)
+                    plugin.PlayCouplePreset(namedPose);
                 // Under mutual override, a second click (once this side already has its own queued
                 // pick) forces this preset onto the partner instead of replacing this side's own —
                 // see CoupleQueueService.TryForceSelect.
-                if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
+                else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
                     plugin.CoupleQueueService.TryForceSelect(namedPose.Name, () => plugin.PlayPreset(namedPose));
                 else if (plugin.PairingState.Active)
                     plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));

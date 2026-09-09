@@ -24,6 +24,20 @@ public static class PairingPanel
             if (ImGui.Button("Unpair##PoseKitUnpair"))
                 plugin.PairingListener.Unpair();
 
+            var relay = plugin.CoupleRelayInbox;
+            if (relay.Sender is { } relaySender && relay.PresetName is { } relayPresetName)
+            {
+                ImGui.TextColored(PoseKitUi.Info, $"{relaySender} wants to play \"{relayPresetName}\" with you.");
+                if (ImGui.Button("Accept##PoseKitAcceptCoupleRelay"))
+                {
+                    if (relay.Accept() is { } captured)
+                        plugin.ApplyCapturedPartnerState(captured);
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Deny##PoseKitDenyCoupleRelay"))
+                    relay.Deny();
+            }
+
             var queue = plugin.CoupleQueueService;
             if (queue.QueuedSelectionName is { } own)
                 ImGui.TextColored(PoseKitUi.Accent, $"You picked: {own}");

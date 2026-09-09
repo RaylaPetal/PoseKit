@@ -58,6 +58,8 @@ public sealed class Plugin : IDalamudPlugin
     public PairingState PairingState { get; init; }
     public PairingListener PairingListener { get; init; }
     public CoupleQueueService CoupleQueueService { get; init; }
+    public CouplePresetCaptureService CouplePresetCaptureService { get; init; }
+    public CoupleRelayInbox CoupleRelayInbox { get; init; }
 
     /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
     /// "update this preset" instead of only ever "save as new".
@@ -75,9 +77,9 @@ public sealed class Plugin : IDalamudPlugin
     /// scan there can come back empty and never get retried without a manual "Rescan" click.
     private bool hasScannedPenumbraPoses;
 
-    /// Used only to resolve a synced furniture anchor's EntryId against this side's own nearby
-    /// furniture (see the PresetSyncReceived wiring below) — PresetButtonsPanel and PoseTrigger each
-    /// keep their own instance for the same reason (a live furniture scan can't be cached).
+    /// Used only to resolve a capture-request's furniture-anchor hint against this side's own nearby
+    /// furniture (see TryCaptureOwnStateForPartnerRequest below) — PresetButtonsPanel and PoseTrigger
+    /// each keep their own instance for the same reason (a live furniture scan can't be cached).
     private readonly FurnitureScanner furnitureScanner = new();
 
     public Plugin()
@@ -97,36 +99,30 @@ public sealed class Plugin : IDalamudPlugin
         PairingState = new PairingState();
         PairingListener = new PairingListener(PairingState);
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
+        CouplePresetCaptureService = new CouplePresetCaptureService(PairingState, PairingListener, PresetManager);
+        CouplePresetCaptureService.Saved += saved => LoadedPreset = saved;
+        CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener);
+        CoupleRelayInbox.AutoApply += ApplyCapturedPartnerState;
 
-        // A preset saved while paired lands here for the receiving side: capture *this* side's own
-        // currently-playing pose/offset/Penumbra link — AND its own anchor (own current spot, or own
-        // position relative to a matching nearby furniture item) — under the synced name, never the
-        // sender's, since each side of a couple pose is typically already sitting/standing in its own
-        // different spot (own mod/option, own offset, own seat on the same sofa) by the time either
-        // one saves it as a preset; reusing the sender's captured position/rotation would anchor this
-        // side to the SENDER's spot instead of its own. Silently does nothing if this side isn't
-        // currently in a pose, or (for a furniture anchor) can't find a matching item nearby — there's
-        // nothing meaningful to capture.
-        PairingListener.PresetSyncReceived += (_, payload) =>
+        // A capture request arrives here when the partner is saving an "include partner" preset:
+        // reply once with *this* side's own currently-playing pose/offset/Penumbra link — AND its own
+        // anchor (own current spot, or own position relative to a matching nearby furniture item) —
+        // never the requester's, since each side of a couple pose is typically already sitting/
+        // standing in its own different spot (own mod/option, own offset, own seat on the same sofa)
+        // by the time either one saves it as a preset. Silently sends nothing if this side isn't
+        // currently in a pose — there's nothing meaningful to capture, per couple-preset-relay's
+        // "silently omitted" requirement.
+        PairingListener.PartnerCaptureRequested += (sender, requestId, hint) =>
         {
-            if (PoseIdentifier.FromCharacter(ObjectTable.LocalPlayer) is not { } pose) return;
-            var localPlayer = ObjectTable.LocalPlayer;
-            if (localPlayer == null) return;
-
-            PresetAnchor? anchor = payload.AnchorKind switch
-            {
-                1 => PresetAnchor.FromSpot(LocationAnchor.Capture(localPlayer, ClientState.TerritoryType)),
-                2 => TryCaptureOwnFurnitureAnchor(localPlayer, payload.FurnitureEntryId),
-                _ => null,
-            };
-            PresetManager.Save(payload.Name, pose, OffsetEngine.DesiredOffset, LastPlayedPenumbraContext, anchor);
+            if (TryCaptureOwnStateForPartnerRequest(hint) is { } captured)
+                PairingListener.ReplyToCoupleCapture(sender, requestId, captured);
         };
 
         // A force-selected name arrives here with no local queue bookkeeping to do — it's resolved
         // against what's actually available on *this* side (a saved preset by name, then a
         // Penumbra-discovered animation by its "ModName — OptionName" label) and played immediately
         // if found. Silently does nothing if neither resolves — the receiving side may simply not
-        // have that preset or mod, same best-effort tolerance as PresetSyncReceived above.
+        // have that preset or mod, same best-effort tolerance as TryCaptureOwnStateForPartnerRequest above.
         PairingListener.ForceSelectionReceived += (_, name) =>
         {
             var preset = PresetManager.Presets.FirstOrDefault(p => p.Name == name);
@@ -182,6 +178,8 @@ public sealed class Plugin : IDalamudPlugin
         EmoteSync.Dispose();
         OffsetEngine.Dispose();
         CoupleQueueService.Dispose();
+        CouplePresetCaptureService.Dispose();
+        CoupleRelayInbox.Dispose();
         PairingListener.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
@@ -229,6 +227,8 @@ public sealed class Plugin : IDalamudPlugin
         OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
         CoupleQueueService.Tick();
+        CouplePresetCaptureService.Tick();
+        CoupleRelayInbox.Tick();
     }
 
     /// Resets every temporary Penumbra setting PoseKit itself applied this session before
@@ -245,7 +245,32 @@ public sealed class Plugin : IDalamudPlugin
     /// right animation is actually active by the time the character enters it — not just the offset.
     public void PlayPreset(NamedPose pose)
     {
-        if (pose.Penumbra is { } link && PenumbraIpc.TryGetLocalPlayerCollectionId() is { } collectionId)
+        PlayPose(pose.Pose, pose.Offset, pose.Anchor, pose.Penumbra);
+        LoadedPreset = pose;
+    }
+
+    /// Plays a preset that carries a captured partner half (see NamedPose.PartnerHalf):
+    /// this side's own half plays immediately as usual, and — only while paired with the exact
+    /// partner it was captured from — the partner half is relayed for their accept/deny (or immediate
+    /// auto-play under mutual override). Paired with someone else, or not paired at all, only this
+    /// side's own half plays and nothing is relayed. See couple-preset-relay's spec.
+    public void PlayCouplePreset(NamedPose pose)
+    {
+        PlayPreset(pose);
+        if (pose.PartnerHalf is not { } half) return;
+        if (PairingState.Active && PairingState.Peer is { } peer && peer.Equals(half.Partner))
+            PairingListener.RelayCouplePreset(pose.Name, new CapturedPoseState(half.Pose, half.Offset, half.Anchor, half.Penumbra));
+    }
+
+    /// Applies a captured pose/offset/anchor/Penumbra state directly — the same best-effort pipeline
+    /// PlayPreset uses, just against loose fields instead of a saved NamedPose. Used for an accepted
+    /// (or mutual-override auto-accepted) relayed partner half, which isn't itself a saved preset.
+    public void ApplyCapturedPartnerState(CapturedPoseState captured) =>
+        PlayPose(captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra, silent: true);
+
+    private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false)
+    {
+        if (penumbra is { } link && PenumbraIpc.TryGetLocalPlayerCollectionId() is { } collectionId)
         {
             var selections = new Dictionary<string, IReadOnlyList<string>>();
             foreach (var (group, options) in link.GroupSelections)
@@ -255,8 +280,7 @@ public sealed class Plugin : IDalamudPlugin
                 PenumbraIpc.TryRedrawLocalPlayer();
         }
 
-        LoadedPreset = pose;
-        PoseTrigger.Trigger(pose);
+        PoseTrigger.Trigger(pose, offset, anchor, silent);
     }
 
     private void OnCommand(string command, string args)
@@ -290,6 +314,37 @@ public sealed class Plugin : IDalamudPlugin
         var error = EmoteSync.HandleArgs(splitArgs[1..]);
         if (error != null)
             ChatGui.PrintError($"[PoseKit] {error}");
+    }
+
+    /// Builds this side's own reply to a partner's capture request: current pose/offset, own anchor
+    /// (per the request's anchor-kind hint), and own Penumbra mod/group/option — reduced to just the
+    /// one relevant group/option pair (not the mod's full GroupSelections), since that's all the
+    /// receiving side needs to re-enable the same selection. Null if this side isn't currently in a
+    /// pose — nothing meaningful to capture.
+    private CapturedPoseState? TryCaptureOwnStateForPartnerRequest(AnchorHint hint)
+    {
+        var localPlayer = ObjectTable.LocalPlayer;
+        if (PoseIdentifier.FromCharacter(localPlayer) is not { } pose || localPlayer == null) return null;
+
+        PresetAnchor? anchor = hint.AnchorKind switch
+        {
+            1 => PresetAnchor.FromSpot(LocationAnchor.Capture(localPlayer, ClientState.TerritoryType)),
+            2 => TryCaptureOwnFurnitureAnchor(localPlayer, hint.FurnitureEntryId),
+            _ => null,
+        };
+
+        PenumbraLink? penumbra = null;
+        if (LastPlayedPenumbraContext is { ModDirectory.Length: > 0 } link)
+        {
+            penumbra = new PenumbraLink
+            {
+                ModDirectory = link.ModDirectory, ModName = link.ModName, GroupName = link.GroupName, OptionName = link.OptionName,
+            };
+            if (link.GroupName.Length > 0)
+                penumbra.GroupSelections[link.GroupName] = [link.OptionName];
+        }
+
+        return new CapturedPoseState(pose, OffsetEngine.DesiredOffset, anchor, penumbra);
     }
 
     /// Finds the nearest currently-live furniture instance matching the synced EntryId and captures

@@ -357,7 +357,7 @@ public static class PenumbraPosePanel
             if (trigger.SlashCommand is { } command && Matches(command, filter)) return true;
             if (trigger.PoseIdentifier is not { } pose) continue;
             if (Matches(pose.DisplayName, filter) || Matches(pose.EmoteModeId.ToString(), filter)
-                || Matches((pose.CPoseState + 1).ToString(), filter))
+                || Matches(pose.CPoseState.ToString(), filter))
                 return true;
         }
         return false;

@@ -1,5 +1,6 @@
 namespace PoseKit.Pairing;
 
+using System.Collections.Generic;
 using System.Globalization;
 using PoseKit.Presets;
 
@@ -19,9 +20,11 @@ public static class PairingComposer
     private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
     private const string QueueKeyword = "posekitqueue";
-    private const string PresetSyncKeyword = "posekitpresetsync";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
+    private const string CoupleCaptureKeyword = "posekitcouplecapture";
+    private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
+    private const string CoupleRelayKeyword = "posekitcoupleplay";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
@@ -40,28 +43,73 @@ public static class PairingComposer
     public static string ComposeQueueSignal(PartnerIdentity target, string name) =>
         $"/tell {target.TellAddress} {QueueKeyword} {name}";
 
-    /// Sent when saving a preset while paired, so the partner's own client auto-saves a matching
-    /// entry under the same name. Only the anchor *kind* (none/spot/furniture) and, for furniture,
-    /// which item — never a captured position/rotation — plus the name travel across; pose, offset,
-    /// Penumbra link, and any world-space anchor coordinates are deliberately NOT sent. The receiving
-    /// side captures its own current pose/offset/Penumbra link *and* its own anchor (its own current
-    /// spot, or its own position relative to a matching nearby furniture item) instead (see
-    /// PairingListener's PresetSyncReceived wiring in Plugin.cs) — a couple pose typically has each
-    /// side already sitting/standing in its own different spot on the same furniture (or standing
-    /// near, not on top of, each other for a spot anchor) by the time one of them saves it as a
-    /// preset, so sending this side's own anchor across would anchor the receiver to *this* side's
-    /// spot instead of their own.
-    ///
-    /// Wire shape: "&lt;anchorKind 0/1/2&gt; &lt;furnitureEntryId&gt; &lt;furnitureName&gt;|&lt;name&gt;"
-    /// — furnitureEntryId is 0 and furnitureName is empty unless anchorKind is 2 (furniture).
-    public static string ComposePresetSync(PartnerIdentity target, PresetAnchor? anchor, string name)
+    /// Sent when saving a preset while paired with "include partner" enabled: asks the partner to
+    /// capture and reply with its own current pose/offset/anchor/Penumbra state. Only the anchor
+    /// *kind* (none/spot/furniture) and, for furniture, which item — not any position/rotation —
+    /// travel here, so the partner captures its OWN spot/furniture-relative position rather than
+    /// this side's; the request just hints which kind of anchor to capture and, for furniture, which
+    /// physical item (so both sides anchor to the same piece of furniture). See
+    /// couple-preset-relay's spec — the reply (ComposeCoupleCaptureReply) carries the actual captured
+    /// state back.
+    public static string ComposeCoupleCaptureRequest(PartnerIdentity target, string requestId, PresetAnchor? anchorHint)
     {
-        var anchorKind = anchor?.Spot != null ? 1 : anchor?.Furniture != null ? 2 : 0;
-        var entryId = anchor?.Furniture?.EntryId ?? 0u;
-        var compound = string.Join('|', anchor?.Furniture?.FurnitureName ?? "", name);
+        var anchorKind = anchorHint?.Spot != null ? 1 : anchorHint?.Furniture != null ? 2 : 0;
+        var entryId = anchorHint?.Furniture?.EntryId ?? 0u;
+        var ic = CultureInfo.InvariantCulture;
+        return $"/tell {target.TellAddress} {CoupleCaptureKeyword} {requestId} {anchorKind} " +
+               $"{entryId.ToString(ic)} {anchorHint?.Furniture?.FurnitureName ?? ""}";
+    }
 
-        return $"/tell {target.TellAddress} {PresetSyncKeyword} {anchorKind} " +
-               $"{entryId.ToString(CultureInfo.InvariantCulture)} {compound}";
+    /// Sent once in reply to a capture request, carrying this side's own captured pose/offset/anchor/
+    /// Penumbra state tagged with the request id so the requester can match it to the right in-flight
+    /// save (and discard anything stale/unmatched). Never sent unprompted.
+    public static string ComposeCoupleCaptureReply(PartnerIdentity target, string requestId,
+        PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
+        $"/tell {target.TellAddress} {CoupleCaptureReplyKeyword} {requestId} " +
+        $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName: null)}";
+
+    /// Sent when playing a preset that carries a captured partner half: relays that half (its
+    /// pose/offset/anchor/Penumbra state, exactly as captured at save time) plus the preset's name,
+    /// for the partner's accept/deny prompt (or immediate auto-play under mutual override). No
+    /// acknowledgement is expected back — the sender already plays its own half immediately.
+    public static string ComposeCoupleRelay(PartnerIdentity target, string presetName,
+        PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
+        $"/tell {target.TellAddress} {CoupleRelayKeyword} " +
+        $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName)}";
+
+    /// Shared wire shape for "a captured pose/offset/anchor/Penumbra state", used by both the capture
+    /// reply and the play relay (which also appends the preset's name as one more compound field).
+    /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields), then every
+    /// free-text field joined by '|' last, ordered least-to-most likely to itself contain a literal
+    /// '|' so only the true last field needs to safely absorb one — furniture/group/option names
+    /// before the more free-form mod name/directory, with an optional preset name (the most
+    /// user-free-typed of all of them) absolute last.
+    private static string ComposeCapturedStateTail(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor,
+        PenumbraLink? penumbra, string? presetName)
+    {
+        var ic = CultureInfo.InvariantCulture;
+        var anchorKind = anchor?.Spot != null ? 1 : anchor?.Furniture != null ? 2 : 0;
+        var (anchorNum, ax, ay, az, arot, furnitureName) = anchor?.Spot is { } spot
+            ? (spot.TerritoryType, spot.Position.X, spot.Position.Y, spot.Position.Z, spot.Rotation, "")
+            : anchor?.Furniture is { } furniture
+                ? (furniture.EntryId, furniture.RelativePosition.X, furniture.RelativePosition.Y,
+                    furniture.RelativePosition.Z, furniture.RelativeRotation, furniture.FurnitureName)
+                : (0u, 0f, 0f, 0f, 0f, "");
+
+        var tokens = string.Join(' ', new[]
+        {
+            pose.EmoteModeId.ToString(ic), pose.CPoseState.ToString(ic),
+            offset.Position.X.ToString(ic), offset.Position.Y.ToString(ic), offset.Position.Z.ToString(ic),
+            offset.Rotation.ToString(ic),
+            anchorKind.ToString(ic), anchorNum.ToString(ic),
+            ax.ToString(ic), ay.ToString(ic), az.ToString(ic), arot.ToString(ic),
+            (penumbra != null ? 1 : 0).ToString(ic),
+        });
+
+        var compoundParts = new List<string> { furnitureName, penumbra?.GroupName ?? "", penumbra?.OptionName ?? "", penumbra?.ModName ?? "", penumbra?.ModDirectory ?? "" };
+        if (presetName != null) compoundParts.Add(presetName);
+
+        return $"{tokens} {string.Join('|', compoundParts)}";
     }
 
     /// Announces this side's own "override queue" checkbox state — sent whenever it's toggled, and
