@@ -518,24 +518,17 @@ public static class PenumbraPosePanel
     /// Animations tab to find the matching gesture themselves. Returns false (draws nothing) if no
     /// discovered trigger currently matches — the receiving side may simply not have that mod.
     ///
-    /// For a multi-select group (e.g. a large checkbox-per-role pack like "417"), a single picked
-    /// checkbox names only the picker's own role — the partner's own end of the same two-(or more-)
-    /// person animation is a *different* checkbox in that same group, not the one that was picked.
-    /// So every sibling option in the group gets its own row here, not just the matched one; a
-    /// single-select (combo) or implicit group still only ever has the one meaningful option.
+    /// The picker's chosen option names only the picker's own role or pose — the partner's own end of
+    /// the same two-(or more-)person animation is a *different* option in that same group, not the one
+    /// that was picked. This holds for a multi-select group (e.g. a large checkbox-per-role pack like
+    /// "417") but also for a single-select combo group whose options are per-participant poses rather
+    /// than interchangeable variants of one pose (nothing in the mod data distinguishes the two cases).
+    /// So every sibling option in the group gets its own row here, not just the matched one.
     public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
-        var (mod, group, option, _) = found;
+        var (mod, group, _, _) = found;
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
-
-        if (!group.MultiSelect)
-        {
-            ImGui.TextUnformatted(DescribePlayLabel(mod, option));
-            DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitQuickPlay",
-                SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
-            return true;
-        }
 
         ImGui.TextUnformatted($"{mod.ModName} — {group.Name}:");
         foreach (var sibling in group.Options)
