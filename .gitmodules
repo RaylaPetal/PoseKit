@@ -1,3 +1,6 @@
 [submodule "Penumbra.Api"]
 	path = Penumbra.Api
 	url = https://github.com/Ottermandias/Penumbra.Api
+[submodule "Luna"]
+	path = Luna
+	url = https://github.com/Ottermandias/Luna

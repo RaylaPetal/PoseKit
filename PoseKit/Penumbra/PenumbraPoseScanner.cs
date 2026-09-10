@@ -40,11 +40,15 @@ public sealed class PoseModInfo
 /// SelectedPenumbraMods) — scanning every installed mod was slow and mostly irrelevant noise on a
 /// large modlist, so this is opt-in per mod. Only currently-enabled mods are scanned even if selected.
 ///
-/// Reads each mod's own on-disk group_*.json files directly — this is Penumbra's real settings-page
-/// schema ({"Type": "Single"|"Multi", "Name": ..., "Options": [{"Name": ..., "Files":
-/// {gamePath: redirect}}]}), confirmed against an actual installed mod
-/// (~/Documents/Penumbra/GoonersLife+v3[Gooners.inc]/group_*.json) — rather than a raw recursive
-/// .pap filesystem scan, which lost every option's identity by collapsing many distinct options
+/// Reads each mod's own on-disk meta.json directly — Penumbra's mod-meta file format (schema version
+/// 4): a single JSON file per mod holding "DefaultData": {"Files": {gamePath: redirect}} for the
+/// mod's always-active files, plus "Groups": [{"Type": "Single"|"Multi", "Name": ..., "Options":
+/// [{"Name": ..., "Files": {gamePath: redirect}}]}] for its option groups — confirmed against an
+/// actual installed mod (~/Documents/Penumbra/GoonersLife+v3[Gooners.inc]/meta.json). Older Penumbra
+/// versions split this across a separate default_mod.json plus one group_*.json per group; Penumbra
+/// migrates existing mods to the single meta.json in place (renaming the old files to .bak), so only
+/// the current format needs reading. Reading these files directly rather than a raw recursive .pap
+/// filesystem scan preserves each option's identity — a scan would collapse many distinct options
 /// that happen to redirect the same handful of game pose slots into duplicate generic buttons.
 /// </summary>
 public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configuration)
@@ -56,11 +60,13 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
         ReadCommentHandling = JsonCommentHandling.Skip,
     };
 
+    private sealed record ModMetaDto(DefaultDataDto? DefaultData, List<GroupFileDto>? Groups);
+
+    private sealed record DefaultDataDto(Dictionary<string, string>? Files);
+
     private sealed record GroupFileDto(string Type, string Name, List<OptionFileDto> Options);
 
     private sealed record OptionFileDto(string Name, Dictionary<string, string>? Files);
-
-    private sealed record DefaultModDto(Dictionary<string, string>? Files);
 
     public List<PoseModInfo> Scan()
     {
@@ -70,77 +76,83 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
         var modList = ipc.TryGetModList();
         var modRoot = ipc.TryGetModDirectory();
         var collectionId = ipc.TryGetLocalPlayerCollectionId();
-        if (modList == null || modRoot == null || collectionId is not { } cid) return results;
+        if (modList == null || modRoot == null || collectionId is not { } cid)
+        {
+            Plugin.Log.Warning($"[PoseKit] Scan aborted: modList={(modList == null ? "null" : $"{modList.Count} entries")}, modRoot={modRoot ?? "null"}, collectionId={collectionId?.ToString() ?? "null"}.");
+            return results;
+        }
 
         foreach (var modDirectory in configuration.SelectedPenumbraMods)
         {
-            if (!modList.TryGetValue(modDirectory, out var modName)) continue; // mod no longer installed
+            if (!modList.TryGetValue(modDirectory, out var modName))
+            {
+                Plugin.Log.Warning($"[PoseKit] Selected mod directory \"{modDirectory}\" not found in Penumbra's mod list ({modList.Count} known); skipping.");
+                continue;
+            }
 
             // Disabled mods are scanned too (not skipped) — PoseKit.PlayTrigger enables one temporarily
             // through Penumbra the moment it's played, so users don't have to flip it on there first.
             var (modEnabled, currentSelections) = ipc.TryGetCurrentSettings(cid, modDirectory);
 
             var modPath = Path.Combine(modRoot, modDirectory);
-            if (!Directory.Exists(modPath)) continue;
+            if (!Directory.Exists(modPath))
+            {
+                Plugin.Log.Warning($"[PoseKit] Mod path \"{modPath}\" (root \"{modRoot}\", directory \"{modDirectory}\") does not exist on disk; skipping.");
+                continue;
+            }
 
             var groups = new List<PoseModGroup>();
 
-            // default_mod.json holds the mod's always-active files — the ones outside any optional
-            // group. A mod with no configurable options at all (just one fixed redirect set, like
-            // "[Mittens] Fist Full of Dreams") has *only* this file and zero group_*.json ones, so it
-            // needs its own scan rather than being skipped for lack of groups.
-            var defaultModPath = Path.Combine(modPath, "default_mod.json");
-            if (File.Exists(defaultModPath))
+            var metaPath = Path.Combine(modPath, "meta.json");
+            ModMetaDto? meta = null;
+            if (File.Exists(metaPath))
             {
-                DefaultModDto? defaultDto;
-                try { defaultDto = JsonSerializer.Deserialize<DefaultModDto>(File.ReadAllText(defaultModPath), JsonOptions); }
-                catch (Exception ex)
-                {
-                    Plugin.Log.Warning(ex, $"[PoseKit] Failed to parse {defaultModPath}, skipping default files.");
-                    defaultDto = null;
-                }
-
-                // Some mods (e.g. "Kissing While Standing [groundsit1] [Mittens]") carry leftover
-                // default_mod.json entries whose keys aren't real game paths at all — e.g.
-                // "I am kissing partner number_/1/chara/human/.../j_pose01_loop.pap" instead of a
-                // real path starting with "chara/". Penumbra itself would never match these at
-                // runtime, but the regex-based detection below doesn't care where in the string it
-                // matches, so it'd otherwise pick up a bogus duplicate of a pose the mod's *real*
-                // group already covers properly — showing as a false self-conflict and a "Default"
-                // button that only enables the mod without ever selecting the real option.
-                var defaultFileKeys = (defaultDto?.Files?.Keys ?? Enumerable.Empty<string>())
-                    .Where(key => key.StartsWith("chara/", StringComparison.OrdinalIgnoreCase));
-
-                var defaultTriggers = PoseNameHeuristics.Detect(modName, modName, defaultFileKeys);
-                if (defaultTriggers.Count > 0)
-                {
-                    groups.Add(new PoseModGroup
-                    {
-                        Name = "Default",
-                        MultiSelect = false,
-                        IsImplicit = true,
-                        Options = [new PoseModOption { Name = "Default", Triggers = defaultTriggers }],
-                        Selected = new HashSet<string> { "Default" },
-                    });
-                }
+                try { meta = JsonSerializer.Deserialize<ModMetaDto>(File.ReadAllText(metaPath), JsonOptions); }
+                catch (Exception ex) { Plugin.Log.Warning(ex, $"[PoseKit] Failed to parse {metaPath}, skipping mod."); }
+            }
+            else
+            {
+                Plugin.Log.Warning($"[PoseKit] {metaPath} not found; skipping mod.");
             }
 
-            var groupFiles = Directory.GetFiles(modPath, "group_*.json", SearchOption.TopDirectoryOnly);
-            foreach (var groupFile in groupFiles)
+            // DefaultData holds the mod's always-active files — the ones outside any optional group. A
+            // mod with no configurable options at all (just one fixed redirect set, like "[Mittens]
+            // Fist Full of Dreams") has only these, and zero Groups, so it needs its own scan rather
+            // than being skipped for lack of groups.
+            //
+            // Some mods (e.g. "Kissing While Standing [groundsit1] [Mittens]") carry leftover
+            // DefaultData entries whose keys aren't real game paths at all — e.g. "I am kissing
+            // partner number_/1/chara/human/.../j_pose01_loop.pap" instead of a real path starting
+            // with "chara/". Penumbra itself would never match these at runtime, but the regex-based
+            // detection below doesn't care where in the string it matches, so it'd otherwise pick up a
+            // bogus duplicate of a pose the mod's *real* group already covers properly — showing as a
+            // false self-conflict and a "Default" button that only enables the mod without ever
+            // selecting the real option.
+            var defaultFileKeys = (meta?.DefaultData?.Files?.Keys ?? Enumerable.Empty<string>())
+                .Where(key => key.StartsWith("chara/", StringComparison.OrdinalIgnoreCase));
+
+            var defaultTriggers = PoseNameHeuristics.Detect(modName, modName, defaultFileKeys);
+            if (defaultTriggers.Count > 0)
             {
-                GroupFileDto? dto;
-                try { dto = JsonSerializer.Deserialize<GroupFileDto>(File.ReadAllText(groupFile), JsonOptions); }
-                catch (Exception ex)
+                groups.Add(new PoseModGroup
                 {
-                    Plugin.Log.Warning(ex, $"[PoseKit] Failed to parse {groupFile}, skipping this group.");
-                    continue;
-                }
-                if (dto?.Options == null) continue;
+                    Name = "Default",
+                    MultiSelect = false,
+                    IsImplicit = true,
+                    Options = [new PoseModOption { Name = "Default", Triggers = defaultTriggers }],
+                    Selected = new HashSet<string> { "Default" },
+                });
+            }
+
+            foreach (var dto in meta?.Groups ?? [])
+            {
+                if (dto.Options == null) continue;
 
                 var options = new List<PoseModOption>();
                 foreach (var opt in dto.Options)
                 {
-                    var triggers = PoseNameHeuristics.Detect(dto.Name, opt.Name, (IEnumerable<string>?)opt.Files?.Keys ?? Array.Empty<string>());
+                    var fileKeys = (IEnumerable<string>?)opt.Files?.Keys ?? Array.Empty<string>();
+                    var triggers = PoseNameHeuristics.Detect(dto.Name, opt.Name, fileKeys);
                     options.Add(new PoseModOption { Name = opt.Name, Triggers = triggers });
                 }
 
@@ -157,7 +169,11 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 });
             }
 
-            if (groups.Count == 0) continue;
+            if (groups.Count == 0)
+            {
+                Plugin.Log.Warning($"[PoseKit] Mod \"{modName}\" ({modDirectory}) has no default-data triggers and no group options with recognized options; skipping.");
+                continue;
+            }
 
             results.Add(new PoseModInfo
             {

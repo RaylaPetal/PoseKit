@@ -57,13 +57,13 @@ public sealed class PenumbraIpc
     public Dictionary<string, string>? TryGetModList()
     {
         try { return getModList.Invoke(); }
-        catch { return null; }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetModList IPC call failed: {ex}"); return null; }
     }
 
     public string? TryGetModDirectory()
     {
         try { return getModDirectory.Invoke(); }
-        catch { return null; }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetModDirectory IPC call failed: {ex}"); return null; }
     }
 
     /// The mod's position in Penumbra's user-organized sort-folder tree (e.g.
@@ -77,7 +77,7 @@ public sealed class PenumbraIpc
             var (ec, fullPath, _, _) = getModPath.Invoke(modDirectory, modName);
             return ec == PenumbraApiEc.Success ? fullPath : null;
         }
-        catch { return null; }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetModPath IPC call failed for {modDirectory}: {ex}"); return null; }
     }
 
     public Guid? TryGetLocalPlayerCollectionId()
@@ -87,7 +87,7 @@ public sealed class PenumbraIpc
             var (objectValid, _, effective) = getCollectionForObject.Invoke(0);
             return objectValid ? effective.Id : null;
         }
-        catch { return null; }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCollectionForObject IPC call failed: {ex}"); return null; }
     }
 
     /// Whether the mod is enabled in this collection, and its current per-group option selections
@@ -102,7 +102,7 @@ public sealed class PenumbraIpc
             var (enabled, _, selections, _) = s;
             return (enabled, selections);
         }
-        catch { return (false, null); }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCurrentModSettings IPC call failed for {modDirectory}: {ex}"); return (false, null); }
     }
 
     /// Replaces this mod's *entire* set of group selections with a temporary override (Penumbra's

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.0.2.13</Version>
+    <Version>0.0.2.14</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>Rayla Petal</Author>
     <Name>PoseKit</Name>
@@ -18,11 +18,17 @@
   </ItemGroup>
   <ItemGroup>
     <!--
-      Published NuGet package, not the Penumbra.Api submodule checked out at the repo root
-      (that submodule's .csproj requires an unpublished sibling "Luna" source checkout to build
-      from source; the published package ILRepacks Luna in and has no external dependencies).
+      Built from source against the Penumbra.Api and Luna submodules (matching how Glamourer and
+      Penumbra.Api's other consumers build) rather than the published NuGet package — as of
+      Penumbra.Api 5.19.0, that package's compiled DLL references an assembly literally named "Luna",
+      but the separately-published "Luna" NuGet package's DLL identifies itself as "Luna.Core" (a
+      genuine assembly-name mismatch in the published packages, confirmed via disassembling both
+      DLLs' assembly references) — no reference short of building from source resolves it.
     -->
-    <PackageReference Include="Penumbra.Api" Version="5.15.1" />
+    <ProjectReference Include="..\Penumbra.Api\Penumbra.Api.csproj" />
+    <ProjectReference Include="..\Luna\Luna\Luna.csproj" />
+    <ProjectReference Include="..\Luna\Luna.Generators\Luna.Generators.csproj" OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="SimpleHeels-master\.github\workflows\build.yml" />
