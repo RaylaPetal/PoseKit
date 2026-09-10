@@ -79,13 +79,14 @@ public static class PairingComposer
 
     /// Shared wire shape for "a captured pose/offset/anchor/Penumbra state", used by both the capture
     /// reply and the play relay (which also appends the preset's name as one more compound field).
-    /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields, mod-directory
-    /// hash), then every free-text field joined by '|' last, ordered least-to-most likely to itself
-    /// contain a literal '|' so only the true last field needs to safely absorb one — furniture/
-    /// group/option names first, with an optional preset name (the most user-free-typed of all of
-    /// them) absolute last. ModName is deliberately omitted — display-only, never used to replay (see
-    /// NamedPose.PenumbraLink.ModName) — and ModDirectory travels as a stable hash (see
-    /// ModDirectoryHash) instead of its full, potentially long, literal path.
+    /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields, mod-directory/
+    /// group/option hashes), then every free-text field joined by '|' last, ordered least-to-most
+    /// likely to itself contain a literal '|' so only the true last field needs to safely absorb one
+    /// — furniture name first, with an optional preset name (the most user-free-typed of all of them)
+    /// absolute last. ModName is deliberately omitted — display-only, never used to replay (see
+    /// NamedPose.PenumbraLink.ModName) — and ModDirectory/GroupName/OptionName all travel as stable
+    /// hashes (see ModDirectoryHash) instead of their literal text, resolved back to real strings only
+    /// by the client that owns the mod, at apply time (see Plugin.PlayPose).
     private static string ComposeCapturedStateTail(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor,
         PenumbraLink? penumbra, string? presetName)
     {
@@ -99,6 +100,13 @@ public static class PairingComposer
                 : (0u, 0f, 0f, 0f, 0f, "");
         var modDirectoryHash = penumbra?.ModDirectory is { Length: > 0 } dir ? ModDirectoryHash.Compute(dir) : "0";
 
+        // GroupName is "" for an implicit/no-group mod (see PenumbraLink.GroupName) — a real, existing
+        // non-error state, not something to hash. "0" reuses modDirectoryHash's own placeholder
+        // convention above and can never collide with a real hash (always 8 hex characters).
+        var (groupNameHash, optionNameHash) = penumbra?.GroupName is { Length: > 0 } group
+            ? (ModDirectoryHash.Compute(group), ModDirectoryHash.Compute(penumbra!.OptionName))
+            : ("0", "0");
+
         var tokens = string.Join(' ', new[]
         {
             pose.EmoteModeId.ToString(ic), pose.CPoseState.ToString(ic),
@@ -107,10 +115,10 @@ public static class PairingComposer
             anchorKind.ToString(ic), anchorNum.ToString(ic),
             ax.ToString(ic), ay.ToString(ic), az.ToString(ic), arot.ToString(ic),
             (penumbra != null ? 1 : 0).ToString(ic),
-            modDirectoryHash,
+            modDirectoryHash, groupNameHash, optionNameHash,
         });
 
-        var compoundParts = new List<string> { furnitureName, penumbra?.GroupName ?? "", penumbra?.OptionName ?? "" };
+        var compoundParts = new List<string> { furnitureName };
         if (presetName != null) compoundParts.Add(presetName);
 
         return $"{tokens} {string.Join('|', compoundParts)}";

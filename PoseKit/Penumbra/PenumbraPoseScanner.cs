@@ -68,6 +68,32 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
 
     private sealed record OptionFileDto(string Name, Dictionary<string, string>? Files);
 
+    public readonly record struct ModGroupInfo(string GroupName, List<string> OptionNames);
+
+    /// Reads one specific mod's meta.json directly and returns every real group/option name pair it
+    /// defines — independent of Configuration.SelectedPenumbraMods, unlike Scan(), since this is used
+    /// to resolve a partner-received group/option hash back to real text for a mod that isn't
+    /// necessarily one the local user has opted to browse (see hash-couple-relay-group-option's
+    /// design). Returns null if the mod's meta.json can't be found or parsed.
+    public static List<ModGroupInfo>? TryReadGroups(string modRoot, string modDirectory)
+    {
+        var metaPath = Path.Combine(modRoot, modDirectory, "meta.json");
+        if (!File.Exists(metaPath)) return null;
+
+        ModMetaDto? meta;
+        try { meta = JsonSerializer.Deserialize<ModMetaDto>(File.ReadAllText(metaPath), JsonOptions); }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, $"[PoseKit] Failed to parse {metaPath}.");
+            return null;
+        }
+
+        return (meta?.Groups ?? [])
+            .Where(dto => dto.Options != null)
+            .Select(dto => new ModGroupInfo(dto.Name, dto.Options.Select(o => o.Name).ToList()))
+            .ToList();
+    }
+
     public List<PoseModInfo> Scan()
     {
         var results = new List<PoseModInfo>();

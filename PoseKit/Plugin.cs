@@ -277,6 +277,9 @@ public sealed class Plugin : IDalamudPlugin
             foreach (var (group, options) in link.GroupSelections)
                 selections[group] = options;
 
+            if (link.GroupName.StartsWith('#') && ResolveGroupOption(modDirectory, link.GroupName, link.OptionName) is { } resolved)
+                selections[resolved.GroupName] = [resolved.OptionName];
+
             if (PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, selections))
                 PenumbraIpc.TryRedrawLocalPlayer();
         }
@@ -306,6 +309,31 @@ public sealed class Plugin : IDalamudPlugin
             match = directory;
         }
         return match;
+    }
+
+    /// A partner half's GroupName/OptionName travel over the wire as "#&lt;hash&gt;" too (see
+    /// PairingComposer.ComposeCapturedStateTail), resolved here against the already-resolved local
+    /// mod's own meta.json group/option list (PenumbraPoseScanner.TryReadGroups) — only meaningful
+    /// once ResolveModDirectory has already found which mod this is. Resolves the group first, then
+    /// the option within only that matched group (not the mod's other groups), so an option name
+    /// reused across two different groups of the same mod can't cross-match. No match, or more than
+    /// one, at either stage is treated as unresolved and simply skipped — same fail-closed policy as
+    /// ResolveModDirectory, and the same "no selection applied for this group" degrade as today's
+    /// existing implicit/no-group case.
+    private (string GroupName, string OptionName)? ResolveGroupOption(string modDirectory, string groupNameToken, string optionNameToken)
+    {
+        var groupHash = groupNameToken[1..];
+        var optionHash = optionNameToken.StartsWith('#') ? optionNameToken[1..] : optionNameToken;
+
+        if (PenumbraIpc.TryGetModDirectory() is not { } modRoot) return null;
+        if (PoseKit.Penumbra.PenumbraPoseScanner.TryReadGroups(modRoot, modDirectory) is not { } groups) return null;
+
+        var matchedGroups = groups.Where(g => ModDirectoryHash.Compute(g.GroupName) == groupHash).ToList();
+        if (matchedGroups.Count != 1) return null; // no match, or ambiguous — fail closed rather than guess
+        var resolvedGroup = matchedGroups[0];
+
+        var matchedOptions = resolvedGroup.OptionNames.Where(o => ModDirectoryHash.Compute(o) == optionHash).ToList();
+        return matchedOptions.Count == 1 ? (resolvedGroup.GroupName, matchedOptions[0]) : null;
     }
 
     private void OnCommand(string command, string args)

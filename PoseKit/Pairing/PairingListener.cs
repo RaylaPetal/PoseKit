@@ -179,7 +179,7 @@ public sealed class PairingListener : IDisposable
             // Checked before CoupleCaptureKeyword below since it's a prefix of this longer keyword.
             if (!state.Active || state.Peer is not { } replyPeer || !replyPeer.Equals(sender)) return;
             var (requestId, tail) = SplitFirstToken(text[CoupleCaptureReplyKeyword.Length..].Trim());
-            if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 3, out var captured, out _))
+            if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 1, out var captured, out _))
                 CoupleCaptureReplyReceived?.Invoke(sender, requestId, captured);
             return;
         }
@@ -195,7 +195,7 @@ public sealed class PairingListener : IDisposable
         if (text.StartsWith(CoupleRelayKeyword, StringComparison.OrdinalIgnoreCase))
         {
             if (!state.Active || state.Peer is not { } relayPeer || !relayPeer.Equals(sender)) return;
-            if (TryParseCapturedState(text[CoupleRelayKeyword.Length..].Trim(), compoundParts: 4, out var captured, out var presetName)
+            if (TryParseCapturedState(text[CoupleRelayKeyword.Length..].Trim(), compoundParts: 2, out var captured, out var presetName)
                 && presetName.Length > 0)
                 CoupleRelayReceived?.Invoke(sender, presetName, captured);
             return;
@@ -238,16 +238,16 @@ public sealed class PairingListener : IDisposable
 
     /// Mirrors PairingComposer.ComposeCapturedStateTail's wire shape exactly — see that method's doc
     /// for the field layout and free-text ordering. Fails closed: any malformed/truncated field drops
-    /// the whole tell rather than guessing at a partial capture. `compoundParts` is 3 for a capture
-    /// reply (no preset name) or 4 for a play relay (preset name last); `extra` carries that 4th
-    /// field (the preset name) when present, empty otherwise.
+    /// the whole tell rather than guessing at a partial capture. `compoundParts` is 1 for a capture
+    /// reply (just furniture name) or 2 for a play relay (preset name also present, last); `extra`
+    /// carries that 2nd field (the preset name) when present, empty otherwise.
     private static bool TryParseCapturedState(string body, int compoundParts, out CapturedPoseState state, out string extra)
     {
         state = default;
         extra = "";
 
-        var (tokens, remainder) = SplitTokens(body, 14);
-        if (tokens.Length < 14) return false;
+        var (tokens, remainder) = SplitTokens(body, 16);
+        if (tokens.Length < 16) return false;
         var ic = CultureInfo.InvariantCulture;
 
         if (!uint.TryParse(tokens[0], NumberStyles.None, ic, out var emoteModeId)) return false;
@@ -264,11 +264,13 @@ public sealed class PairingListener : IDisposable
         if (!float.TryParse(tokens[11], NumberStyles.Float, ic, out var arot)) return false;
         if (!int.TryParse(tokens[12], NumberStyles.None, ic, out var hasPenumbra)) return false;
         var modDirectoryHash = tokens[13];
+        var groupNameHash = tokens[14];
+        var optionNameHash = tokens[15];
 
         var compound = remainder.Split('|', compoundParts);
         if (compound.Length < compoundParts) return false;
-        var (furnitureName, groupName, optionName) = (compound[0], compound[1], compound[2]);
-        if (compoundParts > 3) extra = compound[3];
+        var furnitureName = compound[0];
+        if (compoundParts > 1) extra = compound[1];
 
         PresetAnchor? anchor = anchorKind switch
         {
@@ -284,15 +286,23 @@ public sealed class PairingListener : IDisposable
             _ => null,
         };
 
-        // ModDirectory carries "#<hash>" rather than the literal path — resolved lazily against the
-        // applying side's own local mod list at play time (see Plugin.PlayPose), since only that side
-        // can know which of its own installed mods the hash refers to. ModName is intentionally not
-        // carried at all — display-only, never used to replay (see NamedPose.PenumbraLink.ModName).
+        // ModDirectory/GroupName/OptionName all carry "#<hash>" rather than their literal text —
+        // resolved lazily against the applying side's own local mod (and that mod's own meta.json
+        // group/option list) at play time (see Plugin.PlayPose), since only that side can know which
+        // of its own installed mods, groups, and options the hashes refer to. "0" means "no real
+        // group" (the implicit/Default case — see PenumbraLink.GroupName), not a hash to resolve.
+        // GroupSelections is deliberately left empty here — it's populated once Plugin.PlayPose has
+        // resolved the real group/option names, not with placeholder hash text. ModName is
+        // intentionally not carried at all — display-only, never used to replay (see
+        // NamedPose.PenumbraLink.ModName).
         PenumbraLink? penumbra = hasPenumbra != 0
-            ? new PenumbraLink { ModDirectory = $"#{modDirectoryHash}", GroupName = groupName, OptionName = optionName }
+            ? new PenumbraLink
+            {
+                ModDirectory = $"#{modDirectoryHash}",
+                GroupName = groupNameHash == "0" ? "" : $"#{groupNameHash}",
+                OptionName = groupNameHash == "0" ? "" : $"#{optionNameHash}",
+            }
             : null;
-        if (penumbra != null && groupName.Length > 0)
-            penumbra.GroupSelections[groupName] = [optionName];
 
         state = new CapturedPoseState(new PoseIdentifier(emoteModeId, cposeState), new PoseOffset { Position = new System.Numerics.Vector3(offX, offY, offZ), Rotation = offRot }, anchor, penumbra);
         return true;
