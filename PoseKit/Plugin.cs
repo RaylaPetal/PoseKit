@@ -270,17 +270,42 @@ public sealed class Plugin : IDalamudPlugin
 
     private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false)
     {
-        if (penumbra is { } link && PenumbraIpc.TryGetLocalPlayerCollectionId() is { } collectionId)
+        if (penumbra is { } link && PenumbraIpc.TryGetLocalPlayerCollectionId() is { } collectionId
+            && ResolveModDirectory(link.ModDirectory) is { } modDirectory)
         {
             var selections = new Dictionary<string, IReadOnlyList<string>>();
             foreach (var (group, options) in link.GroupSelections)
                 selections[group] = options;
 
-            if (PenumbraIpc.TrySetTemporarySettings(collectionId, link.ModDirectory, true, selections))
+            if (PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, selections))
                 PenumbraIpc.TryRedrawLocalPlayer();
         }
 
         PoseTrigger.Trigger(pose, offset, anchor, silent);
+    }
+
+    /// A partner half's ModDirectory travels over the wire as "#&lt;hash&gt;" (see
+    /// PairingComposer.ComposeCapturedStateTail / ModDirectoryHash) rather than its literal path,
+    /// since only the client whose own mod it names can resolve it — never the peer relaying it in
+    /// between. Anything without the "#" prefix is a preset's own half, captured locally and never
+    /// hashed, so it's used as-is. Resolves via a linear scan of this client's own installed mods;
+    /// no match, or more than one (an astronomically unlikely hash collision), is treated the same as
+    /// "mod no longer available" — best-effort per couple-preset-relay's spec.
+    private string? ResolveModDirectory(string modDirectory)
+    {
+        if (!modDirectory.StartsWith('#')) return modDirectory;
+
+        var hash = modDirectory[1..];
+        if (PenumbraIpc.TryGetModList() is not { } modList) return null;
+
+        string? match = null;
+        foreach (var directory in modList.Keys)
+        {
+            if (ModDirectoryHash.Compute(directory) != hash) continue;
+            if (match != null) return null; // ambiguous — fail closed rather than guess
+            match = directory;
+        }
+        return match;
     }
 
     private void OnCommand(string command, string args)

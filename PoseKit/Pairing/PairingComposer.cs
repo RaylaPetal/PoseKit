@@ -79,11 +79,13 @@ public static class PairingComposer
 
     /// Shared wire shape for "a captured pose/offset/anchor/Penumbra state", used by both the capture
     /// reply and the play relay (which also appends the preset's name as one more compound field).
-    /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields), then every
-    /// free-text field joined by '|' last, ordered least-to-most likely to itself contain a literal
-    /// '|' so only the true last field needs to safely absorb one — furniture/group/option names
-    /// before the more free-form mod name/directory, with an optional preset name (the most
-    /// user-free-typed of all of them) absolute last.
+    /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields, mod-directory
+    /// hash), then every free-text field joined by '|' last, ordered least-to-most likely to itself
+    /// contain a literal '|' so only the true last field needs to safely absorb one — furniture/
+    /// group/option names first, with an optional preset name (the most user-free-typed of all of
+    /// them) absolute last. ModName is deliberately omitted — display-only, never used to replay (see
+    /// NamedPose.PenumbraLink.ModName) — and ModDirectory travels as a stable hash (see
+    /// ModDirectoryHash) instead of its full, potentially long, literal path.
     private static string ComposeCapturedStateTail(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor,
         PenumbraLink? penumbra, string? presetName)
     {
@@ -95,6 +97,7 @@ public static class PairingComposer
                 ? (furniture.EntryId, furniture.RelativePosition.X, furniture.RelativePosition.Y,
                     furniture.RelativePosition.Z, furniture.RelativeRotation, furniture.FurnitureName)
                 : (0u, 0f, 0f, 0f, 0f, "");
+        var modDirectoryHash = penumbra?.ModDirectory is { Length: > 0 } dir ? ModDirectoryHash.Compute(dir) : "0";
 
         var tokens = string.Join(' ', new[]
         {
@@ -104,9 +107,10 @@ public static class PairingComposer
             anchorKind.ToString(ic), anchorNum.ToString(ic),
             ax.ToString(ic), ay.ToString(ic), az.ToString(ic), arot.ToString(ic),
             (penumbra != null ? 1 : 0).ToString(ic),
+            modDirectoryHash,
         });
 
-        var compoundParts = new List<string> { furnitureName, penumbra?.GroupName ?? "", penumbra?.OptionName ?? "", penumbra?.ModName ?? "", penumbra?.ModDirectory ?? "" };
+        var compoundParts = new List<string> { furnitureName, penumbra?.GroupName ?? "", penumbra?.OptionName ?? "" };
         if (presetName != null) compoundParts.Add(presetName);
 
         return $"{tokens} {string.Join('|', compoundParts)}";
