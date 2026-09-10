@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "0.0.2.12",
+    "AssemblyVersion": "0.0.2.13",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.12/PoseKit-0.0.2.12.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.12/PoseKit-0.0.2.12.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.13/PoseKit-0.0.2.13.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v0.0.2.13/PoseKit-0.0.2.13.zip",
     "Changelog": "Fix the paired quick-pick panel only offering the exact option a partner already picked for single-select animation dropdowns with per-person poses (e.g. animation 316); it now offers every option in that dropdown so the other person can pick a different pose.",
-    "LastUpdate": "1788984030"
+    "LastUpdate": "1789044543"
   }
 ]
