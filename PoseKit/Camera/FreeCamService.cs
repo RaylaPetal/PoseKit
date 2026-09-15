@@ -36,6 +36,12 @@ public sealed unsafe class FreeCamService : IDisposable
     public bool Enabled { get; private set; }
     public string Status { get; private set; } = "Freecam disabled.";
 
+    /// Whether a real movement key (not camera-look) is currently physically held, per the same
+    /// bypass StepMotion uses to read the real key state. Lets callers tell "the player actually
+    /// tried to move" apart from other reasons a pose might end while freecam is active — see
+    /// RestorePoseIfDropped in Plugin.cs.
+    public bool MovementKeyHeld { get; private set; }
+
     public FreeCamService()
     {
         Plugin.Condition.ConditionChange += OnConditionChange;
@@ -138,6 +144,7 @@ public sealed unsafe class FreeCamService : IDisposable
         if (!Enabled) return;
         try
         {
+            UpdateMovementKeyHeld();
             var reason = InvalidSessionReason();
             if (reason != null)
             {
@@ -185,10 +192,7 @@ public sealed unsafe class FreeCamService : IDisposable
     }
 
     // Diagnostic breakdown, logged so an auto-disable can be traced to the specific
-    // condition that tripped it instead of guessing blind. Character immobility comes
-    // from FreeCamInput's direct input-query hooks, not from the shared native movement
-    // counter (that value gets reset by the game itself well within a frame, so it isn't
-    // a usable liveness signal here even though we still set it for other consumers).
+    // condition that tripped it instead of guessing blind.
     private string? InvalidSessionReason()
     {
         var unsupported = UnsupportedReason();
@@ -300,6 +304,21 @@ public sealed unsafe class FreeCamService : IDisposable
             // Hooks can be disabled from their detours; disposal waits until the next activation/unload.
             Status = "Freecam disabled.";
         }
+    }
+
+    // Real physical key state (bypassing this session's own input block, same as StepMotion's
+    // IsHeld reads) — lets callers tell "the player actually tried to move" apart from any other
+    // reason a pose might end while freecam is active. See MovementKeyHeld's doc comment.
+    private void UpdateMovementKeyHeld()
+    {
+        if (input == null) return;
+        var framework = GameFramework.Instance();
+        if (framework == null) return;
+        var data = (InputData*)framework->UIModule->GetUIInputData();
+        MovementKeyHeld = input.IsHeld(data, InputId.MOVE_FORE) || input.IsHeld(data, InputId.MOVE_BACK) ||
+            input.IsHeld(data, InputId.MOVE_LEFT) || input.IsHeld(data, InputId.MOVE_RIGHT) ||
+            input.IsHeld(data, InputId.MOVE_STRIFE_L) || input.IsHeld(data, InputId.MOVE_STRIFE_R) ||
+            input.IsHeld(data, InputId.JUMP) || input.IsHeld(data, InputId.MOVE_DESCENT);
     }
 
     public void Dispose()

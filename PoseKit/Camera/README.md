@@ -12,4 +12,4 @@ Camera navigation pauses during text entry, plugin UI interaction, or lost windo
 
 Cammy and Ktisis are not required. Only one plugin should actively control the camera at a time.
 
-This implementation still requires the in-game acceptance checks recorded in `openspec/changes/native-freecam/verification.md`, particularly character immobility and emote preservation.
+Character immobility and emote/pose preservation (e.g. staying seated or dozing while freecam is active) have both been verified in-game.

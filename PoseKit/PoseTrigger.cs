@@ -94,6 +94,30 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
+    /// Re-enters the same sit/groundsit/doze variant after it unexpectedly ended for a reason other
+    /// than the player actually moving. Freecam's own EmoteController.cancelEmote hook (see
+    /// FreeCamInput.cs) is the primary defense against this now, so this should rarely fire in
+    /// practice — kept as a defensive fallback (see openspec/changes/preserve-emote-during-freecam).
+    /// Deliberately skips offset application, unlike EnterPoseCycle: nothing cleared the offset on
+    /// this path, so it doesn't need reapplying, and doing so would turn on PoseKit's own offset
+    /// tracking even for a player who never used it. Silently does nothing for any other emote —
+    /// this is specifically the sit/groundsit/doze recovery path, not a general re-trigger.
+    public void RestorePose(PoseIdentifier pose)
+    {
+        (EmoteController.PoseType PoseType, string Command)? target = pose.EmoteModeId switch
+        {
+            1 => (EmoteController.PoseType.GroundSit, "/groundsit"),
+            2 => (EmoteController.PoseType.Sit, "/sit"),
+            3 => (EmoteController.PoseType.Doze, "/doze"),
+            _ => null,
+        };
+        if (target is not { } t) return;
+
+        var state = PlayerState.Instance();
+        if (state != null) state->SelectedPoses[(int)t.PoseType] = pose.CPoseState;
+        ChatCommand.Execute(t.Command);
+    }
+
     private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent, EmoteController.PoseType poseType, string enterCommand)
     {
         var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);

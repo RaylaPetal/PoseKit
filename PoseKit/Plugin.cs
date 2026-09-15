@@ -82,6 +82,14 @@ public sealed class Plugin : IDalamudPlugin
     /// each keep their own instance for the same reason (a live furniture scan can't be cached).
     private readonly FurnitureScanner furnitureScanner = new();
 
+    /// Last-seen sit/groundsit/doze pose, tracked so a drop that isn't the player's own doing (see
+    /// RestorePoseIfDropped below) can be re-entered. Null whenever nothing needs recovering.
+    private PoseIdentifier? lastKnownPoseForFreecamRestore;
+    private int freecamRestoreAttempts;
+    private long nextFreecamRestoreAttemptTime;
+    private const int FreecamRestoreAttemptDelayMs = 500;
+    private const int MaxFreecamRestoreAttempts = 5;
+
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -189,6 +197,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         FreeCam.Tick((float)framework.UpdateDelta.TotalSeconds);
         var localPlayer = ObjectTable.LocalPlayer;
+        var currentPose = PoseIdentifier.FromCharacter(localPlayer);
+        RestorePoseIfDropped(currentPose);
 
         // Auto-clear once the character leaves the pose/emote loop entirely — without this, a
         // leftover offset keeps fighting the game's own draw-offset updates during normal
@@ -196,8 +206,10 @@ public sealed class Plugin : IDalamudPlugin
         // regardless of what's actually playing. Mirrors SimpleHeels clearing its temp offset on
         // emote change (SimpleHeels-master/Plugin.cs). Checked via PoseTrigger.HasAppliedOffset,
         // not OffsetEngine.Active alone — bridging to SimpleHeels deliberately leaves the latter
-        // false to avoid double-applying the offset.
-        if (PoseTrigger.HasAppliedOffset && PoseIdentifier.FromCharacter(localPlayer) == null)
+        // false to avoid double-applying the offset. Also gated on lastKnownPoseForFreecamRestore
+        // being clear, so this doesn't drop the offset while a freecam restore attempt is still
+        // in flight above.
+        if (PoseTrigger.HasAppliedOffset && currentPose == null && lastKnownPoseForFreecamRestore == null)
         {
             PoseTrigger.ClearOffset(localPlayer);
             LoadedPreset = null;
@@ -229,6 +241,44 @@ public sealed class Plugin : IDalamudPlugin
         CoupleQueueService.Tick();
         CouplePresetCaptureService.Tick();
         CoupleRelayInbox.Tick();
+    }
+
+    /// Defensive fallback for a sit/groundsit/doze loop dropping back to Character->Mode Normal
+    /// with no PoseKit code involved and no real player movement — FreeCamInput's own
+    /// EmoteController.cancelEmote hook is the primary defense (see
+    /// openspec/changes/preserve-emote-during-freecam) and should mean this rarely fires. Re-enters
+    /// the same pose when it does happen, with a bounded retry budget in case something keeps
+    /// re-triggering the drop while the player keeps rotating the freecam. Does nothing outside
+    /// that specific situation — a real movement-triggered exit, or any exit while freecam is off,
+    /// is left alone.
+    private void RestorePoseIfDropped(PoseIdentifier? currentPose)
+    {
+        if (currentPose != null)
+        {
+            lastKnownPoseForFreecamRestore = currentPose;
+            freecamRestoreAttempts = 0;
+            return;
+        }
+
+        if (lastKnownPoseForFreecamRestore is not { } droppedPose) return;
+
+        if (!FreeCam.Enabled || FreeCam.MovementKeyHeld)
+        {
+            lastKnownPoseForFreecamRestore = null;
+            return;
+        }
+
+        if (Environment.TickCount64 < nextFreecamRestoreAttemptTime) return;
+
+        if (freecamRestoreAttempts >= MaxFreecamRestoreAttempts)
+        {
+            lastKnownPoseForFreecamRestore = null;
+            return;
+        }
+
+        PoseTrigger.RestorePose(droppedPose);
+        freecamRestoreAttempts++;
+        nextFreecamRestoreAttemptTime = Environment.TickCount64 + FreecamRestoreAttemptDelayMs;
     }
 
     /// Resets every temporary Penumbra setting PoseKit itself applied this session before

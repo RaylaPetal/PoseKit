@@ -13,9 +13,12 @@ internal sealed unsafe class FreeCamInput : IDisposable
     [return: MarshalAs(UnmanagedType.U1)]
     private delegate bool InputQuery(InputData* data, InputId id);
     private delegate int AxisQuery(InputData* data, uint axis);
+    [return: MarshalAs(UnmanagedType.U1)]
+    private delegate bool CancelEmoteDelegate(EmoteController* emoteController, nint unknown);
     private readonly List<Hook<InputQuery>> queries = new();
     private Hook<AxisQuery>? axisHook;
     private Hook<InputManager.Delegates.GetInputStatus>? statusHook;
+    private Hook<CancelEmoteDelegate>? cancelEmoteHook;
     private Hook<InputQuery>? heldHook;
     private int* movementCounter;
     private bool ownsMovement;
@@ -48,6 +51,17 @@ internal sealed unsafe class FreeCamInput : IDisposable
             if (address == 0) throw new InvalidOperationException("Gameplay input support is unavailable.");
             statusHook = Plugin.GameInteropProvider.HookFromAddress<InputManager.Delegates.GetInputStatus>(address,
                 (manager, code) => !(Active && Blocks(code)) && statusHook!.Original(manager, code));
+            // Ported from Cammy's FreeCam.EnableInputBlockers (EmoteController.cancelEmote, same
+            // signature via Hypostasis's GameFunction<T>). This is the actual native check that
+            // decides whether to cancel the player's current emote/pose — freecam's camera
+            // detachment trips it for /doze specifically (see
+            // openspec/changes/preserve-emote-during-freecam; two other hypotheses about *why*
+            // were live-tested and falsified). Forcing it to always return "don't cancel" while
+            // freecam is active sidesteps the native cause entirely rather than trying to avoid
+            // triggering it. ScanText auto-resolves the leading E8 call to its target, matching
+            // NativeCameraView's loadView resolution elsewhere in this feature.
+            var cancelEmoteAddress = Plugin.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 7B 08 45 33 C0");
+            cancelEmoteHook = Plugin.GameInteropProvider.HookFromAddress<CancelEmoteDelegate>(cancelEmoteAddress, (_, _) => false);
         }
         catch
         {
@@ -94,6 +108,7 @@ internal sealed unsafe class FreeCamInput : IDisposable
             foreach (var hook in queries) hook.Enable();
             axisHook!.Enable();
             statusHook!.Enable();
+            cancelEmoteHook!.Enable();
         }
         catch
         {
@@ -114,6 +129,7 @@ internal sealed unsafe class FreeCamInput : IDisposable
         foreach (var hook in queries) TryCleanup(hook.Disable);
         if (axisHook != null) TryCleanup(axisHook.Disable);
         if (statusHook != null) TryCleanup(statusHook.Disable);
+        if (cancelEmoteHook != null) TryCleanup(cancelEmoteHook.Disable);
     }
 
     public void Dispose()
@@ -123,8 +139,10 @@ internal sealed unsafe class FreeCamInput : IDisposable
         queries.Clear();
         if (axisHook != null) TryCleanup(axisHook.Dispose);
         if (statusHook != null) TryCleanup(statusHook.Dispose);
+        if (cancelEmoteHook != null) TryCleanup(cancelEmoteHook.Dispose);
         axisHook = null;
         statusHook = null;
+        cancelEmoteHook = null;
         heldHook = null;
         movementCounter = null;
     }
