@@ -3,6 +3,7 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using PoseKit.Furniture;
+using PoseKit.Movement;
 using PoseKit.Presets;
 using PoseKit.Sync;
 
@@ -16,7 +17,7 @@ namespace PoseKit;
 /// chat command (per the design doc's stated fallback) — deliberately not porting Synastry's
 /// AOB-hooked AnywherePoseService/ActionTimelinePlayback, which bypass emote-unlock/server checks.
 /// </summary>
-public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
+public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge, AlignService alignService)
 {
     private readonly FurnitureScanner furnitureScanner = new();
 
@@ -37,6 +38,12 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// unlike a local preset's own anchor failing (where the notice is useful, established
     /// feedback).</param>
     public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false)
+    {
+        if (!configuration.AutoAlignBeforePlay) { TriggerNow(pose, offset, anchor, silent); return; }
+        alignService.TryAutoAlign(() => TriggerNow(pose, offset, anchor, silent));
+    }
+
+    private void TriggerNow(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent)
     {
         switch (pose.EmoteModeId)
         {
@@ -89,6 +96,12 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
     /// "(/command)" naming hint) — no pose-cycling, no offset; the mod's own redirect handles the visual.
     public void TriggerCommand(string emoteCommand)
+    {
+        if (!configuration.AutoAlignBeforePlay) { TriggerCommandNow(emoteCommand); return; }
+        alignService.TryAutoAlign(() => TriggerCommandNow(emoteCommand));
+    }
+
+    private void TriggerCommandNow(string emoteCommand)
     {
         cyclingTarget = null;
         ChatCommand.Execute($"/{emoteCommand} motion");

@@ -2,7 +2,10 @@ using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
+using PoseKit.Movement;
 
 namespace PoseKit.Windows;
 
@@ -79,6 +82,9 @@ public class MainWindow : Window, IDisposable
                 PoseKitUi.TextWrappedDisabled(plugin.FreeCam.Status);
                 if (plugin.FreeCam.Enabled)
                     PoseKitUi.TextWrappedDisabled("WASD: move | E/Q: up/down | Right drag: look | /posekit tfc: exit");
+
+                PoseKitUi.SectionHeader("Align to Target");
+                DrawAlignSection();
             }
             ImGui.EndChild();
             ImGui.EndTabItem();
@@ -93,5 +99,25 @@ public class MainWindow : Window, IDisposable
         }
 
         ImGui.EndTabBar();
+    }
+
+    private void DrawAlignSection()
+    {
+        var state = plugin.AlignService.GetAlignState();
+        var canAlign = state.hasTarget && state.inRange && state.mode == CharacterModes.Normal && !state.isWalking;
+
+        using (ImRaii.Disabled(!canAlign))
+        {
+            if (ImGui.Button(state.isWalking ? "Aligning..." : "Align to Target"))
+                plugin.AlignService.AlignToTarget();
+        }
+        ImGui.SameLine();
+
+        var status = state.isWalking ? "Walking to target..."
+            : !state.hasTarget ? "No target selected."
+            : state.mode != CharacterModes.Normal ? AlignService.BlockedReason(state.mode)
+            : state.inRange ? $"Ready — target: {state.targetName} ({state.distance:F1}y)"
+            : $"Too far: {state.targetName} ({state.distance:F1}y) — stand within {AlignService.MaxAlignDistance:F0}y first.";
+        PoseKitUi.TextWrappedDisabled(status);
     }
 }

@@ -40,6 +40,11 @@ public class Configuration : IPluginConfiguration
     /// is ever observed loaded — never again afterward, so a user who turns it back off stays off.
     public bool HasOfferedSimpleHeelsBridge { get; set; }
 
+    /// When on, playing any pose/emote first tries to walk the player to their current target's
+    /// exact position/facing (same range/state guards as the manual align action, but silent —
+    /// never blocks the pose from playing). See PoseKit.Movement.AlignService.TryAutoAlign.
+    public bool AutoAlignBeforePlay { get; set; }
+
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
     {
         if (!Characters.TryGetValue(homeWorldId, out var byName))

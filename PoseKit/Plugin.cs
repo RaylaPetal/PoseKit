@@ -16,6 +16,7 @@ using PoseKit.Presets;
 using PoseKit.Sync;
 using PoseKit.Windows;
 using PoseKit.Camera;
+using PoseKit.Movement;
 
 namespace PoseKit;
 
@@ -32,6 +33,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static ICondition Condition { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
+    [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
 
     private const string CommandName = "/posekit";
 
@@ -46,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public EmoteSyncCommand EmoteSync { get; init; }
     public FreeCamService FreeCam { get; init; }
+    public AlignService AlignService { get; init; }
 
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
@@ -96,11 +99,12 @@ public sealed class Plugin : IDalamudPlugin
 
         EmoteSync = new EmoteSyncCommand();
         FreeCam = new FreeCamService();
+        AlignService = new AlignService();
 
         OffsetEngine = new OffsetEngine();
         PresetManager = new PresetManager(Configuration);
         SimpleHeelsBridge = new SimpleHeelsBridge();
-        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge);
+        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge, AlignService);
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
@@ -159,7 +163,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes."
+            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes. '/posekit align' walks to your target's exact position."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -174,6 +178,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         FreeCam.Dispose();
+        AlignService.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
@@ -196,6 +201,7 @@ public sealed class Plugin : IDalamudPlugin
     private void OnFrameworkUpdate(IFramework framework)
     {
         FreeCam.Tick((float)framework.UpdateDelta.TotalSeconds);
+        AlignService.Tick();
         var localPlayer = ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
         RestorePoseIfDropped(currentPose);
@@ -405,6 +411,15 @@ public sealed class Plugin : IDalamudPlugin
                 FreeCam.Toggle();
                 ChatGui.Print($"[PoseKit] {FreeCam.Status}");
             }
+            return;
+        }
+
+        if (string.Equals(splitArgs[0], "align", StringComparison.OrdinalIgnoreCase))
+        {
+            if (splitArgs.Length != 1)
+                ChatGui.PrintError("[PoseKit] Usage: /posekit align");
+            else
+                AlignService.AlignToTarget();
             return;
         }
 
