@@ -97,9 +97,11 @@ public sealed class Plugin : IDalamudPlugin
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
+        PairingState = new PairingState();
+
         EmoteSync = new EmoteSyncCommand();
         FreeCam = new FreeCamService();
-        AlignService = new AlignService();
+        AlignService = new AlignService(PairingState);
 
         OffsetEngine = new OffsetEngine();
         PresetManager = new PresetManager(Configuration);
@@ -108,7 +110,6 @@ public sealed class Plugin : IDalamudPlugin
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
-        PairingState = new PairingState();
         PairingListener = new PairingListener(PairingState);
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
         CouplePresetCaptureService = new CouplePresetCaptureService(PairingState, PairingListener, PresetManager);

@@ -1,8 +1,11 @@
 using System;
 using System.Numerics;
+using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Hooking;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using PoseKit.Pairing;
 
 namespace PoseKit.Movement;
 
@@ -35,6 +38,7 @@ public sealed unsafe class AlignService : IDisposable
         byte* a6, byte bAdditiveUnk);
 
     private readonly Hook<RMIWalkDelegate>? rmiWalkHook;
+    private readonly PairingState pairingState;
 
     private volatile bool isWalking;
     private Vector3 destination;
@@ -80,8 +84,10 @@ public sealed unsafe class AlignService : IDisposable
         _ => "Stop what you're doing first.",
     };
 
-    public AlignService()
+    public AlignService(PairingState pairingState)
     {
+        this.pairingState = pairingState;
+
         try
         {
             rmiWalkHook = Plugin.GameInteropProvider.HookFromSignature<RMIWalkDelegate>(
@@ -225,6 +231,8 @@ public sealed unsafe class AlignService : IDisposable
 
         if (player->Mode != CharacterModes.Normal) { onDone(); return; }
 
+        if (ShouldYieldToPartner(target)) { onDone(); return; }
+
         var playerPos = new Vector3(player->GameObject.Position.X, player->GameObject.Position.Y, player->GameObject.Position.Z);
         var targetPos = target.Position;
         var distance = Vector3.Distance(playerPos, targetPos);
@@ -240,6 +248,33 @@ public sealed unsafe class AlignService : IDisposable
             BeginRotationHold(targetPos, targetRotation);
             onDone();
         }
+    }
+
+    /// True when the align target is the active pairing partner and this side should not be the one
+    /// to walk. Both clients independently compare the same two fixed identities (their own vs the
+    /// partner's), so they always agree on which side yields — with no extra message exchanged —
+    /// preventing both sides of a couple-play from simultaneously walking toward each other's
+    /// pre-walk position when both have auto-align on. Deliberately never consulted from
+    /// AlignToTarget (manual align) — see openspec/changes/auto-align-partner-tiebreak's proposal.md.
+    private bool ShouldYieldToPartner(IGameObject target)
+    {
+        if (!pairingState.Active || pairingState.Peer is not { } peer) return false;
+        if (target is not IPlayerCharacter targetPlayer) return false;
+
+        var targetWorld = targetPlayer.HomeWorld.Value.Name.ExtractText();
+        if (!peer.Matches(targetPlayer.Name.TextValue, targetWorld)) return false;
+
+        if (GetOwnIdentity() is not { } own) return false;
+
+        // This side yields (does not walk) unless its own identity sorts strictly first.
+        return string.CompareOrdinal(own.TellAddress, peer.TellAddress) >= 0;
+    }
+
+    private static PartnerIdentity? GetOwnIdentity()
+    {
+        var localPlayer = Plugin.ObjectTable.LocalPlayer;
+        if (localPlayer == null) return null;
+        return new PartnerIdentity(localPlayer.Name.TextValue, localPlayer.HomeWorld.Value.Name.ExtractText());
     }
 
     private void BeginRotationHold(Vector3 pos, float rotation)
