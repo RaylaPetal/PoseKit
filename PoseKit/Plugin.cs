@@ -101,12 +101,13 @@ public sealed class Plugin : IDalamudPlugin
 
         EmoteSync = new EmoteSyncCommand();
         FreeCam = new FreeCamService();
-        AlignService = new AlignService(PairingState);
-
         OffsetEngine = new OffsetEngine();
+        AlignService = new AlignService(PairingState, OffsetEngine);
+
         PresetManager = new PresetManager(Configuration);
         SimpleHeelsBridge = new SimpleHeelsBridge();
         PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge, AlignService);
+        PoseTrigger.PoseCycleSettled += AlignService.OnPoseCycleSettled;
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
@@ -178,6 +179,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        PoseTrigger.PoseCycleSettled -= AlignService.OnPoseCycleSettled;
         FreeCam.Dispose();
         AlignService.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;

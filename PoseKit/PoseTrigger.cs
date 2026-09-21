@@ -30,6 +30,13 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// deliberately leaves it false to avoid double-applying the offset.
     public bool HasAppliedOffset { get; private set; }
 
+    /// Raised once per Trigger/TriggerCommand call, the instant that call's pose/emote is confirmed
+    /// settled — immediately for a non-cycling emote or TriggerCommand (nothing to poll for), or from
+    /// Tick() once a cycling sit/ground-sit/doze's CPoseState matches (or the cycling budget below is
+    /// exhausted). Fires for every trigger, not just ones AlignService is waiting on — see
+    /// AlignService.OnPoseCycleSettled, which ignores it unless it's actually mid-handoff.
+    public event Action? PoseCycleSettled;
+
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
     /// <param name="silent">Suppresses the chat notice ResolveOffset would otherwise print when the
@@ -55,6 +62,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
                 if (pose.SlashCommand is not { } command) break; // no resolvable trigger — don't fake one
                 ChatCommand.Execute($"/{command} motion");
                 ApplyOffset(ResolveOffset(offset, anchor, silent));
+                // Deliberately NOT firing PoseCycleSettled here — see TriggerCommandNow's comment for
+                // why doing so was actively harmful for the auto-align cancel-guard.
                 break;
         }
     }
@@ -105,6 +114,13 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     {
         cyclingTarget = null;
         ChatCommand.Execute($"/{emoteCommand} motion");
+        // Deliberately NOT firing PoseCycleSettled here. It used to fire synchronously, in the same
+        // tick AlignService.Arrive() armed the cancel-guard — clearing the guard before the native
+        // cancelEmote check (which runs a frame or more later, once the game notices the character's
+        // recent position/rotation writes) ever got a chance to run, making the guard protect nothing
+        // for exactly the emotes with no cycling/polling step. Leaving it unfired here lets the guard
+        // ride its own safety-net timeout (AlignService.CancelGuardSafetyNetMs) instead, which is what
+        // that timeout exists for.
     }
 
     /// Re-enters the same sit/groundsit/doze variant after it unexpectedly ended for a reason other
@@ -157,15 +173,17 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         cyclingTarget = (pose, offset, anchor, silent);
         attempts = 0;
-        // 150ms/500ms initial settle delay and the 100ms/8-attempt cycling budget below both match
-        // Synastry-main/EmoteLink/Plugin.cs's UpdatePoseCycling exactly, rather than guessing at
-        // different timing — that implementation is a real, field-tested reference for this same
-        // "/cpose" polling mechanism.
         nextAttemptTime = Environment.TickCount64 + (alreadyInThatEmote ? 150 : 500);
     }
 
     private const int CposeAttemptDelayMs = 100;
-    private const int MaxCposeAttempts = 8;
+    // Widened from Synastry-main/EmoteLink's original 8 (~800ms after the initial settle, ~1.3s
+    // total) — live testing showed the pose-enter command sometimes not registering within that
+    // budget specifically when other plugins were doing heavy concurrent work in the same window
+    // (Penumbra resource loads/redraws, Mare building character data, etc., all visible in the same
+    // log slice as a failed attempt). 20 attempts (~2s after settle, ~2.5s total) gives real headroom
+    // under that kind of load without meaningfully changing the felt latency of a normal play.
+    private const int MaxCposeAttempts = 20;
 
     /// Called every framework tick from Plugin; steps "/cpose" until the target CPoseState is
     /// reached, then hands the offset to OffsetEngine.
@@ -176,7 +194,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         var current = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         if (current is not { } c || c.EmoteModeId != target.Pose.EmoteModeId)
         {
-            if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
+            if (++attempts >= MaxCposeAttempts) { cyclingTarget = null; PoseCycleSettled?.Invoke(); }
             else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
             return;
         }
@@ -185,48 +203,46 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         {
             ApplyOffset(ResolveOffset(target.Offset, target.Anchor, target.Silent));
             cyclingTarget = null;
+            PoseCycleSettled?.Invoke();
             return;
         }
 
         ChatCommand.Execute("/cpose");
-        if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
+        if (++attempts >= MaxCposeAttempts) { cyclingTarget = null; PoseCycleSettled?.Invoke(); }
         else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
     }
 
-    /// Folds an anchor's correction into the base offset using the position/rotation at the moment
-    /// the offset is actually about to be applied — not whenever Trigger() was first called.
-    /// Sit/GroundSit/Doze poses can take several frames to actually settle into place (EnterPoseCycle
-    /// waits on CPoseState via Tick), and entering the pose can itself change the character's facing
-    /// (e.g. sitting snapping/settling rotation) before it's fully active — an eagerly-computed
-    /// correction would use stale rotation and land wrong. Dispatches to whichever of spot/furniture
-    /// the preset's PresetAnchor actually carries (the two are structurally exclusive already).
+    /// Folds an anchor's correction, and/or an in-flight auto-align's target facing, into the base
+    /// offset using the position/rotation at the moment the offset is actually about to be applied —
+    /// not whenever Trigger() was first called. Sit/GroundSit/Doze poses can take several frames to
+    /// actually settle into place (EnterPoseCycle waits on CPoseState via Tick), and entering the pose
+    /// can itself change the character's facing (e.g. sitting snapping/settling rotation) before it's
+    /// fully active — an eagerly-computed correction would use stale rotation and land wrong. The
+    /// anchor correction dispatches to whichever of spot/furniture the preset's PresetAnchor actually
+    /// carries (the two are structurally exclusive already).
+    ///
     private PoseOffset ResolveOffset(PoseOffset baseOffset, PresetAnchor? anchor, bool silent = false)
     {
-        if (anchor is not { IsSet: true }) return baseOffset;
-
+        var offset = baseOffset;
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
-        if (localPlayer == null) return baseOffset;
-
         var rotationOffsetApplies = offsetEngine.RotationHookResolved;
-        PoseOffset? correction = anchor.Spot != null
-            ? anchor.Spot.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, baseOffset.Rotation, rotationOffsetApplies)
-            : ResolveFurnitureCorrection(anchor.Furniture!, localPlayer, baseOffset.Rotation, rotationOffsetApplies);
 
-        if (correction is not { } c)
+        if (localPlayer != null && anchor is { IsSet: true })
         {
-            if (!silent)
+            PoseOffset? correction = anchor.Spot != null
+                ? anchor.Spot.TryComputeCorrection(localPlayer, Plugin.ClientState.TerritoryType, offset.Rotation, rotationOffsetApplies)
+                : ResolveFurnitureCorrection(anchor.Furniture!, localPlayer, offset.Rotation, rotationOffsetApplies);
+
+            if (correction is { } c)
+                offset = new PoseOffset { Position = offset.Position + c.Position, Rotation = offset.Rotation + c.Rotation };
+            else if (!silent)
             {
                 var what = anchor.Spot != null ? "saved spot — different zone or too far away" : "furniture — none nearby";
                 Plugin.ChatGui.PrintError($"[PoseKit] Can't restore this preset's {what}. Playing with just the offset.");
             }
-            return baseOffset;
         }
 
-        return new PoseOffset
-        {
-            Position = baseOffset.Position + c.Position,
-            Rotation = baseOffset.Rotation + c.Rotation,
-        };
+        return offset;
     }
 
     private PoseOffset? ResolveFurnitureCorrection(FurnitureAnchor furnitureAnchor, IPlayerCharacter localPlayer, float baseRotationOffset, bool rotationOffsetApplies)

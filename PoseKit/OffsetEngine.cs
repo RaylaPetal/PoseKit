@@ -32,6 +32,8 @@ public sealed unsafe class OffsetEngine : IDisposable
     private readonly Hook<SetDrawOffsetDelegate>? setDrawOffsetHook;
     private readonly Hook<SetDrawRotationDelegate>? setDrawRotationHook;
     private Vector3 baseOffset;
+    private float baseRotation;
+    private bool hasBaseRotation;
 
     public bool Active { get; set; }
     public PoseOffset DesiredOffset { get; set; } = PoseOffset.Zero;
@@ -71,33 +73,75 @@ public sealed unsafe class OffsetEngine : IDisposable
         setDrawRotationHook?.Dispose();
     }
 
-    /// Deactivates and immediately writes the last known un-offset value back, rather than passively
-    /// waiting for the game to next call SetDrawOffset on its own (which might not happen soon if the
-    /// character is just standing still, making Reset feel like it did nothing).
+    /// Deactivates and immediately writes the last known un-offset values back, rather than passively
+    /// waiting for the game to next call SetDrawOffset/SetDrawRotation on its own (which might not
+    /// happen soon if the character is just standing still, making Reset feel like it did nothing).
     public void Reset(IPlayerCharacter? localPlayer)
     {
         Active = false;
         DesiredOffset = PoseOffset.Zero;
 
-        if (setDrawOffsetHook == null || localPlayer == null) return;
+        if (localPlayer == null) return;
         var obj = (GameObject*)localPlayer.Address;
         if (obj == null) return;
 
+        if (setDrawRotationHook != null && hasBaseRotation)
+            setDrawRotationHook.Original(obj, baseRotation);
+
+        if (setDrawOffsetHook == null) return;
         setDrawOffsetHook.Original(obj, baseOffset.X, baseOffset.Y, baseOffset.Z);
     }
 
+    /// Directly forces the character's DRAW-time rotation to an absolute value, once — bypassing
+    /// DesiredOffset/Active entirely. This is NOT an offset: it's a one-shot visual sync, called by
+    /// AlignService right after it writes the same absolute value to the real, authoritative
+    /// GameObject.Rotation field. That authoritative write alone doesn't reliably show up visually —
+    /// live testing confirmed the write and its immediate readback both succeed, yet the character
+    /// still doesn't appear to turn, matching this class's own doc comment: the game's draw-time
+    /// rotation is separate state the engine recomputes independently, not something it necessarily
+    /// re-derives from GameObject.Rotation every frame for a standing/idle character. This calls the
+    /// same native function SetDrawRotationDetour hooks, directly, with no addition — so a preset's
+    /// own DesiredOffset.Rotation is never touched or stacked on. See design.md Decision 3k.
+    public void ForceDrawRotation(IPlayerCharacter? localPlayer, float rotation)
+    {
+        if (setDrawRotationHook == null || localPlayer == null) return;
+        var obj = (GameObject*)localPlayer.Address;
+        if (obj == null) return;
+        setDrawRotationHook.Original(obj, rotation);
+    }
+
     /// Called every frame from Plugin's framework tick; re-applies the offset in case nothing
-    /// else prompted the game to call SetDrawOffset itself this frame.
+    /// else prompted the game to call SetDrawOffset/SetDrawRotation itself this frame. Position has
+    /// always done this; rotation didn't (see "Post-implementation finding" in
+    /// openspec/changes/align-handoff-cancel-guard's design.md for why that gap mattered) — a pose's
+    /// own native call into SetDrawRotation may happen only once, at entry, so a rotation offset
+    /// that isn't already set by the moment that single call happens has no other chance to land that
+    /// frame. Re-applying every tick, the same way position already does, removes that race.
+    ///
+    /// Rotation is only reapplied when DesiredOffset.Rotation is actually nonzero — i.e. only while
+    /// there's a real offset to maintain. Every pose trigger calls PoseTrigger.ApplyOffset (which sets
+    /// Active = true) regardless of whether that pose has any offset dialed in, so an unconditional
+    /// reapply here would force-write a *cached* baseRotation (from whenever the game last happened to
+    /// call SetDrawRotation, which can predate a later real GameObject.Rotation change, e.g. from
+    /// AlignService's own raw rotation write) every single frame with nothing to actually maintain —
+    /// silently overwriting any real rotation change for as long as the pose stays active. See
+    /// design.md Decision 3j.
     public void Tick(IPlayerCharacter? localPlayer)
     {
-        if (setDrawOffsetHook == null || !Active || localPlayer == null) return;
+        if (!Active || localPlayer == null) return;
 
         var obj = (GameObject*)localPlayer.Address;
         if (obj == null) return;
 
-        var desired = baseOffset + DesiredOffset.Position;
-        if (Vector3.Distance(desired, obj->DrawOffset) > 0.0001f)
-            setDrawOffsetHook.Original(obj, desired.X, desired.Y, desired.Z);
+        if (setDrawOffsetHook != null)
+        {
+            var desired = baseOffset + DesiredOffset.Position;
+            if (Vector3.Distance(desired, obj->DrawOffset) > 0.0001f)
+                setDrawOffsetHook.Original(obj, desired.X, desired.Y, desired.Z);
+        }
+
+        if (setDrawRotationHook != null && hasBaseRotation && DesiredOffset.Rotation != 0f)
+            setDrawRotationHook.Original(obj, baseRotation + DesiredOffset.Rotation);
     }
 
     private void SetDrawOffsetDetour(GameObject* gameObject, float x, float y, float z)
@@ -118,8 +162,13 @@ public sealed unsafe class OffsetEngine : IDisposable
 
     private void* SetDrawRotationDetour(GameObject* gameObject, float rotation)
     {
-        if (gameObject->ObjectIndex == 0 && Active)
-            rotation += DesiredOffset.Rotation;
+        if (gameObject->ObjectIndex == 0)
+        {
+            baseRotation = rotation;
+            hasBaseRotation = true;
+            if (Active)
+                return setDrawRotationHook!.Original(gameObject, rotation + DesiredOffset.Rotation);
+        }
 
         return setDrawRotationHook!.Original(gameObject, rotation);
     }
