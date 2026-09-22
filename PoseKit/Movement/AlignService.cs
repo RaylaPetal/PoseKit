@@ -35,6 +35,13 @@ namespace PoseKit.Movement;
 /// rotation write above time to actually land before the pose-enter command reads the character's
 /// transform. See align-handoff-cancel-guard's design.md, Decision 3e, for why: a zero-delay handoff
 /// was observed triggering the pose with the character still facing its pre-write direction.
+///
+/// One further wrinkle, added by pairing-align-polish: when a partner-targeted auto-align tie-break
+/// (see ShouldYieldToPartner) actually walks the character (a real distance was covered, not just a
+/// no-op re-trigger while already standing there), the pose/emote callback is withheld entirely
+/// rather than deferred — the walk itself is the coordination, and playing automatically on arrival
+/// was the source of most of this feature's reported bugs. See design.md Decision 1 for the "did a
+/// real walk happen" condition and why "target is the partner" alone isn't enough.
 /// </summary>
 public sealed unsafe class AlignService : IDisposable
 {
@@ -80,6 +87,10 @@ public sealed unsafe class AlignService : IDisposable
     private bool cancelGuardActive;
     private long cancelGuardExpiresAt;
 
+    /// Set by WalkTo(), consumed once by Arrive() — see design.md Decision 1. Stored alongside
+    /// onArrived/onCancelled since it describes the same in-flight walk.
+    private bool suppressPoseOnArrival;
+
     private const float SnapDistance = 0.05f;
     private const float SlowdownRadius = 0.3f;
     private const long TimeoutMs = 2000;
@@ -97,6 +108,12 @@ public sealed unsafe class AlignService : IDisposable
     /// not just cancel an existing one, and 130ms is far short of the up-to-1.5s CancelGuardSafetyNetMs
     /// already needed for that same signal on the cancellation side. Matching that same window here.
     private const int PoseTriggerDelayTicks = 90;
+
+    /// Used instead of PoseTriggerDelayTicks when Arrive() is suppressing the pose callback entirely
+    /// (see suppressPoseOnArrival) — there's no pose-entry timing window to protect here, just the
+    /// walk-to-idle animation's tail end, the same short gap PoseTriggerDelayTicks itself was widened
+    /// from (~130ms; see that constant's own doc comment). See design.md Decision 1.
+    private const int SuppressedArrivalSettleTicks = 8;
 
     public bool IsMovingToDestination => isWalking;
     public bool IsHookActive => rmiWalkHook != null;
@@ -277,7 +294,11 @@ public sealed unsafe class AlignService : IDisposable
     /// walk cancelled by real player movement — calls <paramref name="onDone"/> immediately with no
     /// chat message, so playing a pose is never blocked by alignment. A successful walk (or its own
     /// timeout, which still snaps to the destination the same way the manual hook path does) calls
-    /// <paramref name="onDone"/> only once the character has arrived and faced the target.
+    /// <paramref name="onDone"/> once the character has arrived and faced the target — except when
+    /// this attempt is the partner-targeted tie-break's walking side, in which case
+    /// <paramref name="onDone"/> (the pose trigger) is withheld entirely on arrival; see design.md
+    /// Decision 1. A movement-cancelled walk is unaffected either way — <paramref name="onDone"/>
+    /// still fires immediately at the player's current position.
     public void TryAutoAlign(Action onDone)
     {
         // Busy covers a still-pending completion, not just isWalking — see design.md Decision 3m. A
@@ -309,8 +330,15 @@ public sealed unsafe class AlignService : IDisposable
 
         var targetRotation = target.Rotation;
 
+        // Partner-targeted tie-break, walking side: suppress the pose callback on arrival, but only
+        // when a real walk is actually about to happen — a target that's the partner but already at
+        // (or within SnapDistance of) the player's position is an ordinary subsequent play action
+        // (e.g. the player's own click right after a prior suppressed arrival), not the tie-break
+        // walk, and must play normally. See design.md Decision 1.
+        var suppressPoseOnArrival = IsTargetPartner(target) && distance > SnapDistance;
+
         if (IsHookActive)
-            WalkTo(targetPos, targetRotation, arrived: onDone, cancelled: onDone);
+            WalkTo(targetPos, targetRotation, arrived: onDone, cancelled: onDone, suppressPoseOnArrival);
         else
         {
             // Not inside the native hook here, so no reentrancy concern, but the same rotation-write-
@@ -323,10 +351,33 @@ public sealed unsafe class AlignService : IDisposable
             // Tick()'s reapplication loop below reads the faceRotation field, not a local variable —
             // set it here too so the no-hook path keeps insisting on the correct value during the wait.
             faceRotation = targetRotation;
-            ArmCancelGuard();
-            pendingCompletion = onDone;
-            pendingCompletionDelayTicks = PoseTriggerDelayTicks;
+
+            if (suppressPoseOnArrival)
+            {
+                // Same suppression as the hooked Arrive() path, mirrored here for the fallback case —
+                // see design.md Decision 1.
+                pendingCompletion = () => { };
+                pendingCompletionDelayTicks = SuppressedArrivalSettleTicks;
+            }
+            else
+            {
+                ArmCancelGuard();
+                pendingCompletion = onDone;
+                pendingCompletionDelayTicks = PoseTriggerDelayTicks;
+            }
         }
+    }
+
+    /// True when the given target is the active pairing partner — shared by ShouldYieldToPartner's
+    /// tie-break check and TryAutoAlign's own auto-play-suppression check (see design.md Decision 1),
+    /// so the two never drift out of sync on what counts as "the partner."
+    private bool IsTargetPartner(IGameObject target)
+    {
+        if (!pairingState.Active || pairingState.Peer is not { } peer) return false;
+        if (target is not IPlayerCharacter targetPlayer) return false;
+
+        var targetWorld = targetPlayer.HomeWorld.Value.Name.ExtractText();
+        return peer.Matches(targetPlayer.Name.TextValue, targetWorld);
     }
 
     /// True when the align target is the active pairing partner and this side should not be the one
@@ -337,16 +388,11 @@ public sealed unsafe class AlignService : IDisposable
     /// AlignToTarget (manual align) — see openspec/changes/auto-align-partner-tiebreak's proposal.md.
     private bool ShouldYieldToPartner(IGameObject target)
     {
-        if (!pairingState.Active || pairingState.Peer is not { } peer) return false;
-        if (target is not IPlayerCharacter targetPlayer) return false;
-
-        var targetWorld = targetPlayer.HomeWorld.Value.Name.ExtractText();
-        if (!peer.Matches(targetPlayer.Name.TextValue, targetWorld)) return false;
-
+        if (!IsTargetPartner(target)) return false;
         if (GetOwnIdentity() is not { } own) return false;
 
         // This side yields (does not walk) unless its own identity sorts strictly first.
-        return string.CompareOrdinal(own.TellAddress, peer.TellAddress) >= 0;
+        return string.CompareOrdinal(own.TellAddress, pairingState.Peer!.Value.TellAddress) >= 0;
     }
 
     private static PartnerIdentity? GetOwnIdentity()
@@ -399,12 +445,13 @@ public sealed unsafe class AlignService : IDisposable
             player->GameObject.SetPosition(pos.X, pos.Y, pos.Z);
     }
 
-    private void WalkTo(Vector3 dest, float rotation, Action? arrived, Action? cancelled)
+    private void WalkTo(Vector3 dest, float rotation, Action? arrived, Action? cancelled, bool suppressPoseOnArrival = false)
     {
         destination = dest;
         faceRotation = rotation;
         onArrived = arrived;
         onCancelled = cancelled;
+        this.suppressPoseOnArrival = suppressPoseOnArrival;
         walkStartTick = Environment.TickCount64;
         isWalking = true;
         // A fresh walk supersedes any guard still running from a prior align.
@@ -434,6 +481,8 @@ public sealed unsafe class AlignService : IDisposable
         var arrivedCb = onArrived;
         onArrived = null;
         onCancelled = null;
+        var suppress = suppressPoseOnArrival;
+        suppressPoseOnArrival = false;
 
         // Position + rotation: Encore's own proven approach (IcarusXIV/Encore, MovementService.cs's
         // Arrive() + Plugin.cs's ApplyTargetRotation/SnapToPosition) — plain one-shot native writes,
@@ -454,6 +503,18 @@ public sealed unsafe class AlignService : IDisposable
         offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, faceRotation);
 
         if (arrivedCb == null) return; // manual align — nothing further to do
+
+        if (suppress)
+        {
+            // Partner-targeted tie-break, walking side: the walk itself was the coordination — never
+            // fire the pose callback at all (arrivedCb is deliberately dropped here). No pose to
+            // protect, so no cancel-guard either; just outlast the walk-to-idle animation's tail end
+            // so the facing write above doesn't visibly revert, via the same deferred-Tick() mechanism
+            // with a no-op callback. See design.md Decision 1.
+            pendingCompletion = () => { };
+            pendingCompletionDelayTicks = SuppressedArrivalSettleTicks;
+            return;
+        }
 
         // Auto-align only: about to hand off into playing a pose. Arm the cancel-guard now, before
         // that callback runs, so the pose it triggers can't be cancelled by the writes just above

@@ -22,6 +22,13 @@ public readonly record struct AnchorHint(int AnchorKind, uint FurnitureEntryId, 
 /// PairingComposer's ComposeCapturedStateTail for the wire shape.</summary>
 public readonly record struct CapturedPoseState(PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor, PenumbraLink? Penumbra);
 
+/// <summary>A decoded "posekitforcequeue" hash payload — see PairingComposer.ComposeForceSelection for
+/// the wire shape and why a trigger-level hash is needed alongside the mod/group/option ones.</summary>
+public readonly record struct ForceSelectionHashes(string ModDirectoryHash, string GroupNameHash, string OptionNameHash, string TriggerHash)
+{
+    public bool HasPenumbraData => ModDirectoryHash != "0";
+}
+
 /// <summary>
 /// Session-scoped, non-networked pairing handshake over /tell — no relay, no signing, no persistent
 /// trust store (see design.md's rationale for deliberately not reusing xiv-collar's relay-assisted
@@ -67,7 +74,7 @@ public sealed class PairingListener : IDisposable
     /// Raised when a "posekitforcequeue" tell arrives from the currently-paired peer — Plugin wires
     /// this to resolve the named item against this side's own presets/discovered animations and play
     /// it if found. Nothing is ever sent back in response.
-    public event Action<PartnerIdentity, string>? ForceSelectionReceived;
+    public event Action<PartnerIdentity, string, ForceSelectionHashes>? ForceSelectionReceived;
 
     public PairingListener(PairingState state)
     {
@@ -179,7 +186,7 @@ public sealed class PairingListener : IDisposable
             // Checked before CoupleCaptureKeyword below since it's a prefix of this longer keyword.
             if (!state.Active || state.Peer is not { } replyPeer || !replyPeer.Equals(sender)) return;
             var (requestId, tail) = SplitFirstToken(text[CoupleCaptureReplyKeyword.Length..].Trim());
-            if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 1, out var captured, out _))
+            if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 2, out var captured, out _))
                 CoupleCaptureReplyReceived?.Invoke(sender, requestId, captured);
             return;
         }
@@ -195,7 +202,7 @@ public sealed class PairingListener : IDisposable
         if (text.StartsWith(CoupleRelayKeyword, StringComparison.OrdinalIgnoreCase))
         {
             if (!state.Active || state.Peer is not { } relayPeer || !relayPeer.Equals(sender)) return;
-            if (TryParseCapturedState(text[CoupleRelayKeyword.Length..].Trim(), compoundParts: 2, out var captured, out var presetName)
+            if (TryParseCapturedState(text[CoupleRelayKeyword.Length..].Trim(), compoundParts: 3, out var captured, out var presetName)
                 && presetName.Length > 0)
                 CoupleRelayReceived?.Invoke(sender, presetName, captured);
             return;
@@ -212,9 +219,12 @@ public sealed class PairingListener : IDisposable
 
         if (text.StartsWith(ForceSelectKeyword, StringComparison.OrdinalIgnoreCase))
         {
-            var name = text[ForceSelectKeyword.Length..].Trim();
-            if (name.Length > 0 && state.Active && state.Peer is { } forcePeer && forcePeer.Equals(sender))
-                ForceSelectionReceived?.Invoke(sender, name);
+            var (tokens, name) = SplitTokens(text[ForceSelectKeyword.Length..].Trim(), 4);
+            if (tokens.Length == 4 && name.Length > 0 && state.Active && state.Peer is { } forcePeer && forcePeer.Equals(sender))
+            {
+                var hashes = new ForceSelectionHashes(tokens[0], tokens[1], tokens[2], tokens[3]);
+                ForceSelectionReceived?.Invoke(sender, name, hashes);
+            }
         }
     }
 
@@ -238,9 +248,9 @@ public sealed class PairingListener : IDisposable
 
     /// Mirrors PairingComposer.ComposeCapturedStateTail's wire shape exactly — see that method's doc
     /// for the field layout and free-text ordering. Fails closed: any malformed/truncated field drops
-    /// the whole tell rather than guessing at a partial capture. `compoundParts` is 1 for a capture
-    /// reply (just furniture name) or 2 for a play relay (preset name also present, last); `extra`
-    /// carries that 2nd field (the preset name) when present, empty otherwise.
+    /// the whole tell rather than guessing at a partial capture. `compoundParts` is 2 for a capture
+    /// reply (furniture name, mod name) or 3 for a play relay (preset name also present, last); `extra`
+    /// carries that 3rd field (the preset name) when present, empty otherwise.
     private static bool TryParseCapturedState(string body, int compoundParts, out CapturedPoseState state, out string extra)
     {
         state = default;
@@ -270,7 +280,8 @@ public sealed class PairingListener : IDisposable
         var compound = remainder.Split('|', compoundParts);
         if (compound.Length < compoundParts) return false;
         var furnitureName = compound[0];
-        if (compoundParts > 1) extra = compound[1];
+        var modName = compound[1];
+        if (compoundParts > 2) extra = compound[2];
 
         PresetAnchor? anchor = anchorKind switch
         {
@@ -292,13 +303,14 @@ public sealed class PairingListener : IDisposable
         // of its own installed mods, groups, and options the hashes refer to. "0" means "no real
         // group" (the implicit/Default case — see PenumbraLink.GroupName), not a hash to resolve.
         // GroupSelections is deliberately left empty here — it's populated once Plugin.PlayPose has
-        // resolved the real group/option names, not with placeholder hash text. ModName is
-        // intentionally not carried at all — display-only, never used to replay (see
-        // NamedPose.PenumbraLink.ModName).
+        // resolved the real group/option names, not with placeholder hash text. ModName is carried as
+        // plain display text (never hashed, never used to resolve/replay) purely so a failed
+        // resolution can still name the mod in a not-found notice — see Plugin.PlayPose.
         PenumbraLink? penumbra = hasPenumbra != 0
             ? new PenumbraLink
             {
                 ModDirectory = $"#{modDirectoryHash}",
+                ModName = modName,
                 GroupName = groupNameHash == "0" ? "" : $"#{groupNameHash}",
                 OptionName = groupNameHash == "0" ? "" : $"#{optionNameHash}",
             }

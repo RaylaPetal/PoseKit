@@ -133,24 +133,31 @@ public sealed class Plugin : IDalamudPlugin
         };
 
         // A force-selected name arrives here with no local queue bookkeeping to do — it's resolved
-        // against what's actually available on *this* side (a saved preset by name, then a
-        // Penumbra-discovered animation by its "ModName — OptionName" label) and played immediately
-        // if found. Silently does nothing if neither resolves — the receiving side may simply not
-        // have that preset or mod, same best-effort tolerance as TryCaptureOwnStateForPartnerRequest above.
-        PairingListener.ForceSelectionReceived += (_, name) =>
+        // against what's actually available on *this* side: a saved preset by name, then (for a
+        // Penumbra-discovered pose) by the mod/group/option/trigger hash quad it carries — resilient
+        // to the mod having been renamed locally since — falling back to matching its "ModName —
+        // OptionName" label only if the hash match fails too. Tells the player (rather than silently
+        // doing nothing) if none of these resolve — see couple-pairing's Partner Pose Not Found
+        // Notice requirement.
+        PairingListener.ForceSelectionReceived += (_, name, hashes) =>
         {
             var preset = PresetManager.Presets.FirstOrDefault(p => p.Name == name);
             if (preset != null) { PlayPreset(preset); return; }
-            PenumbraPosePanel.TryPlayByLabel(this, name);
+            if (PenumbraPosePanel.TryPlayByHash(this, hashes)) return;
+            if (PenumbraPosePanel.TryPlayByLabel(this, name)) return;
+            ChatGui.Print($"[PoseKit] Partner picked \"{name}\", but it wasn't found in your list.");
         };
 
         // Announces this side's current override-toggle state once whenever pairing activates — the
         // toggle itself already sends on every change, but a toggle set before pairing existed (or
-        // set during a prior pairing) would otherwise never reach a newly-paired partner.
+        // set during a prior pairing) would otherwise never reach a newly-paired partner. Only sent
+        // when the state is actually on: the overwhelmingly common default-off case has nothing worth
+        // announcing, and sending it anyway was pure unsolicited-message clutter on every pairing —
+        // see couple-pairing's Pairing Override State Announcement requirement (pairing-align-polish).
         var wasPairingActive = false;
         PairingState.Changed += () =>
         {
-            if (PairingState.Active && !wasPairingActive)
+            if (PairingState.Active && !wasPairingActive && PairingState.LocalOverrideEnabled)
                 PairingListener.SendOverrideToggle(PairingState.LocalOverrideEnabled);
             wasPairingActive = PairingState.Active;
         };
@@ -329,21 +336,38 @@ public sealed class Plugin : IDalamudPlugin
 
     private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false)
     {
-        if (penumbra is { } link && PenumbraIpc.TryGetLocalPlayerCollectionId() is { } collectionId
-            && ResolveModDirectory(link.ModDirectory) is { } modDirectory)
+        if (penumbra is { } link && !TryApplyPenumbraLink(link) && link.ModDirectory.StartsWith('#'))
         {
-            var selections = new Dictionary<string, IReadOnlyList<string>>();
-            foreach (var (group, options) in link.GroupSelections)
-                selections[group] = options;
-
-            if (link.GroupName.StartsWith('#') && ResolveGroupOption(modDirectory, link.GroupName, link.OptionName) is { } resolved)
-                selections[resolved.GroupName] = [resolved.OptionName];
-
-            if (PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, selections))
-                PenumbraIpc.TryRedrawLocalPlayer();
+            // Only a partner-originated link (hashed ModDirectory — see ResolveModDirectory) gets a
+            // not-found notice: a local preset's own linked mod going missing is a separate, existing
+            // situation this change doesn't touch. See couple-pairing's Partner Pose Not Found Notice.
+            var modLabel = link.ModName.Length > 0 ? link.ModName : "a mod";
+            ChatGui.Print($"[PoseKit] Partner's pose uses {modLabel}, which wasn't found in your list.");
         }
 
         PoseTrigger.Trigger(pose, offset, anchor, silent);
+    }
+
+    /// Applies a Penumbra link's mod/group/option selection, enabling the mod if needed — true only
+    /// once the redirect was actually applied. False covers every failure mode (mod not resolvable
+    /// locally, ambiguous hash, or Penumbra's own TrySetTemporarySettings call failing), so PlayPose
+    /// can tell a real failure from a successful apply.
+    private bool TryApplyPenumbraLink(PenumbraLink link)
+    {
+        if (PenumbraIpc.TryGetLocalPlayerCollectionId() is not { } collectionId) return false;
+        if (ResolveModDirectory(link.ModDirectory) is not { } modDirectory) return false;
+
+        var selections = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var (group, options) in link.GroupSelections)
+            selections[group] = options;
+
+        if (link.GroupName.StartsWith('#') && ResolveGroupOption(modDirectory, link.GroupName, link.OptionName) is { } resolved)
+            selections[resolved.GroupName] = [resolved.OptionName];
+
+        if (!PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, selections)) return false;
+
+        PenumbraIpc.TryRedrawLocalPlayer();
+        return true;
     }
 
     /// A partner half's ModDirectory travels over the wire as "#&lt;hash&gt;" (see

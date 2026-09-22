@@ -69,13 +69,19 @@ public class MainWindow : Window, IDisposable
             {
                 PresetButtonsPanel.DrawOffsets(plugin);
 
-                PoseKitUi.SectionHeader("Emote Sync");
+                // One shared header for all three utility rows below, instead of one per row — each
+                // row is already a single button+status line (DrawAlignSection's own shape, mirrored
+                // here for the other two), so the only real bulk was three separate headers' worth of
+                // spacing/separator/colored-text overhead. Freecam's conditional hint line is the one
+                // allowed second line — collapsing it into the row would make an already-dense line
+                // unreadable, and it isn't shown most of the time anyway. See design.md Decision 4.
+                PoseKitUi.SectionHeader("Utilities");
+
                 if (ImGui.Button("Resync nearby emotes"))
                     plugin.EmoteSync.Sync();
                 ImGui.SameLine();
                 PoseKitUi.TextWrappedDisabled("Resets all nearby rendered players together on your client.");
 
-                PoseKitUi.SectionHeader("Freecam");
                 if (ImGui.Button(plugin.FreeCam.Enabled ? "Disable freecam" : "Enable freecam"))
                     plugin.FreeCam.Toggle();
                 ImGui.SameLine();
@@ -83,7 +89,6 @@ public class MainWindow : Window, IDisposable
                 if (plugin.FreeCam.Enabled)
                     PoseKitUi.TextWrappedDisabled("WASD: move | E/Q: up/down | Right drag: look | /posekit tfc: exit");
 
-                PoseKitUi.SectionHeader("Align to Target");
                 DrawAlignSection();
             }
             ImGui.EndChild();

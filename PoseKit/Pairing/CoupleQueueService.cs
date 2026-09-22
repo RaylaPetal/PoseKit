@@ -1,6 +1,7 @@
 namespace PoseKit.Pairing;
 
 using System;
+using PoseKit.Presets;
 
 /// <summary>
 /// Queues a selection toward the current pairing peer and auto-plays it once the partner has also
@@ -76,7 +77,12 @@ public sealed class CoupleQueueService : IDisposable
     /// reply (this side already knows both halves by construction: its own first pick, and the
     /// forced pick it just chose for the partner). Falls back to a normal QueueSelection if nothing
     /// of this side's own was queued yet — there would be nothing to play immediately.
-    public void TryForceSelect(string forcedDisplayName, Action fallbackPlay)
+    ///
+    /// <paramref name="penumbra"/>/<paramref name="triggerText"/> are passed straight through to
+    /// ComposeForceSelection when forcing a Penumbra-discovered pose (not a saved preset), so the
+    /// partner can resolve it by mod-directory hash instead of just the display name — see
+    /// couple-pairing's Partner Pose Resolution requirement.
+    public void TryForceSelect(string forcedDisplayName, Action fallbackPlay, PenumbraLink? penumbra = null, string? triggerText = null)
     {
         if (queuedPlay is not { } ownPlay || pairingState.Peer is not { } partner)
         {
@@ -84,7 +90,7 @@ public sealed class CoupleQueueService : IDisposable
             return;
         }
 
-        PairingSender.Send(PairingComposer.ComposeForceSelection(partner, forcedDisplayName));
+        PairingSender.Send(PairingComposer.ComposeForceSelection(partner, forcedDisplayName, penumbra, triggerText));
         ClearQueue();
         ownPlay();
     }
@@ -103,7 +109,7 @@ public sealed class CoupleQueueService : IDisposable
     /// stale, showing "they picked X" for a round that already concluded. Cleared unconditionally,
     /// even if this side had nothing of its own queued (queuedPlay was already null) — Plugin's own
     /// resolve-and-play for the forced name has already happened by the time this runs.
-    private void OnForceSelectionReceived(PartnerIdentity sender, string name) => ClearQueue();
+    private void OnForceSelectionReceived(PartnerIdentity sender, string name, ForceSelectionHashes hashes) => ClearQueue();
 
     private void OnPairingStateChanged()
     {

@@ -82,11 +82,13 @@ public static class PairingComposer
     /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields, mod-directory/
     /// group/option hashes), then every free-text field joined by '|' last, ordered least-to-most
     /// likely to itself contain a literal '|' so only the true last field needs to safely absorb one
-    /// — furniture name first, with an optional preset name (the most user-free-typed of all of them)
-    /// absolute last. ModName is deliberately omitted — display-only, never used to replay (see
-    /// NamedPose.PenumbraLink.ModName) — and ModDirectory/GroupName/OptionName all travel as stable
-    /// hashes (see ModDirectoryHash) instead of their literal text, resolved back to real strings only
-    /// by the client that owns the mod, at apply time (see Plugin.PlayPose).
+    /// — furniture name first, then the mod's display name (still not used to replay — that goes
+    /// through ModDirectory/GroupSelections, resolved via the hashes below — but carried now so the
+    /// receiving side can name the mod in a not-found notice if it can't resolve those hashes; see
+    /// couple-pairing's Partner Pose Not Found Notice), with an optional preset name (the most
+    /// user-free-typed of all of them) absolute last. ModDirectory/GroupName/OptionName all travel as
+    /// stable hashes (see ModDirectoryHash) instead of their literal text, resolved back to real
+    /// strings only by the client that owns the mod, at apply time (see Plugin.PlayPose).
     private static string ComposeCapturedStateTail(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor,
         PenumbraLink? penumbra, string? presetName)
     {
@@ -118,7 +120,7 @@ public static class PairingComposer
             modDirectoryHash, groupNameHash, optionNameHash,
         });
 
-        var compoundParts = new List<string> { furnitureName };
+        var compoundParts = new List<string> { furnitureName, penumbra?.ModName ?? "" };
         if (presetName != null) compoundParts.Add(presetName);
 
         return $"{tokens} {string.Join('|', compoundParts)}";
@@ -134,6 +136,23 @@ public static class PairingComposer
     /// and mutual override is active — names the item the *partner* should play, not the sender's
     /// own. No acknowledgement is expected or sent back; the sender plays its own already-queued pick
     /// immediately rather than waiting for one.
-    public static string ComposeForceSelection(PartnerIdentity target, string name) =>
-        $"/tell {target.TellAddress} {ForceSelectKeyword} {name}";
+    ///
+    /// When <paramref name="penumbra"/> is set (the forced pick is a Penumbra-discovered pose, not a
+    /// saved preset), also carries the same mod-directory/group/option hash triple
+    /// ComposeCapturedStateTail sends, plus a hash of the specific trigger's own identity (needed
+    /// because a single option can bind more than one trigger — see DescribeTriggerLabel), so the
+    /// receiving side can resolve the exact pick even if the mod's been renamed since. "0" in any
+    /// hash field means "not applicable" (no Penumbra link, no real group, or nothing more specific
+    /// than the option's one trigger to disambiguate) — never a real hash, which is always 8 hex
+    /// characters. See couple-pairing's Partner Pose Resolution requirement.
+    public static string ComposeForceSelection(PartnerIdentity target, string name,
+        PenumbraLink? penumbra = null, string? triggerText = null)
+    {
+        var modDirectoryHash = penumbra?.ModDirectory is { Length: > 0 } dir ? ModDirectoryHash.Compute(dir) : "0";
+        var (groupNameHash, optionNameHash) = penumbra?.GroupName is { Length: > 0 } group
+            ? (ModDirectoryHash.Compute(group), ModDirectoryHash.Compute(penumbra!.OptionName))
+            : ("0", "0");
+        var triggerHash = penumbra != null && triggerText is { Length: > 0 } t ? ModDirectoryHash.Compute(t) : "0";
+        return $"/tell {target.TellAddress} {ForceSelectKeyword} {modDirectoryHash} {groupNameHash} {optionNameHash} {triggerHash} {name}";
+    }
 }

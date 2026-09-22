@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Dalamud.Bindings.ImGui;
+using PoseKit.Pairing;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
 
@@ -456,9 +457,20 @@ public static class PenumbraPosePanel
                     // While paired, nothing plays yet — this queues toward the partner and highlights
                     // once they've picked something too, same as a preset click (PresetButtonsPanel).
                     // Under mutual override, a second click (once this side already has its own
-                    // queued pick) forces triggerLabel onto the partner instead.
+                    // queued pick) forces triggerLabel onto the partner instead — also carrying this
+                    // pick's own mod-directory/group/option/trigger identity (mirroring
+                    // CapturePenumbraContext below) so the partner can resolve it by hash even if the
+                    // mod's been renamed since. See couple-pairing's Partner Pose Resolution.
                     if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
-                        plugin.CoupleQueueService.TryForceSelect(triggerLabel, Play);
+                    {
+                        var penumbraLink = new PenumbraLink
+                        {
+                            ModDirectory = mod.ModDirectory, ModName = mod.ModName, OptionName = option.Name,
+                            GroupName = group.IsImplicit ? "" : group.Name,
+                        };
+                        var triggerText = trigger.SlashCommand is { } slashCmd ? slashCmd : trigger.PoseIdentifier!.Value.DisplayName;
+                        plugin.CoupleQueueService.TryForceSelect(triggerLabel, Play, penumbraLink, triggerText);
+                    }
                     else if (plugin.PairingState.Active)
                         plugin.CoupleQueueService.QueueSelection(triggerLabel, Play);
                     else
@@ -504,6 +516,61 @@ public static class PenumbraPosePanel
     public static bool TryPlayByLabel(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
+        var (mod, group, option, trigger) = found;
+
+        var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+        var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
+        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+        return true;
+    }
+
+    /// Same idea as FindByTriggerLabel, but matching a received ForceSelectionHashes against each
+    /// mod/group/option/trigger's own hashed identity (ModDirectoryHash.Compute) instead of the
+    /// literal DescribeTriggerLabel text — survives the mod (or one of its options) having been
+    /// renamed locally since the partner made their pick. See couple-pairing's Partner Pose
+    /// Resolution requirement. A "0" group/option hash matches any implicit group (there's always
+    /// exactly one option in it — see PenumbraPoseScanner's "Default" synthetic group), mirroring
+    /// Plugin.ResolveGroupOption's own skip-when-no-hash convention.
+    private static (PoseModInfo Mod, PoseModGroup Group, PoseModOption Option, PoseTriggerHint Trigger)? FindByHash(
+        Plugin plugin, ForceSelectionHashes hashes)
+    {
+        foreach (var mod in plugin.DiscoveredPoses)
+        {
+            if (ModDirectoryHash.Compute(mod.ModDirectory) != hashes.ModDirectoryHash) continue;
+
+            foreach (var group in mod.Groups)
+            {
+                var groupMatches = hashes.GroupNameHash == "0"
+                    ? group.IsImplicit
+                    : ModDirectoryHash.Compute(group.Name) == hashes.GroupNameHash;
+                if (!groupMatches) continue;
+
+                foreach (var option in group.Options)
+                {
+                    var optionMatches = hashes.OptionNameHash == "0" || ModDirectoryHash.Compute(option.Name) == hashes.OptionNameHash;
+                    if (!optionMatches) continue;
+
+                    foreach (var trigger in option.Triggers)
+                    {
+                        var triggerText = trigger.SlashCommand is { } cmd ? cmd : trigger.PoseIdentifier!.Value.DisplayName;
+                        if (ModDirectoryHash.Compute(triggerText) == hashes.TriggerHash)
+                            return (mod, group, option, trigger);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Resolves a received force-selection's hash triple/quad against the currently discovered mods
+    /// and plays its exact matching trigger if found — tried before the name-based TryPlayByLabel
+    /// fallback (see Plugin's ForceSelectionReceived wiring). Returns false (does nothing) if
+    /// <paramref name="hashes"/> carries no Penumbra data (a saved-preset force-select) or no
+    /// discovered trigger currently matches.
+    public static bool TryPlayByHash(Plugin plugin, ForceSelectionHashes hashes)
+    {
+        if (!hashes.HasPenumbraData) return false;
+        if (FindByHash(plugin, hashes) is not { } found) return false;
         var (mod, group, option, trigger) = found;
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
