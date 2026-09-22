@@ -44,9 +44,17 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// where couple-preset-relay's spec calls for the pose/offset to still play with no error shown,
     /// unlike a local preset's own anchor failing (where the notice is useful, established
     /// feedback).</param>
-    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false)
+    /// <param name="skipAutoAlign">True for a paired, queued/forced/matched play — this side already
+    /// walked to the partner (if it was going to at all) the moment it was queued, via
+    /// AlignService.TryAutoAlignOnQueue (see CoupleQueueService.QueueSelection), decoupled from when
+    /// the pick actually plays. Re-running auto-align here, at play time, is exactly the bug this
+    /// parameter exists to avoid — walking a second time, or worse, gating the play on yet another
+    /// walk-then-arrive handoff, when the point of queueing was to already be in place by now. Left
+    /// false (the default) for a direct, immediate, unpaired play, which still aligns here exactly as
+    /// before.</param>
+    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false, bool skipAutoAlign = false)
     {
-        if (!configuration.AutoAlignBeforePlay) { TriggerNow(pose, offset, anchor, silent); return; }
+        if (skipAutoAlign || !configuration.AutoAlignBeforePlay) { TriggerNow(pose, offset, anchor, silent); return; }
         alignService.TryAutoAlign(() => TriggerNow(pose, offset, anchor, silent));
     }
 
@@ -103,10 +111,11 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     }
 
     /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
-    /// "(/command)" naming hint) — no pose-cycling, no offset; the mod's own redirect handles the visual.
-    public void TriggerCommand(string emoteCommand)
+    /// "(/command)" naming hint) — no pose-cycling, no offset; the mod's own redirect handles the
+    /// visual. See Trigger's skipAutoAlign parameter for what this one means.
+    public void TriggerCommand(string emoteCommand, bool skipAutoAlign = false)
     {
-        if (!configuration.AutoAlignBeforePlay) { TriggerCommandNow(emoteCommand); return; }
+        if (skipAutoAlign || !configuration.AutoAlignBeforePlay) { TriggerCommandNow(emoteCommand); return; }
         alignService.TryAutoAlign(() => TriggerCommandNow(emoteCommand));
     }
 

@@ -212,8 +212,22 @@ public sealed class PairingListener : IDisposable
         {
             var value = text[OverrideToggleKeyword.Length..].Trim();
             if (!state.Active || state.Peer is not { } togglePeer || !togglePeer.Equals(sender)) return;
-            if (value.Equals("on", StringComparison.OrdinalIgnoreCase)) state.SetPartnerOverrideEnabled(true);
-            else if (value.Equals("off", StringComparison.OrdinalIgnoreCase)) state.SetPartnerOverrideEnabled(false);
+
+            // Mirrors the partner's own checkbox onto this side's too — the toggle is meant to be
+            // one shared setting, not two independent ones a player has to remember to match by hand.
+            // Only ever sets local state here, never sends anything back: the partner's own toggle
+            // click already sent the one message this exchange needed (see PairingPanel's checkbox
+            // handler), and echoing a reply here would ping-pong the two sides' sends forever.
+            if (value.Equals("on", StringComparison.OrdinalIgnoreCase))
+            {
+                state.SetPartnerOverrideEnabled(true);
+                state.SetLocalOverrideEnabled(true);
+            }
+            else if (value.Equals("off", StringComparison.OrdinalIgnoreCase))
+            {
+                state.SetPartnerOverrideEnabled(false);
+                state.SetLocalOverrideEnabled(false);
+            }
             return;
         }
 

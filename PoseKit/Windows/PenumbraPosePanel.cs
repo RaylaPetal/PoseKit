@@ -453,6 +453,12 @@ public static class PenumbraPosePanel
                 if (ImGui.SmallButton($"{buttonText}##{idPrefix}{i}"))
                 {
                     void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+                    // Used for every paired path below (queued, force-selected, or the side that plays
+                    // its own already-queued pick immediately under override) — auto-align, if it's
+                    // going to happen at all, already ran up front when this was queued (see
+                    // CoupleQueueService.QueueSelection/AlignService.TryAutoAlignOnQueue), so playing it
+                    // here must never trigger a second, redundant align pass.
+                    void PlayQueued() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay, skipAutoAlign: true);
 
                     // While paired, nothing plays yet — this queues toward the partner and highlights
                     // once they've picked something too, same as a preset click (PresetButtonsPanel).
@@ -469,10 +475,10 @@ public static class PenumbraPosePanel
                             GroupName = group.IsImplicit ? "" : group.Name,
                         };
                         var triggerText = trigger.SlashCommand is { } slashCmd ? slashCmd : trigger.PoseIdentifier!.Value.DisplayName;
-                        plugin.CoupleQueueService.TryForceSelect(triggerLabel, Play, penumbraLink, triggerText);
+                        plugin.CoupleQueueService.TryForceSelect(triggerLabel, PlayQueued, penumbraLink, triggerText);
                     }
                     else if (plugin.PairingState.Active)
-                        plugin.CoupleQueueService.QueueSelection(triggerLabel, Play);
+                        plugin.CoupleQueueService.QueueSelection(triggerLabel, PlayQueued);
                     else
                         Play();
                 }
@@ -483,14 +489,17 @@ public static class PenumbraPosePanel
     }
 
     /// The actual "make this play" sequence — enable the mod if needed, capture its Penumbra context
-    /// for the next preset save, then trigger. Shared by the per-button click and TryPlayByLabel below.
+    /// for the next preset save, then trigger. Shared by the per-button click and TryPlayByLabel/
+    /// TryPlayByHash below. <paramref name="skipAutoAlign"/> is true for every partner-mediated play
+    /// (queued, force-selected on either side, or matched) — see PoseTrigger.Trigger's own parameter
+    /// doc for why those must never align again here.
     private static void PlayOptionTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
-        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
+        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null, bool skipAutoAlign = false)
     {
         beforePlay?.Invoke();
         EnsureModEnabled(plugin, mod, collectionId);
         CapturePenumbraContext(plugin, mod, group, option);
-        PlayTrigger(plugin, trigger);
+        PlayTrigger(plugin, trigger, skipAutoAlign);
     }
 
     /// Finds the mod/group/option/trigger whose DescribeTriggerLabel matches `label` exactly, or null
@@ -512,7 +521,9 @@ public static class PenumbraPosePanel
     /// Resolves a DescribeTriggerLabel-format label against the currently discovered mods and plays
     /// its exact matching trigger if found — used to act on a force-selected name received from a
     /// pairing partner (see Plugin's ForceSelectionReceived wiring). Returns false (does nothing) if
-    /// no discovered trigger currently matches.
+    /// no discovered trigger currently matches. Always skips auto-align — a received forced pick
+    /// "just plays" (see couple-pairing's spec); this side never queued it itself, so there's no
+    /// earlier queue-time walk to have already handled it, and none is attempted here either.
     public static bool TryPlayByLabel(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
@@ -520,7 +531,7 @@ public static class PenumbraPosePanel
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
-        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay, skipAutoAlign: true);
         return true;
     }
 
@@ -566,7 +577,7 @@ public static class PenumbraPosePanel
     /// and plays its exact matching trigger if found — tried before the name-based TryPlayByLabel
     /// fallback (see Plugin's ForceSelectionReceived wiring). Returns false (does nothing) if
     /// <paramref name="hashes"/> carries no Penumbra data (a saved-preset force-select) or no
-    /// discovered trigger currently matches.
+    /// discovered trigger currently matches. Always skips auto-align — see TryPlayByLabel's doc.
     public static bool TryPlayByHash(Plugin plugin, ForceSelectionHashes hashes)
     {
         if (!hashes.HasPenumbraData) return false;
@@ -575,7 +586,7 @@ public static class PenumbraPosePanel
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
-        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay, skipAutoAlign: true);
         return true;
     }
 
@@ -646,11 +657,11 @@ public static class PenumbraPosePanel
         plugin.LastPlayedPenumbraContext = link;
     }
 
-    private static void PlayTrigger(Plugin plugin, PoseTriggerHint trigger)
+    private static void PlayTrigger(Plugin plugin, PoseTriggerHint trigger, bool skipAutoAlign = false)
     {
         if (trigger.SlashCommand is { } command)
-            plugin.PoseTrigger.TriggerCommand(command);
+            plugin.PoseTrigger.TriggerCommand(command, skipAutoAlign);
         else if (trigger.PoseIdentifier is { } identifier)
-            plugin.PoseTrigger.Trigger(identifier, PoseOffset.Zero);
+            plugin.PoseTrigger.Trigger(identifier, PoseOffset.Zero, skipAutoAlign: skipAutoAlign);
     }
 }
