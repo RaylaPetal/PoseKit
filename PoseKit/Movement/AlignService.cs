@@ -81,6 +81,13 @@ public sealed unsafe class AlignService : IDisposable
     /// for Cancel()'s deferred callback, which has no preceding write to wait on.
     private int pendingCompletionDelayTicks;
 
+    /// True only while pendingCompletion is a silent "just wait, then run once" callback (see
+    /// Arrive()'s no-pose branch) — Tick() skips its usual every-tick rotation reapplication for the
+    /// whole wait in that case, rather than fighting whatever the walk-to-idle transition is doing to
+    /// facing in real time. False (the default) preserves the original insist-every-tick behavior the
+    /// pose-callback handoff below still relies on.
+    private bool pendingCompletionIsSilentWait;
+
     /// True only while an auto-align-triggered pose could still be cancelled by this alignment's own
     /// position/rotation writes landing at effectively the same moment as the pose-enter command —
     /// see CancelEmoteDetour. Armed right before handing off to the pose-trigger callback, cleared by
@@ -106,6 +113,14 @@ public sealed unsafe class AlignService : IDisposable
     /// not just cancel an existing one, and 130ms is far short of the up-to-1.5s CancelGuardSafetyNetMs
     /// already needed for that same signal on the cancellation side. Matching that same window here.
     private const int PoseTriggerDelayTicks = 90;
+
+    /// How long Arrive()'s no-pose branch (manual align, or a paired queue-time walk-only — see
+    /// TryAutoAlignOnQueue) silently waits before writing the rotation, instead of writing
+    /// immediately and fighting whatever the walk-to-idle transition (or, worst observed, a delayed
+    /// "face the direction you just moved" correction after arriving by walking backward — see that
+    /// branch's own comment) does to facing in the meantime. ~2s: simple and reliable over clever —
+    /// let it all finish, then set it once.
+    private const int RotationSettleDelayTicks = 120;
 
     public bool IsMovingToDestination => isWalking;
     public bool IsHookActive => rmiWalkHook != null;
@@ -183,19 +198,22 @@ public sealed unsafe class AlignService : IDisposable
         {
             if (pendingCompletionDelayTicks > 0)
             {
-                // Keep insisting on the same real, absolute facing every tick during this wait —
-                // not an offset, the same ApplyRotationOnce/ForceDrawRotation write Arrive() already
-                // does once, just repeated. A single write can lose to the tail end of the walk/run
-                // animation still playing out for a tick or two after RMIWalk reports arrival (the
-                // character hasn't necessarily finished decelerating into idle) — live testing showed
-                // the turn briefly land and then visibly revert while still "running". Reapplying the
-                // same value for the length of the wait we already have before triggering the pose
-                // outlasts that tail end, the same way OffsetEngine's own position reapplication
-                // already insists on the same desired value every tick rather than writing it once.
-                // Stops the instant the pose actually triggers — writing rotation any closer to pose
-                // entry than that has repeatedly proven risky (see design.md's revision history).
-                ApplyRotationOnce(faceRotation);
-                offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, faceRotation);
+                if (!pendingCompletionIsSilentWait)
+                {
+                    // Keep insisting on the same real, absolute facing every tick during this wait —
+                    // not an offset, the same ApplyRotationOnce/ForceDrawRotation write Arrive() already
+                    // does once, just repeated. A single write can lose to the tail end of the walk/run
+                    // animation still playing out for a tick or two after RMIWalk reports arrival (the
+                    // character hasn't necessarily finished decelerating into idle) — live testing showed
+                    // the turn briefly land and then visibly revert while still "running". Reapplying the
+                    // same value for the length of the wait we already have before triggering the pose
+                    // outlasts that tail end, the same way OffsetEngine's own position reapplication
+                    // already insists on the same desired value every tick rather than writing it once.
+                    // Stops the instant the pose actually triggers — writing rotation any closer to pose
+                    // entry than that has repeatedly proven risky (see design.md's revision history).
+                    ApplyRotationOnce(faceRotation);
+                    offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, faceRotation);
+                }
                 pendingCompletionDelayTicks--;
             }
             else
@@ -495,25 +513,50 @@ public sealed unsafe class AlignService : IDisposable
         onArrived = null;
         onCancelled = null;
 
-        // Position + rotation: Encore's own proven approach (IcarusXIV/Encore, MovementService.cs's
-        // Arrive() + Plugin.cs's ApplyTargetRotation/SnapToPosition) — plain one-shot native writes,
-        // called synchronously here, still inside RMIWalkDetour's call stack, exactly like Encore.
-        // An earlier revision additionally routed a facing correction through PoseTrigger's additive
-        // draw-rotation offset (the same mechanism saved presets use for their own anchor corrections)
-        // to make facing survive a pose's own per-frame draw recompute; removed per explicit direction
-        // — it stacked on top of a preset's own saved rotation offset and visibly distorted it (see
-        // Decision 3h). ApplyRotationOnce alone then proved insufficient on its own too — live testing
-        // confirmed the authoritative write lands and reads back correctly, but the character still
-        // didn't visually turn, since the game's draw-time rotation is separate state it doesn't
-        // necessarily re-derive from GameObject.Rotation every frame. ForceDrawRotation below is not
-        // an offset — it's a direct, one-shot, absolute write of the same real value, using the same
-        // native function OffsetEngine already hooks, with nothing added and no preset offset touched.
-        // See Decision 3k.
+        // Position: always snap immediately — Encore's own proven approach (IcarusXIV/Encore,
+        // MovementService.cs's Arrive()/Plugin.cs's SnapToPosition), a plain one-shot native write,
+        // called synchronously here, still inside RMIWalkDetour's call stack. Never reported as
+        // fighting anything the way rotation below can.
         SnapToPosition(destination);
+
+        if (arrivedCb == null)
+        {
+            // No pose to trigger afterward (manual align, or a paired queue-time walk-only — see
+            // TryAutoAlignOnQueue): writing rotation immediately, right as the walk-to-idle transition
+            // begins, means fighting it — worst observed after arriving by walking backward (starting
+            // faced away from the target at close range never visually turns the character during the
+            // walk itself, since backward camera-relative movement doesn't rotate the body), where the
+            // correct facing would flicker in for a moment and then lose to a delayed "face the
+            // direction you just moved" correction once the fight ended. Simple and reliable beats
+            // clever here, per explicit direction: don't write yet at all — wait out
+            // RotationSettleDelayTicks in silence (Tick() skips its usual reapply for this wait; see
+            // pendingCompletionIsSilentWait) so every transition has time to fully finish, then write
+            // the rotation exactly once into a character that's actually done moving.
+            pendingCompletion = () =>
+            {
+                ApplyRotationOnce(faceRotation);
+                offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, faceRotation);
+            };
+            pendingCompletionDelayTicks = RotationSettleDelayTicks;
+            pendingCompletionIsSilentWait = true;
+            return;
+        }
+
+        // Auto-align only, about to hand off into playing a pose: rotation must land right away, not
+        // after a multi-second wait — the one-shot write below is Encore's own proven approach, kept
+        // exactly as written there. An earlier revision additionally routed a facing correction
+        // through PoseTrigger's additive draw-rotation offset (the same mechanism saved presets use
+        // for their own anchor corrections) to make facing survive a pose's own per-frame draw
+        // recompute; removed per explicit direction — it stacked on top of a preset's own saved
+        // rotation offset and visibly distorted it (see Decision 3h). ApplyRotationOnce alone then
+        // proved insufficient on its own too — live testing confirmed the authoritative write lands
+        // and reads back correctly, but the character still didn't visually turn, since the game's
+        // draw-time rotation is separate state it doesn't necessarily re-derive from
+        // GameObject.Rotation every frame. ForceDrawRotation below is not an offset — it's a direct,
+        // one-shot, absolute write of the same real value, using the same native function OffsetEngine
+        // already hooks, with nothing added and no preset offset touched. See Decision 3k.
         ApplyRotationOnce(faceRotation);
         offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, faceRotation);
-
-        if (arrivedCb == null) return; // manual align — nothing further to do
 
         // Auto-align only: about to hand off into playing a pose. Arm the cancel-guard now, before
         // that callback runs, so the pose it triggers can't be cancelled by the writes just above
@@ -525,6 +568,10 @@ public sealed unsafe class AlignService : IDisposable
         ArmCancelGuard();
         pendingCompletion = arrivedCb;
         pendingCompletionDelayTicks = PoseTriggerDelayTicks;
+        // Explicit, not just relying on the default — a prior walk's silent wait (see the no-pose
+        // branch above) could otherwise leave this true and silently disable this path's own
+        // every-tick reapplication, which it still relies on.
+        pendingCompletionIsSilentWait = false;
     }
 
     private void RMIWalkDetour(void* self, float* sumLeft, float* sumForward,
