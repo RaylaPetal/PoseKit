@@ -3,7 +3,6 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using PoseKit.Furniture;
-using PoseKit.Movement;
 using PoseKit.Presets;
 using PoseKit.Sync;
 
@@ -17,7 +16,7 @@ namespace PoseKit;
 /// chat command (per the design doc's stated fallback) — deliberately not porting Synastry's
 /// AOB-hooked AnywherePoseService/ActionTimelinePlayback, which bypass emote-unlock/server checks.
 /// </summary>
-public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge, AlignService alignService)
+public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
 {
     private readonly FurnitureScanner furnitureScanner = new();
 
@@ -30,13 +29,6 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// deliberately leaves it false to avoid double-applying the offset.
     public bool HasAppliedOffset { get; private set; }
 
-    /// Raised once per Trigger/TriggerCommand call, the instant that call's pose/emote is confirmed
-    /// settled — immediately for a non-cycling emote or TriggerCommand (nothing to poll for), or from
-    /// Tick() once a cycling sit/ground-sit/doze's CPoseState matches (or the cycling budget below is
-    /// exhausted). Fires for every trigger, not just ones AlignService is waiting on — see
-    /// AlignService.OnPoseCycleSettled, which ignores it unless it's actually mid-handoff.
-    public event Action? PoseCycleSettled;
-
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
     /// <param name="silent">Suppresses the chat notice ResolveOffset would otherwise print when the
@@ -44,19 +36,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// where couple-preset-relay's spec calls for the pose/offset to still play with no error shown,
     /// unlike a local preset's own anchor failing (where the notice is useful, established
     /// feedback).</param>
-    /// <param name="skipAutoAlign">True for a paired, queued/forced/matched play — this side already
-    /// walked to the partner (if it was going to at all) the moment it was queued, via
-    /// AlignService.TryAutoAlignOnQueue (see CoupleQueueService.QueueSelection), decoupled from when
-    /// the pick actually plays. Re-running auto-align here, at play time, is exactly the bug this
-    /// parameter exists to avoid — walking a second time, or worse, gating the play on yet another
-    /// walk-then-arrive handoff, when the point of queueing was to already be in place by now. Left
-    /// false (the default) for a direct, immediate, unpaired play, which still aligns here exactly as
-    /// before.</param>
-    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false, bool skipAutoAlign = false)
-    {
-        if (skipAutoAlign || !configuration.AutoAlignBeforePlay) { TriggerNow(pose, offset, anchor, silent); return; }
-        alignService.TryAutoAlign(() => TriggerNow(pose, offset, anchor, silent));
-    }
+    public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false) =>
+        TriggerNow(pose, offset, anchor, silent);
 
     private void TriggerNow(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent)
     {
@@ -70,8 +51,6 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
                 if (pose.SlashCommand is not { } command) break; // no resolvable trigger — don't fake one
                 ChatCommand.Execute($"/{command} motion");
                 ApplyOffset(ResolveOffset(offset, anchor, silent));
-                // Deliberately NOT firing PoseCycleSettled here — see TriggerCommandNow's comment for
-                // why doing so was actively harmful for the auto-align cancel-guard.
                 break;
         }
     }
@@ -112,24 +91,11 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
     /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
     /// "(/command)" naming hint) — no pose-cycling, no offset; the mod's own redirect handles the
-    /// visual. See Trigger's skipAutoAlign parameter for what this one means.
-    public void TriggerCommand(string emoteCommand, bool skipAutoAlign = false)
-    {
-        if (skipAutoAlign || !configuration.AutoAlignBeforePlay) { TriggerCommandNow(emoteCommand); return; }
-        alignService.TryAutoAlign(() => TriggerCommandNow(emoteCommand));
-    }
-
-    private void TriggerCommandNow(string emoteCommand)
+    /// visual.
+    public void TriggerCommand(string emoteCommand)
     {
         cyclingTarget = null;
         ChatCommand.Execute($"/{emoteCommand} motion");
-        // Deliberately NOT firing PoseCycleSettled here. It used to fire synchronously, in the same
-        // tick AlignService.Arrive() armed the cancel-guard — clearing the guard before the native
-        // cancelEmote check (which runs a frame or more later, once the game notices the character's
-        // recent position/rotation writes) ever got a chance to run, making the guard protect nothing
-        // for exactly the emotes with no cycling/polling step. Leaving it unfired here lets the guard
-        // ride its own safety-net timeout (AlignService.CancelGuardSafetyNetMs) instead, which is what
-        // that timeout exists for.
     }
 
     /// Re-enters the same sit/groundsit/doze variant after it unexpectedly ended for a reason other
@@ -203,7 +169,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         var current = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         if (current is not { } c || c.EmoteModeId != target.Pose.EmoteModeId)
         {
-            if (++attempts >= MaxCposeAttempts) { cyclingTarget = null; PoseCycleSettled?.Invoke(); }
+            if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
             else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
             return;
         }
@@ -212,19 +178,18 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         {
             ApplyOffset(ResolveOffset(target.Offset, target.Anchor, target.Silent));
             cyclingTarget = null;
-            PoseCycleSettled?.Invoke();
             return;
         }
 
         ChatCommand.Execute("/cpose");
-        if (++attempts >= MaxCposeAttempts) { cyclingTarget = null; PoseCycleSettled?.Invoke(); }
+        if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
         else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
     }
 
-    /// Folds an anchor's correction, and/or an in-flight auto-align's target facing, into the base
-    /// offset using the position/rotation at the moment the offset is actually about to be applied —
-    /// not whenever Trigger() was first called. Sit/GroundSit/Doze poses can take several frames to
-    /// actually settle into place (EnterPoseCycle waits on CPoseState via Tick), and entering the pose
+    /// Folds an anchor's correction into the base offset using the position/rotation at the moment
+    /// the offset is actually about to be applied — not whenever Trigger() was first called.
+    /// Sit/GroundSit/Doze poses can take several frames to actually settle into place (EnterPoseCycle
+    /// waits on CPoseState via Tick), and entering the pose
     /// can itself change the character's facing (e.g. sitting snapping/settling rotation) before it's
     /// fully active — an eagerly-computed correction would use stale rotation and land wrong. The
     /// anchor correction dispatches to whichever of spot/furniture the preset's PresetAnchor actually

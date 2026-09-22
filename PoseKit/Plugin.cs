@@ -106,8 +106,7 @@ public sealed class Plugin : IDalamudPlugin
 
         PresetManager = new PresetManager(Configuration);
         SimpleHeelsBridge = new SimpleHeelsBridge();
-        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge, AlignService);
-        PoseTrigger.PoseCycleSettled += AlignService.OnPoseCycleSettled;
+        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge);
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
@@ -142,7 +141,7 @@ public sealed class Plugin : IDalamudPlugin
         PairingListener.ForceSelectionReceived += (_, name, hashes) =>
         {
             var preset = PresetManager.Presets.FirstOrDefault(p => p.Name == name);
-            if (preset != null) { PlayPreset(preset, skipAutoAlign: true); return; }
+            if (preset != null) { PlayPreset(preset); return; }
             if (PenumbraPosePanel.TryPlayByHash(this, hashes)) return;
             if (PenumbraPosePanel.TryPlayByLabel(this, name)) return;
             ChatGui.Print($"[PoseKit] Partner picked \"{name}\", but it wasn't found in your list.");
@@ -186,7 +185,6 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
-        PoseTrigger.PoseCycleSettled -= AlignService.OnPoseCycleSettled;
         FreeCam.Dispose();
         AlignService.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
@@ -309,11 +307,9 @@ public sealed class Plugin : IDalamudPlugin
     /// Replays a saved preset: if it's linked to a Penumbra mod, re-applies that mod's group
     /// selections (enabling it if needed) and forces a redraw before triggering the pose, so the
     /// right animation is actually active by the time the character enters it — not just the offset.
-    /// <paramref name="skipAutoAlign"/> is true for a queued/matched/force-selected play — see
-    /// PoseTrigger.Trigger's own parameter doc.
-    public void PlayPreset(NamedPose pose, bool skipAutoAlign = false)
+    public void PlayPreset(NamedPose pose)
     {
-        PlayPose(pose.Pose, pose.Offset, pose.Anchor, pose.Penumbra, skipAutoAlign: skipAutoAlign);
+        PlayPose(pose.Pose, pose.Offset, pose.Anchor, pose.Penumbra);
         LoadedPreset = pose;
     }
 
@@ -336,7 +332,7 @@ public sealed class Plugin : IDalamudPlugin
     public void ApplyCapturedPartnerState(CapturedPoseState captured) =>
         PlayPose(captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra, silent: true);
 
-    private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false, bool skipAutoAlign = false)
+    private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false)
     {
         if (penumbra is { } link && !TryApplyPenumbraLink(link) && link.ModDirectory.StartsWith('#'))
         {
@@ -347,7 +343,7 @@ public sealed class Plugin : IDalamudPlugin
             ChatGui.Print($"[PoseKit] Partner's pose uses {modLabel}, which wasn't found in your list.");
         }
 
-        PoseTrigger.Trigger(pose, offset, anchor, silent, skipAutoAlign);
+        PoseTrigger.Trigger(pose, offset, anchor, silent);
     }
 
     /// Applies a Penumbra link's mod/group/option selection, enabling the mod if needed — true only

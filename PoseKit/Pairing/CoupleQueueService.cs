@@ -67,9 +67,8 @@ public sealed class CoupleQueueService : IDisposable
     ///
     /// If auto-align is on, this is also the moment this side walks toward its current target (if
     /// it's the pairing partner) — immediately, right now, not deferred until the match completes.
-    /// `play` itself must not align again when it eventually fires (pass skipAutoAlign: true through
-    /// to PoseTrigger.Trigger/TriggerCommand) — see AlignService.TryAutoAlignOnQueue and
-    /// PoseTrigger.Trigger's skipAutoAlign parameter for the full split.
+    /// `play` itself never aligns again when it eventually fires — PoseTrigger no longer has any
+    /// align-before-play logic of its own at all; see AlignService.TryAutoAlignOnQueue.
     public void QueueSelection(string displayName, Action play)
     {
         if (!pairingState.Active || pairingState.Peer is not { } partner) return;

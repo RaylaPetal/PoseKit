@@ -235,13 +235,11 @@ public static class PresetButtonsPanel
                     plugin.PlayCouplePreset(namedPose);
                 // Under mutual override, a second click (once this side already has its own queued
                 // pick) forces this preset onto the partner instead of replacing this side's own —
-                // see CoupleQueueService.TryForceSelect. Both queued paths pass skipAutoAlign: true —
-                // auto-align, if it happens at all, already ran up front when this was queued (see
-                // CoupleQueueService.QueueSelection/AlignService.TryAutoAlignOnQueue), never again here.
+                // see CoupleQueueService.TryForceSelect.
                 else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
-                    plugin.CoupleQueueService.TryForceSelect(namedPose.Name, () => plugin.PlayPreset(namedPose, skipAutoAlign: true));
+                    plugin.CoupleQueueService.TryForceSelect(namedPose.Name, () => plugin.PlayPreset(namedPose));
                 else if (plugin.PairingState.Active)
-                    plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose, skipAutoAlign: true));
+                    plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));
                 else
                     plugin.PlayPreset(namedPose);
             }
