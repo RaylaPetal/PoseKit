@@ -50,6 +50,11 @@ public sealed class PairingListener : IDisposable
     private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
     private const string CoupleRelayKeyword = "posekitcoupleplay";
 
+    // Long enough that a partner briefly disconnecting or a lull in play doesn't drop the pairing,
+    // short enough that a pairing nobody remembered to end doesn't just sit "paired" for the rest of
+    // the session. See couple-pairing's Pairing Idle Timeout requirement.
+    private const long StaleTimeoutMs = 2 * 60 * 60 * 1000;
+
     private readonly PairingState state;
 
     /// Raised when a "posekitqueue" readiness tell arrives from the currently-paired peer, carrying
@@ -84,6 +89,18 @@ public sealed class PairingListener : IDisposable
 
     public void Dispose() => Plugin.ChatGui.ChatMessage -= OnChatMessage;
 
+    /// Called every framework tick: ends a pairing that's gone stale — 2 hours with no pairing-protocol
+    /// message sent or received with the current peer (see PairingState.Touch/TicksSinceActivity for
+    /// what counts) — via the same Unpair() path a manual click uses, so the partner gets the same
+    /// best-effort notice. No-op while unpaired. See design.md (pairing-solo-play-idle-unpair)
+    /// Decisions 4-5.
+    public void Tick()
+    {
+        if (!state.Active) return;
+        if (state.TicksSinceActivity > StaleTimeoutMs)
+            Unpair();
+    }
+
     /// Inviter side, one click: sends exactly one invite tell and records it so a later accept can be
     /// matched against it, never activating pairing from an unsolicited claim.
     public void InitiatePairing(PartnerIdentity target)
@@ -91,6 +108,7 @@ public sealed class PairingListener : IDisposable
         var inviteId = Guid.NewGuid().ToString("N")[..8];
         state.SetOutgoingInvite(target, inviteId);
         PairingSender.Send(PairingComposer.ComposeInvite(target, inviteId));
+        state.Touch();
     }
 
     /// Receiver side, one click: sends exactly one acknowledgement tell and activates the pairing on
@@ -107,28 +125,34 @@ public sealed class PairingListener : IDisposable
     /// PairingComposer.ComposeCoupleCaptureRequest for what's (and isn't) sent.
     public void RequestPartnerCapture(string requestId, PresetAnchor? anchorHint)
     {
-        if (state.Peer is { } peer)
-            PairingSender.Send(PairingComposer.ComposeCoupleCaptureRequest(peer, requestId, anchorHint));
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeCoupleCaptureRequest(peer, requestId, anchorHint));
+        state.Touch();
     }
 
     /// Replies once to a capture request with this side's own captured state — never sent unprompted.
-    public void ReplyToCoupleCapture(PartnerIdentity target, string requestId, CapturedPoseState captured) =>
+    public void ReplyToCoupleCapture(PartnerIdentity target, string requestId, CapturedPoseState captured)
+    {
         PairingSender.Send(PairingComposer.ComposeCoupleCaptureReply(target, requestId, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+        state.Touch();
+    }
 
     /// Relays a captured partner half to the current pairing peer when playing a preset that carries
     /// one — no-op while unpaired. See PairingComposer.ComposeCoupleRelay.
     public void RelayCouplePreset(string presetName, CapturedPoseState captured)
     {
-        if (state.Peer is { } peer)
-            PairingSender.Send(PairingComposer.ComposeCoupleRelay(peer, presetName, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeCoupleRelay(peer, presetName, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+        state.Touch();
     }
 
     /// Sends this side's own override-toggle state to the current pairing peer, if any — no-op while
     /// unpaired (there's nothing to announce it to yet; Plugin re-sends it once pairing activates).
     public void SendOverrideToggle(bool enabled)
     {
-        if (state.Peer is { } peer)
-            PairingSender.Send(PairingComposer.ComposeOverrideToggle(peer, enabled));
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeOverrideToggle(peer, enabled));
+        state.Touch();
     }
 
     /// One click: clears the pairing locally and best-effort notifies the peer so they aren't left
@@ -138,7 +162,10 @@ public sealed class PairingListener : IDisposable
     public void Unpair()
     {
         if (state.Peer is { } peer)
+        {
             PairingSender.Send(PairingComposer.ComposeUnpair(peer));
+            state.Touch();
+        }
         state.Clear();
     }
 
@@ -177,7 +204,10 @@ public sealed class PairingListener : IDisposable
         {
             var name = text[QueueKeyword.Length..].Trim();
             if (name.Length > 0 && state.Active && state.Peer is { } peer && peer.Equals(sender))
+            {
+                state.Touch();
                 QueueSignalReceived?.Invoke(sender, name);
+            }
             return;
         }
 
@@ -187,7 +217,10 @@ public sealed class PairingListener : IDisposable
             if (!state.Active || state.Peer is not { } replyPeer || !replyPeer.Equals(sender)) return;
             var (requestId, tail) = SplitFirstToken(text[CoupleCaptureReplyKeyword.Length..].Trim());
             if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 2, out var captured, out _))
+            {
+                state.Touch();
                 CoupleCaptureReplyReceived?.Invoke(sender, requestId, captured);
+            }
             return;
         }
 
@@ -195,7 +228,10 @@ public sealed class PairingListener : IDisposable
         {
             if (!state.Active || state.Peer is not { } capturePeer || !capturePeer.Equals(sender)) return;
             if (TryParseAnchorHint(text[CoupleCaptureKeyword.Length..].Trim(), out var requestId, out var hint) && requestId.Length > 0)
+            {
+                state.Touch();
                 PartnerCaptureRequested?.Invoke(sender, requestId, hint);
+            }
             return;
         }
 
@@ -204,7 +240,10 @@ public sealed class PairingListener : IDisposable
             if (!state.Active || state.Peer is not { } relayPeer || !relayPeer.Equals(sender)) return;
             if (TryParseCapturedState(text[CoupleRelayKeyword.Length..].Trim(), compoundParts: 3, out var captured, out var presetName)
                 && presetName.Length > 0)
+            {
+                state.Touch();
                 CoupleRelayReceived?.Invoke(sender, presetName, captured);
+            }
             return;
         }
 
@@ -212,6 +251,7 @@ public sealed class PairingListener : IDisposable
         {
             var value = text[OverrideToggleKeyword.Length..].Trim();
             if (!state.Active || state.Peer is not { } togglePeer || !togglePeer.Equals(sender)) return;
+            state.Touch();
 
             // Mirrors the partner's own checkbox onto this side's too — the toggle is meant to be
             // one shared setting, not two independent ones a player has to remember to match by hand.
@@ -236,6 +276,7 @@ public sealed class PairingListener : IDisposable
             var (tokens, name) = SplitTokens(text[ForceSelectKeyword.Length..].Trim(), 4);
             if (tokens.Length == 4 && name.Length > 0 && state.Active && state.Peer is { } forcePeer && forcePeer.Equals(sender))
             {
+                state.Touch();
                 var hashes = new ForceSelectionHashes(tokens[0], tokens[1], tokens[2], tokens[3]);
                 ForceSelectionReceived?.Invoke(sender, name, hashes);
             }

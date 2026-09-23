@@ -454,6 +454,13 @@ public static class PenumbraPosePanel
                 {
                     void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
 
+                    // Solo play bypass: play immediately, exactly as if unpaired. Checked first so it
+                    // always wins regardless of mutual override or plain pairing state — see
+                    // couple-pairing's Solo Play Bypass requirement.
+                    if (plugin.PairingState.SoloPlayEnabled)
+                    {
+                        Play();
+                    }
                     // While paired, nothing plays yet — this queues toward the partner and highlights
                     // once they've picked something too, same as a preset click (PresetButtonsPanel).
                     // Under mutual override, a second click (once this side already has its own
@@ -461,7 +468,7 @@ public static class PenumbraPosePanel
                     // pick's own mod-directory/group/option/trigger identity (mirroring
                     // CapturePenumbraContext below) so the partner can resolve it by hash even if the
                     // mod's been renamed since. See couple-pairing's Partner Pose Resolution.
-                    if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
+                    else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
                     {
                         var penumbraLink = new PenumbraLink
                         {

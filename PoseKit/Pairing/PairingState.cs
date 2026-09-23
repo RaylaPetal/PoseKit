@@ -7,14 +7,38 @@ using System;
 /// session, never written to Configuration/disk and never sent to any server. Mirrors the
 /// non-networked philosophy PoseKit.md already documents for /posekit sync: no relay, no persistent
 /// trust store, just enough state to know who a queued couple preset should notify.
+///
+/// Also tracks two independent local-only standing preferences that survive a re-pair within the
+/// same session — LocalOverrideEnabled (mutual force-select opt-in) and SoloPlayEnabled (this side's
+/// own unconditional bypass) — plus an activity timestamp (Touch()/TicksSinceActivity) PairingListener
+/// uses to auto-unpair a pairing that's gone stale. See design.md (pairing-solo-play-idle-unpair)
+/// Decisions 3-5 for why the touch points live outside this class rather than a central hook.
 /// </summary>
 public sealed class PairingState
 {
     public PartnerIdentity? Peer { get; private set; }
     public bool Active { get; private set; }
 
+    private long lastActivityTicks;
+
+    /// Elapsed time since the last pairing-protocol message sent or received with the current peer
+    /// (or since Activate(), whichever is most recent) — what PairingListener.Tick checks against its
+    /// stale-pairing timeout. Meaningless while !Active, but harmless to read either way.
+    public long TicksSinceActivity => Environment.TickCount64 - lastActivityTicks;
+
+    /// Called alongside every actual pairing-protocol send/receive with the current peer — never from
+    /// a purely local action (e.g. SoloPlayEnabled itself, or dismissing an invite) — so a solo-play
+    /// bypassed click, which sends nothing, correctly does not keep an otherwise-idle pairing alive.
+    public void Touch() => lastActivityTicks = Environment.TickCount64;
+
     /// This side's own "override queue" checkbox.
     public bool LocalOverrideEnabled { get; private set; }
+
+    /// This side's own "solo play" checkbox — bypasses queueing, force-select, and couple-preset
+    /// relay entirely for this side's own clicks, playing exactly as if unpaired. Purely local: never
+    /// announced to the partner, never mirrored from theirs. Like LocalOverrideEnabled, it's a
+    /// standing local preference — untouched by Activate()/Clear() — not tied to any one partner.
+    public bool SoloPlayEnabled { get; private set; }
 
     /// Learned from the partner's own toggle tell — never assumed, always something they actually
     /// sent. Reset on Clear()/Activate() so a stale reading from a previous pairing can never leak
@@ -72,6 +96,7 @@ public sealed class PairingState
         OutgoingInvite = null;
         PendingInvite = null;
         PartnerOverrideEnabled = false;
+        Touch();
         Changed?.Invoke();
     }
 
@@ -90,6 +115,13 @@ public sealed class PairingState
     public void SetLocalOverrideEnabled(bool enabled)
     {
         LocalOverrideEnabled = enabled;
+        Changed?.Invoke();
+    }
+
+    /// This side's own checkbox — same standing-preference lifecycle as SetLocalOverrideEnabled.
+    public void SetSoloPlayEnabled(bool enabled)
+    {
+        SoloPlayEnabled = enabled;
         Changed?.Invoke();
     }
 

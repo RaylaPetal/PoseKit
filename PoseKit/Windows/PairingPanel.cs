@@ -67,6 +67,15 @@ public static class PairingPanel
             else if (state.LocalOverrideEnabled)
                 PoseKitUi.TextWrappedDisabled("Waiting on partner to enable override too — until then, a second click just replaces your own pick.");
 
+            // Unlike "Override queue" above (mutual, forces a pick onto the partner), this is one-sided
+            // and sends nothing at all — the partner is never told and never affected.
+            var soloPlayEnabled = state.SoloPlayEnabled;
+            if (ImGui.Checkbox("Play solo##PoseKitSoloPlay", ref soloPlayEnabled))
+                state.SetSoloPlayEnabled(soloPlayEnabled);
+
+            if (state.SoloPlayEnabled)
+                PoseKitUi.TextWrappedDisabled("Clicks play immediately for you only — nothing is queued, forced, or sent to your partner.");
+
             PoseKitUi.TextWrappedDisabled("Click any preset or animation to queue it — once you've both picked something, both play together.");
             return;
         }

@@ -228,10 +228,16 @@ public static class PresetButtonsPanel
         {
             if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
             {
+                // Solo play bypass: play this side's own half only, exactly as if unpaired — even for
+                // a couple preset, where that means calling PlayPreset (not PlayCouplePreset) so
+                // nothing is relayed either. Checked first so it always wins regardless of mutual
+                // override or plain pairing state. See couple-pairing's Solo Play Bypass requirement.
+                if (plugin.PairingState.SoloPlayEnabled)
+                    plugin.PlayPreset(namedPose);
                 // A preset with a captured partner half plays and relays immediately rather than
                 // going through the queue-and-wait-for-a-matching-selection flow — see
                 // couple-preset-relay's spec and Plugin.PlayCouplePreset.
-                if (namedPose.PartnerHalf != null)
+                else if (namedPose.PartnerHalf != null)
                     plugin.PlayCouplePreset(namedPose);
                 // Under mutual override, a second click (once this side already has its own queued
                 // pick) forces this preset onto the partner instead of replacing this side's own —
