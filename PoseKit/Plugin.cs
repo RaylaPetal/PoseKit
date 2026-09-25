@@ -68,6 +68,7 @@ public sealed class Plugin : IDalamudPlugin
     public CoupleQueueService CoupleQueueService { get; init; }
     public CouplePresetCaptureService CouplePresetCaptureService { get; init; }
     public CoupleRelayInbox CoupleRelayInbox { get; init; }
+    public CoupleRelayOutbox CoupleRelayOutbox { get; init; }
 
     /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
     /// "update this preset" instead of only ever "save as new".
@@ -121,6 +122,7 @@ public sealed class Plugin : IDalamudPlugin
         CouplePresetCaptureService.Saved += saved => LoadedPreset = saved;
         CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener);
         CoupleRelayInbox.AutoApply += ApplyCapturedPartnerState;
+        CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, AlignService, PlayPreset);
 
         // A capture request arrives here when the partner is saving an "include partner" preset:
         // reply once with *this* side's own currently-playing pose/offset/Penumbra link — AND its own
@@ -206,6 +208,7 @@ public sealed class Plugin : IDalamudPlugin
         CoupleQueueService.Dispose();
         CouplePresetCaptureService.Dispose();
         CoupleRelayInbox.Dispose();
+        CoupleRelayOutbox.Dispose();
         PairingListener.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
@@ -261,6 +264,7 @@ public sealed class Plugin : IDalamudPlugin
         CoupleQueueService.Tick();
         CouplePresetCaptureService.Tick();
         CoupleRelayInbox.Tick();
+        CoupleRelayOutbox.Tick();
     }
 
     /// Defensive fallback for a sit/groundsit/doze loop dropping back to Character->Mode Normal
@@ -320,17 +324,21 @@ public sealed class Plugin : IDalamudPlugin
         LoadedPreset = pose;
     }
 
-    /// Plays a preset that carries a captured partner half (see NamedPose.PartnerHalf):
-    /// this side's own half plays immediately as usual, and — only while paired with the exact
-    /// partner it was captured from — the partner half is relayed for their accept/deny (or immediate
-    /// auto-play under mutual override). Paired with someone else, or not paired at all, only this
-    /// side's own half plays and nothing is relayed. See couple-preset-relay's spec.
+    /// Plays a preset that carries a captured partner half (see NamedPose.PartnerHalf). Only while
+    /// paired with the exact partner it was captured from: walks to them first if auto-align is on,
+    /// then relays their half for accept/deny (auto-accepted under mutual override), and plays this
+    /// side's own half only once they accept — both halves start together. See CoupleRelayOutbox.
+    /// Paired with someone else, or not paired at all, only this side's own half plays, immediately,
+    /// and nothing is relayed.
     public void PlayCouplePreset(NamedPose pose)
     {
+        if (pose.PartnerHalf is { } half && PairingState.Active && PairingState.Peer is { } peer && peer.Equals(half.Partner))
+        {
+            CoupleRelayOutbox.Start(pose, Configuration.AutoAlignBeforePlay);
+            return;
+        }
+
         PlayPreset(pose);
-        if (pose.PartnerHalf is not { } half) return;
-        if (PairingState.Active && PairingState.Peer is { } peer && peer.Equals(half.Partner))
-            PairingListener.RelayCouplePreset(pose.Name, new CapturedPoseState(half.Pose, half.Offset, half.Anchor, half.Penumbra));
     }
 
     /// Applies a captured pose/offset/anchor/Penumbra state directly — the same best-effort pipeline

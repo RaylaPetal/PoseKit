@@ -6,6 +6,11 @@ using System;
 /// Holds a relayed couple-preset play awaiting this side's explicit accept/deny, unless mutual
 /// override is active for the current pairing — in which case it's applied immediately with no
 /// prompt at all (see AutoApply). Mirrors CoupleQueueService's Tick-driven timeout shape.
+///
+/// Every relay gets exactly one answer back to its sender (see PairingListener.AnswerCoupleRelay):
+/// accept (clicked, or automatic under mutual override) or decline (clicked, timed out, or replaced by
+/// a newer relay). The sender waits on that answer to play its own half, so both halves start
+/// together — see CoupleRelayOutbox.
 /// </summary>
 public sealed class CoupleRelayInbox : IDisposable
 {
@@ -44,8 +49,15 @@ public sealed class CoupleRelayInbox : IDisposable
 
     private void OnReceived(PartnerIdentity sender, string presetName, CapturedPoseState captured)
     {
+        // A newer relay replaces an unanswered one — decline the old one so its sender isn't left
+        // waiting on an answer that will now never come.
+        if (PresetName is { } replaced)
+            pairingListener.AnswerCoupleRelay(replaced, accepted: false);
+
         if (pairingState.MutualOverrideActive)
         {
+            Clear();
+            pairingListener.AnswerCoupleRelay(presetName, accepted: true);
             AutoApply?.Invoke(captured);
             return;
         }
@@ -62,11 +74,18 @@ public sealed class CoupleRelayInbox : IDisposable
     public CapturedPoseState? Accept()
     {
         var captured = Captured;
+        if (PresetName is { } name)
+            pairingListener.AnswerCoupleRelay(name, accepted: true);
         Clear();
         return captured;
     }
 
-    public void Deny() => Clear();
+    public void Deny()
+    {
+        if (PresetName is { } name)
+            pairingListener.AnswerCoupleRelay(name, accepted: false);
+        Clear();
+    }
 
     private void OnPairingStateChanged()
     {
@@ -82,10 +101,10 @@ public sealed class CoupleRelayInbox : IDisposable
     }
 
     /// Called every framework tick: dismisses an unanswered prompt once it's been open longer than
-    /// the timeout, treated the same as an explicit deny.
+    /// the timeout, treated the same as an explicit deny (including answering it as declined).
     public void Tick()
     {
         if (Captured == null) return;
-        if (Environment.TickCount64 - receivedAt > PromptTimeoutMs) Clear();
+        if (Environment.TickCount64 - receivedAt > PromptTimeoutMs) Deny();
     }
 }

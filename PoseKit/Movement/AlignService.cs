@@ -6,6 +6,7 @@ using Dalamud.Hooking;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using PoseKit.Pairing;
+using PoseKit.Presets;
 
 namespace PoseKit.Movement;
 
@@ -65,6 +66,11 @@ public sealed unsafe class AlignService : IDisposable
     private const int RotationSettleDelayTicks = 120;
 
     public bool IsMovingToDestination => isWalking;
+
+    /// True from the start of a walk until its deferred rotation write has landed — i.e. until the
+    /// character is fully done moving and turning. A couple-preset play waits on this before prompting
+    /// the partner, so both halves start from where the walk actually ended up (see CoupleRelayOutbox).
+    public bool IsBusy => isWalking || rotationWritePending;
     public bool IsHookActive => rmiWalkHook != null;
 
     /// Shared between AlignToTarget's chat error and the main-window status line, so the two never
@@ -227,6 +233,43 @@ public sealed unsafe class AlignService : IDisposable
             ApplyRotationOnce(targetRotation);
             offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, targetRotation);
         }
+    }
+
+    /// Walks to the pairing partner's position and facing ahead of playing a couple preset — called
+    /// from CoupleRelayOutbox.Start when auto-align is on. Unlike TryAutoAlignOnQueue, this finds the
+    /// partner directly rather than requiring them to be targeted, and skips the partner tie-break:
+    /// only the side that clicked the couple preset ever walks (the partner just accepts), so there's
+    /// no risk of both sides walking at once. Same silent no-op on every guard failure (busy, partner
+    /// not loaded, blocked state, out of range). True only if a walk (or snap fallback) actually
+    /// started.
+    public bool TryAutoAlignToPartner()
+    {
+        if (isWalking || rotationWritePending) return false;
+        if (!pairingState.Active || pairingState.Peer is not { } peer) return false;
+        if (PartnerAnchor.TryFindLive(peer) is not { } partner) return false;
+
+        // Same held-target workaround as every other align path (see RefreshTargeting) — only needed,
+        // and only applied, when the partner is the one currently targeted.
+        var target = Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget;
+        if (target != null && target.GameObjectId == partner.GameObjectId)
+            RefreshTargeting(target);
+
+        var player = (Character*)(Plugin.ObjectTable.LocalPlayer?.Address ?? nint.Zero);
+        if (player == null) return false;
+        if (player->Mode != CharacterModes.Normal) return false;
+
+        var playerPos = new Vector3(player->GameObject.Position.X, player->GameObject.Position.Y, player->GameObject.Position.Z);
+        if (Vector3.Distance(playerPos, partner.Position) > MaxAlignDistance) return false;
+
+        if (IsHookActive)
+            WalkTo(partner.Position, partner.Rotation);
+        else
+        {
+            SnapToPosition(partner.Position);
+            ApplyRotationOnce(partner.Rotation);
+            offsetEngine.ForceDrawRotation(Plugin.ObjectTable.LocalPlayer, partner.Rotation);
+        }
+        return true;
     }
 
     /// True when the given target is the active pairing partner — the shared identity check

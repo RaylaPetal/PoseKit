@@ -38,6 +38,17 @@ public static class PairingPanel
                     relay.Deny();
             }
 
+            var outbox = plugin.CoupleRelayOutbox;
+            if (outbox.PendingPresetName is { } outgoingName)
+            {
+                ImGui.TextColored(PoseKitUi.Info, outbox.IsAligning
+                    ? $"Walking to your partner for \"{outgoingName}\"..."
+                    : $"Waiting for your partner to accept \"{outgoingName}\"...");
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Cancel##PoseKitCancelCoupleRelay"))
+                    outbox.Cancel();
+            }
+
             var queue = plugin.CoupleQueueService;
             if (queue.QueuedSelectionName is { } own)
                 ImGui.TextColored(PoseKitUi.Accent, $"You picked: {own}");

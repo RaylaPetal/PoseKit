@@ -49,6 +49,7 @@ public sealed class PairingListener : IDisposable
     private const string CoupleCaptureKeyword = "posekitcouplecapture";
     private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
     private const string CoupleRelayKeyword = "posekitcoupleplay";
+    private const string CoupleAnswerKeyword = "posekitcoupleanswer";
 
     // Long enough that a partner briefly disconnecting or a lull in play doesn't drop the pairing,
     // short enough that a pairing nobody remembered to end doesn't just sit "paired" for the rest of
@@ -73,8 +74,13 @@ public sealed class PairingListener : IDisposable
 
     /// Raised when a "posekitcoupleplay" relay arrives from the currently-paired peer, naming the
     /// preset and carrying the captured partner-half state to (depending on mutual override) either
-    /// prompt for accept/deny or apply immediately. Nothing is ever sent back in response.
+    /// prompt for accept/deny or apply immediately. Answered exactly once via AnswerCoupleRelay.
     public event Action<PartnerIdentity, string, CapturedPoseState>? CoupleRelayReceived;
+
+    /// Raised when a "posekitcoupleanswer" tell arrives from the currently-paired peer — their accept
+    /// (true) or decline (false) of a couple-preset relay this side sent, naming that preset. See
+    /// CoupleRelayOutbox.
+    public event Action<PartnerIdentity, string, bool>? CoupleAnswerReceived;
 
     /// Raised when a "posekitforcequeue" tell arrives from the currently-paired peer — Plugin wires
     /// this to resolve the named item against this side's own presets/discovered animations and play
@@ -143,6 +149,15 @@ public sealed class PairingListener : IDisposable
     {
         if (state.Peer is not { } peer) return;
         PairingSender.Send(PairingComposer.ComposeCoupleRelay(peer, presetName, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+        state.Touch();
+    }
+
+    /// Answers a relayed couple preset (accepted or declined) back to the current pairing peer — no-op
+    /// while unpaired. See PairingComposer.ComposeCoupleAnswer.
+    public void AnswerCoupleRelay(string presetName, bool accepted)
+    {
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeCoupleAnswer(peer, presetName, accepted));
         state.Touch();
     }
 
@@ -243,6 +258,18 @@ public sealed class PairingListener : IDisposable
             {
                 state.Touch();
                 CoupleRelayReceived?.Invoke(sender, presetName, captured);
+            }
+            return;
+        }
+
+        if (text.StartsWith(CoupleAnswerKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Active || state.Peer is not { } answerPeer || !answerPeer.Equals(sender)) return;
+            var (verdict, presetName) = SplitFirstToken(text[CoupleAnswerKeyword.Length..].Trim());
+            if (verdict is "0" or "1" && presetName.Length > 0)
+            {
+                state.Touch();
+                CoupleAnswerReceived?.Invoke(sender, presetName, verdict == "1");
             }
             return;
         }

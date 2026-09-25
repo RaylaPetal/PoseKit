@@ -25,6 +25,7 @@ public static class PairingComposer
     private const string CoupleCaptureKeyword = "posekitcouplecapture";
     private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
     private const string CoupleRelayKeyword = "posekitcoupleplay";
+    private const string CoupleAnswerKeyword = "posekitcoupleanswer";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
@@ -72,12 +73,21 @@ public static class PairingComposer
 
     /// Sent when playing a preset that carries a captured partner half: relays that half (its
     /// pose/offset/anchor/Penumbra state, exactly as captured at save time) plus the preset's name,
-    /// for the partner's accept/deny prompt (or immediate auto-play under mutual override). No
-    /// acknowledgement is expected back — the sender already plays its own half immediately.
+    /// for the partner's accept/deny prompt (or immediate auto-accept under mutual override). The
+    /// sender doesn't play its own half yet — it waits for ComposeCoupleAnswer to come back, so both
+    /// halves start together.
     public static string ComposeCoupleRelay(PartnerIdentity target, string presetName,
         PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
         $"/tell {target.TellAddress} {CoupleRelayKeyword} " +
         $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName)}";
+
+    /// Sent exactly once in answer to a "posekitcoupleplay" relay — accepted (by click, or
+    /// automatically under mutual override) or declined (by click, or by the prompt timing out). The
+    /// relay's sender plays its own half only on an accept, the same moment this side plays the
+    /// relayed half, so the two start together. Carries the relayed preset's name (free text, so last)
+    /// so the sender can match it against its own pending play.
+    public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, bool accepted) =>
+        $"/tell {target.TellAddress} {CoupleAnswerKeyword} {(accepted ? 1 : 0)} {presetName}";
 
     /// Shared wire shape for "a captured pose/offset/anchor/Penumbra state", used by both the capture
     /// reply and the play relay (which also appends the preset's name as one more compound field).
