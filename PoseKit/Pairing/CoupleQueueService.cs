@@ -2,7 +2,6 @@ namespace PoseKit.Pairing;
 
 using System;
 using PoseKit;
-using PoseKit.Movement;
 using PoseKit.Presets;
 
 /// <summary>
@@ -22,10 +21,8 @@ public sealed class CoupleQueueService : IDisposable
     // PoseTrigger.Tick already uses for cpose cycling, just at a coarser, UI-facing timescale.
     private const long QueueTimeoutMs = 60_000;
 
-    private readonly Configuration configuration;
     private readonly PairingState pairingState;
     private readonly PairingListener pairingListener;
-    private readonly AlignService alignService;
 
     private Action? queuedPlay;
     private long queuedAt;
@@ -41,12 +38,10 @@ public sealed class CoupleQueueService : IDisposable
 
     public event Action? Changed;
 
-    public CoupleQueueService(Configuration configuration, PairingState pairingState, PairingListener pairingListener, AlignService alignService)
+    public CoupleQueueService(PairingState pairingState, PairingListener pairingListener)
     {
-        this.configuration = configuration;
         this.pairingState = pairingState;
         this.pairingListener = pairingListener;
-        this.alignService = alignService;
 
         pairingState.Changed += OnPairingStateChanged;
         pairingListener.QueueSignalReceived += OnQueueSignalReceived;
@@ -64,17 +59,10 @@ public sealed class CoupleQueueService : IDisposable
     /// queues it toward whoever the current pairing peer is, deferring `play` until both sides have
     /// queued something — nothing happens locally yet, same as the partner's side. Callers should
     /// only reach this while PairingState.Active is true; play immediately instead when unpaired.
-    ///
-    /// If auto-align is on, this is also the moment this side walks toward its current target (if
-    /// it's the pairing partner) — immediately, right now, not deferred until the match completes.
-    /// `play` itself never aligns again when it eventually fires — PoseTrigger no longer has any
-    /// align-before-play logic of its own at all; see AlignService.TryAutoAlignOnQueue.
+    /// Never moves the character — `play` fires wherever each side already is.
     public void QueueSelection(string displayName, Action play)
     {
         if (!pairingState.Active || pairingState.Peer is not { } partner) return;
-
-        if (configuration.AutoAlignBeforePlay)
-            alignService.TryAutoAlignOnQueue();
 
         // Replaces rather than stacks — a fresh click always overwrites whatever was queued before.
         QueuedSelectionName = displayName;

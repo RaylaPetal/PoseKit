@@ -367,7 +367,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         tracking.LastCorrection = PoseOffset.Zero;
         NotifyPartnerAnchorFallback(tracking,
-            $"Too far from {tracking.Anchor.Partner.Name} to position this preset around them — move closer or use Align.");
+            $"Too far from {tracking.Anchor.Partner.Name} to position this preset around them — move closer.");
     }
 
     private static void NotifyPartnerAnchorFallback(PartnerTracking tracking, string reason)

@@ -1,13 +1,11 @@
 namespace PoseKit.Pairing;
 
 using System;
-using PoseKit.Movement;
 using PoseKit.Presets;
 
 /// <summary>
-/// The clicking side of a couple-preset play: optionally walks to the partner first (auto-align),
-/// then relays the partner's half for their accept/deny, and only plays this side's own half once
-/// they accept — the same moment they start theirs, so both halves begin together instead of this
+/// The clicking side of a couple-preset play: relays the partner's half for their accept/deny, and
+/// only plays this side's own half once they accept — the same moment they start theirs, so both halves begin together instead of this
 /// side jumping ahead the instant it clicked. The counterpart of CoupleRelayInbox, which answers
 /// every relay exactly once. Mirrors CoupleQueueService's Tick-driven timeout shape.
 /// </summary>
@@ -21,26 +19,20 @@ public sealed class CoupleRelayOutbox : IDisposable
 
     private readonly PairingState pairingState;
     private readonly PairingListener pairingListener;
-    private readonly AlignService alignService;
     private readonly Action<NamedPose> playOwnHalf;
 
     private NamedPose? pending;
-    private bool relaySent;
     private long relaySentAt;
 
-    /// The couple preset waiting to play, or null — UI-facing.
+    /// The couple preset waiting on the partner's answer, or null — UI-facing.
     public string? PendingPresetName => pending?.Name;
-
-    /// True while still walking to the partner, before they've been prompted.
-    public bool IsAligning => pending != null && !relaySent;
 
     public event Action? Changed;
 
-    public CoupleRelayOutbox(PairingState pairingState, PairingListener pairingListener, AlignService alignService, Action<NamedPose> playOwnHalf)
+    public CoupleRelayOutbox(PairingState pairingState, PairingListener pairingListener, Action<NamedPose> playOwnHalf)
     {
         this.pairingState = pairingState;
         this.pairingListener = pairingListener;
-        this.alignService = alignService;
         this.playOwnHalf = playOwnHalf;
         pairingListener.CoupleAnswerReceived += OnAnswerReceived;
         pairingState.Changed += OnPairingStateChanged;
@@ -52,39 +44,23 @@ public sealed class CoupleRelayOutbox : IDisposable
         pairingState.Changed -= OnPairingStateChanged;
     }
 
-    /// Starts (or replaces) a couple-preset play. With auto-align on, walks to the partner first and
-    /// holds the relay until the walk has fully settled (see AlignService.IsBusy); otherwise — or if
-    /// the walk couldn't start (partner not loaded, too far, busy) — relays immediately.
-    public void Start(NamedPose preset, bool autoAlign)
+    /// Starts (or replaces) a couple-preset play: relays the partner's half right away and waits for
+    /// their answer. Callers only reach this for a preset that carries a partner half.
+    public void Start(NamedPose preset)
     {
+        if (preset.PartnerHalf is not { } half) return;
+
         pending = preset;
-        relaySent = false;
-
-        if (!(autoAlign && alignService.TryAutoAlignToPartner()))
-            SendRelay();
-
+        relaySentAt = Environment.TickCount64;
+        pairingListener.RelayCouplePreset(preset.Name, new CapturedPoseState(half.Pose, half.Offset, half.Anchor, half.Penumbra));
         Changed?.Invoke();
     }
 
     public void Cancel() => Clear();
 
-    private void SendRelay()
-    {
-        if (pending?.PartnerHalf is not { } half)
-        {
-            Clear();
-            return;
-        }
-
-        pairingListener.RelayCouplePreset(pending.Name, new CapturedPoseState(half.Pose, half.Offset, half.Anchor, half.Penumbra));
-        relaySent = true;
-        relaySentAt = Environment.TickCount64;
-        Changed?.Invoke();
-    }
-
     private void OnAnswerReceived(PartnerIdentity sender, string presetName, bool accepted)
     {
-        if (pending is not { } preset || !relaySent) return;
+        if (pending is not { } preset) return;
         if (pairingState.Peer is not { } peer || !peer.Equals(sender)) return;
         if (!string.Equals(preset.Name.Trim(), presetName.Trim(), StringComparison.Ordinal)) return;
 
@@ -104,21 +80,13 @@ public sealed class CoupleRelayOutbox : IDisposable
     {
         if (pending == null) return;
         pending = null;
-        relaySent = false;
         Changed?.Invoke();
     }
 
-    /// Called every framework tick: sends the held relay once the walk has settled, and gives up on an
-    /// answer that never arrives.
+    /// Called every framework tick: gives up on an answer that never arrives.
     public void Tick()
     {
         if (pending == null) return;
-
-        if (!relaySent)
-        {
-            if (!alignService.IsBusy) SendRelay();
-            return;
-        }
 
         if (Environment.TickCount64 - relaySentAt > AnswerTimeoutMs)
         {

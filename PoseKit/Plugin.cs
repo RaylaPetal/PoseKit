@@ -16,7 +16,6 @@ using PoseKit.Presets;
 using PoseKit.Sync;
 using PoseKit.Windows;
 using PoseKit.Camera;
-using PoseKit.Movement;
 
 namespace PoseKit;
 
@@ -48,7 +47,6 @@ public sealed class Plugin : IDalamudPlugin
 
     public EmoteSyncCommand EmoteSync { get; init; }
     public FreeCamService FreeCam { get; init; }
-    public AlignService AlignService { get; init; }
 
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
@@ -108,7 +106,6 @@ public sealed class Plugin : IDalamudPlugin
         EmoteSync = new EmoteSyncCommand();
         FreeCam = new FreeCamService();
         OffsetEngine = new OffsetEngine();
-        AlignService = new AlignService(PairingState, OffsetEngine);
 
         PresetManager = new PresetManager(Configuration);
         SimpleHeelsBridge = new SimpleHeelsBridge();
@@ -117,12 +114,12 @@ public sealed class Plugin : IDalamudPlugin
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
         PairingListener = new PairingListener(PairingState);
-        CoupleQueueService = new CoupleQueueService(Configuration, PairingState, PairingListener, AlignService);
+        CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
         CouplePresetCaptureService = new CouplePresetCaptureService(PairingState, PairingListener, PresetManager);
         CouplePresetCaptureService.Saved += saved => LoadedPreset = saved;
         CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener);
         CoupleRelayInbox.AutoApply += ApplyCapturedPartnerState;
-        CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, AlignService, PlayPreset);
+        CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, PlayPreset);
 
         // A capture request arrives here when the partner is saving an "include partner" preset:
         // reply once with *this* side's own currently-playing pose/offset/Penumbra link — AND its own
@@ -178,7 +175,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes. '/posekit align' walks to your target's exact position."
+            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -193,7 +190,6 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         FreeCam.Dispose();
-        AlignService.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
@@ -217,7 +213,6 @@ public sealed class Plugin : IDalamudPlugin
     private void OnFrameworkUpdate(IFramework framework)
     {
         FreeCam.Tick((float)framework.UpdateDelta.TotalSeconds);
-        AlignService.Tick();
         var localPlayer = ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
         RestorePoseIfDropped(currentPose);
@@ -325,8 +320,7 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// Plays a preset that carries a captured partner half (see NamedPose.PartnerHalf). Only while
-    /// paired with the exact partner it was captured from: walks to them first if auto-align is on,
-    /// then relays their half for accept/deny (auto-accepted under mutual override), and plays this
+    /// paired with the exact partner it was captured from: relays their half for accept/deny (auto-accepted under mutual override), and plays this
     /// side's own half only once they accept — both halves start together. See CoupleRelayOutbox.
     /// Paired with someone else, or not paired at all, only this side's own half plays, immediately,
     /// and nothing is relayed.
@@ -334,7 +328,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (pose.PartnerHalf is { } half && PairingState.Active && PairingState.Peer is { } peer && peer.Equals(half.Partner))
         {
-            CoupleRelayOutbox.Start(pose, Configuration.AutoAlignBeforePlay);
+            CoupleRelayOutbox.Start(pose);
             return;
         }
 
@@ -455,15 +449,6 @@ public sealed class Plugin : IDalamudPlugin
                 FreeCam.Toggle();
                 ChatGui.Print($"[PoseKit] {FreeCam.Status}");
             }
-            return;
-        }
-
-        if (string.Equals(splitArgs[0], "align", StringComparison.OrdinalIgnoreCase))
-        {
-            if (splitArgs.Length != 1)
-                ChatGui.PrintError("[PoseKit] Usage: /posekit align");
-            else
-                AlignService.AlignToTarget();
             return;
         }
 

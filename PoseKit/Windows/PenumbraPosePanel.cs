@@ -31,25 +31,40 @@ public static class PenumbraPosePanel
 {
     private static string animationSearch = "";
 
+    /// The Animations page's title row: title, mod count and a Rescan button on the left, search on
+    /// the right, then a one-line hint (or the active filter with a Clear button).
     public static void DrawToolbar(Plugin plugin)
     {
-        PoseKitUi.SectionHeader("Animation Library");
-
-        var buttonWidth = 82f;
-        ImGui.SetNextItemWidth(Math.Max(140f, ImGui.GetContentRegionAvail().X - buttonWidth - ImGui.GetStyle().ItemSpacing.X));
-        ImGui.InputTextWithHint("##PoseKitAnimationSearch", "Search animation name, command, or pose number...",
-            ref animationSearch, 128);
-        ImGui.SameLine();
-        if (ImGui.Button("Rescan##PoseKitPenumbraRescan", new System.Numerics.Vector2(buttonWidth, 0)))
+        ImGui.AlignTextToFramePadding();
+        PoseKitUi.CardTitle("All Animations", $"{plugin.DiscoveredPoses.Count} MODS");
+        ImGui.SameLine(0, 10);
+        if (ImGui.Button("Rescan##PoseKitToolbarRescan"))
             plugin.RefreshPenumbraPoses();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Re-scan your selected Penumbra mods for poses and animations.");
+        ImGui.SameLine();
+
+        var avail = ImGui.GetContentRegionAvail().X;
+        var searchWidth = Math.Min(280f, avail);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + avail - searchWidth);
+        ImGui.SetNextItemWidth(searchWidth);
+        ImGui.InputTextWithHint("##PoseKitAnimationSearch", "Search name, command, or pose number...",
+            ref animationSearch, 128);
 
         if (animationSearch.Length > 0)
         {
-            ImGui.TextDisabled($"Filtering by “{animationSearch}”");
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(PoseKitUi.Muted, $"Filtering by \"{animationSearch}\"");
             ImGui.SameLine();
             if (ImGui.SmallButton("Clear##PoseKitClearAnimationSearch"))
                 animationSearch = "";
         }
+        else
+        {
+            PoseKitUi.TextWrappedDisabled("Open a mod to choose an animation, pose, or option, then press Play.");
+        }
+
+        PoseKitUi.CardTitleRule();
     }
 
     public static void Draw(Plugin plugin)
@@ -95,7 +110,7 @@ public static class PenumbraPosePanel
             // disabling, since Play/selection actions elsewhere only ever turn a mod on, never off,
             // which left no way to back out of a mod once it got implicitly enabled (a real source
             // of the stale-selection conflicts fixed last time).
-            ImGui.SameLine();
+            ImGui.SameLine(0, 20);
             var modEnabled = mod.Enabled;
             if (ImGui.Checkbox($"Enabled##PoseKitModEnabled{mod.ModDirectory.GetHashCode()}", ref modEnabled))
                 SetModEnabled(plugin, mod, collectionId, modEnabled);
@@ -131,8 +146,8 @@ public static class PenumbraPosePanel
             ImGui.TextUnformatted(group.Name);
             foreach (var option in group.Options)
             {
-                if (DescribeConflict(plugin, activePoses, mod, option) is { } conflict)
-                    PoseKitUi.DrawConflictMarker(conflict);
+                if (DescribeConflict(plugin, activePoses, mod, option, collectionId) is { } conflict)
+                    PoseKitUi.DrawConflictMarker(ConflictId(mod, option), conflict.Tooltip, conflict.Resolve);
                 DrawOptionPickMarker(plugin, mod, option);
                 DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitDefaultPlay");
             }
@@ -169,8 +184,8 @@ public static class PenumbraPosePanel
                         ApplyGroupChange(plugin, mod, group, newSelection, cid);
                     }
 
-                    if (isChecked && DescribeConflict(plugin, activePoses, mod, option) is { } conflict)
-                        PoseKitUi.DrawConflictMarker(conflict);
+                    if (isChecked && DescribeConflict(plugin, activePoses, mod, option, collectionId) is { } conflict)
+                        PoseKitUi.DrawConflictMarker(ConflictId(mod, option), conflict.Tooltip, conflict.Resolve);
                     DrawOptionPickMarker(plugin, mod, option);
 
                     DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
@@ -204,14 +219,15 @@ public static class PenumbraPosePanel
                     DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
                         beforePlay: isSelected || collectionId is null
                             ? null
-                            : () => ApplyGroupChange(plugin, mod, group, [option.Name], collectionId.Value));
+                            : () => ApplyGroupChange(plugin, mod, group, [option.Name], collectionId.Value),
+                        compact: true);
                 }
 
                 ImGui.EndCombo();
             }
 
-            if (selectedOption != null && DescribeConflict(plugin, activePoses, mod, selectedOption) is { } comboConflict)
-                PoseKitUi.DrawConflictMarker(comboConflict);
+            if (selectedOption != null && DescribeConflict(plugin, activePoses, mod, selectedOption, collectionId) is { } comboConflict)
+                PoseKitUi.DrawConflictMarker(ConflictId(mod, selectedOption), comboConflict.Tooltip, comboConflict.Resolve);
             if (selectedOption != null)
                 DrawOptionPickMarker(plugin, mod, selectedOption);
 
@@ -319,29 +335,90 @@ public static class PenumbraPosePanel
     /// PoseKit-tracked mods (activePoses, built from DiscoveredPoses) and every other enabled mod in
     /// Penumbra that was never added to PoseKit at all (plugin.ExternalPoseClaims) — see
     /// PenumbraPoseScanner.ScanExternalConflicts for why the latter exists.
-    private static string? DescribeConflict(Plugin plugin,
+    ///
+    /// Also returns how to fix it, when it can be fixed by turning other mods off: every conflicting
+    /// claimant that lives in a *different* mod (PoseKit-tracked or external) gets disabled, keeping
+    /// this option's mod as the one that plays. Null Resolve when the only other claimant is another
+    /// option of this same mod — disabling "the other mod" would disable this one too, so that case
+    /// stays a hover-only warning.
+    private static (string Tooltip, Action? Resolve)? DescribeConflict(Plugin plugin,
         Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> activePoses,
-        PoseModInfo mod, PoseModOption option)
+        PoseModInfo mod, PoseModOption option, Guid? collectionId)
     {
+        string? description = null;
+        var otherTrackedMods = new List<PoseModInfo>();
+        var otherExternalMods = new List<(string ModDirectory, string ModName)>();
+
         foreach (var trigger in option.Triggers)
         {
             if (trigger.PoseIdentifier is not { } pid) continue;
 
             if (activePoses.TryGetValue(pid, out var claimants) && claimants.Count > 1)
             {
-                var other = claimants.FirstOrDefault(c => c.Option != option);
-                if (other.Option != null)
-                    return $"Also currently selected: \"{other.Option.Name}\" ({other.Mod.ModName}) — both claim {pid.DisplayName}. Only one will actually play.";
+                foreach (var other in claimants)
+                {
+                    if (other.Option == option) continue;
+                    description ??= $"Also currently selected: \"{other.Option.Name}\" ({other.Mod.ModName}) — both claim {pid.DisplayName}. Only one will actually play.";
+                    if (other.Mod != mod && !otherTrackedMods.Contains(other.Mod))
+                        otherTrackedMods.Add(other.Mod);
+                }
             }
 
-            if (plugin.ExternalPoseClaims.TryGetValue(pid, out var external) && external.Count > 0)
+            if (plugin.ExternalPoseClaims.TryGetValue(pid, out var external))
             {
-                var claim = external[0];
-                return $"Also currently active: \"{claim.Label}\" ({claim.ModName}) — not in your Animations tab, but both claim {pid.DisplayName}. Only one will actually play.";
+                foreach (var claim in external)
+                {
+                    description ??= $"Also currently active: \"{claim.Label}\" ({claim.ModName}) — not in your Animations list, but both claim {pid.DisplayName}. Only one will actually play.";
+                    if (!otherExternalMods.Exists(e => e.ModDirectory == claim.ModDirectory))
+                        otherExternalMods.Add((claim.ModDirectory, claim.ModName));
+                }
             }
         }
 
-        return null;
+        if (description == null) return null;
+
+        var modsToDisable = otherTrackedMods.Count + otherExternalMods.Count;
+        if (modsToDisable == 0 || collectionId is not { } cid)
+            return (description, null);
+
+        var names = string.Join(", ", otherTrackedMods.Select(m => m.ModName).Concat(otherExternalMods.Select(e => e.ModName)));
+        var tooltip = $"{description}\n\nClick to disable {names} so {mod.ModName} plays instead.";
+
+        return (tooltip, () =>
+        {
+            foreach (var other in otherTrackedMods)
+                SetModEnabled(plugin, other, cid, false);
+            foreach (var (modDirectory, _) in otherExternalMods)
+                DisableExternalMod(plugin, cid, modDirectory);
+            SetModEnabled(plugin, mod, cid, true);
+            plugin.PenumbraIpc.TryRedrawLocalPlayer();
+        });
+    }
+
+    /// A per-mod, per-option ImGui id for the conflict button — group names like "Default" repeat
+    /// across mods, so the enclosing PushID(group.Name) alone isn't unique.
+    private static string ConflictId(PoseModInfo mod, PoseModOption option) =>
+        $"PoseKitConflict{mod.ModDirectory.GetHashCode()}{option.Name.GetHashCode()}";
+
+    /// Turns off a conflicting mod that isn't in PoseKit's Animations list (so it has no PoseModInfo
+    /// to go through SetModEnabled with) — same temporary-settings route, preserving its own priority
+    /// and group selections, then drops its claims so the conflict marker clears immediately rather
+    /// than waiting for the next rescan.
+    private static void DisableExternalMod(Plugin plugin, Guid collectionId, string modDirectory)
+    {
+        var (_, priority, selections) = plugin.PenumbraIpc.TryGetCurrentSettings(collectionId, modDirectory);
+        var allSelections = new Dictionary<string, IReadOnlyList<string>>();
+        if (selections != null)
+        {
+            foreach (var (group, options) in selections)
+                allSelections[group] = options;
+        }
+
+        if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, false, priority, allSelections))
+            return;
+
+        foreach (var claims in plugin.ExternalPoseClaims.Values)
+            claims.RemoveAll(c => c.ModDirectory == modDirectory);
     }
 
     private static bool ModMatches(PoseModInfo mod, string filter)
@@ -443,8 +520,11 @@ public static class PenumbraPosePanel
     /// <param name="beforePlay">Runs before enabling/playing — e.g. selecting the option in its
     /// group first, for a not-yet-selected option played directly from the combo dropdown, so
     /// picking it and playing it is one click instead of two separate steps.</param>
+    /// <param name="compact">Small buttons for rows inside a combo's dropdown list, where every other
+    /// row is a single line of text; everywhere else the buttons are full height, matching the combo or
+    /// checkbox they sit beside.</param>
     private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
-        Guid? collectionId, string idPrefix, Action? beforePlay = null)
+        Guid? collectionId, string idPrefix, Action? beforePlay = null, bool compact = false)
     {
         var triggers = option.Triggers;
         for (var i = 0; i < triggers.Count; i++)
@@ -461,7 +541,8 @@ public static class PenumbraPosePanel
             using (PoseKitUi.PushPickButtonStyle(pick))
             {
                 ImGui.SameLine();
-                if (ImGui.SmallButton($"{buttonText}##{idPrefix}{i}"))
+                var label = $"{buttonText}##{idPrefix}{i}";
+                if (compact ? ImGui.SmallButton(label) : ImGui.Button(label))
                 {
                     void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
 

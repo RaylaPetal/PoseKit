@@ -51,6 +51,7 @@ public class ConfigWindow : Window, IDisposable
 
     public override void Draw()
     {
+        PoseKitUi.PaintWindowBackground();
         using var theme = PoseKitUi.PushTheme();
 
         // The window can be shrunk below what its content needs (down to the 400x250 minimum), so
@@ -74,15 +75,6 @@ public class ConfigWindow : Window, IDisposable
             PoseKitUi.TextWrappedDisabled(heelsLoaded
                 ? "SimpleHeels detected."
                 : "SimpleHeels not detected — install and enable it to sync your pose offset to nearby players.");
-
-            PoseKitUi.SectionHeader("Align");
-            var autoAlign = configuration.AutoAlignBeforePlay;
-            if (ImGui.Checkbox("Auto-align to target before playing", ref autoAlign))
-            {
-                configuration.AutoAlignBeforePlay = autoAlign;
-                configuration.Save();
-            }
-            PoseKitUi.TextWrappedDisabled("Walks to your current target's exact position and facing before every pose/emote plays — only when standing close enough already. Skipped silently (the pose still plays) if there's no target, it's too far, or you can't align right now.");
 
             PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
             PoseKitUi.TextWrappedDisabled("Disabled mods are listed too — PoseKit enables one temporarily when you play a pose from it.");

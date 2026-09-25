@@ -10,12 +10,18 @@ using PoseKit.Presets;
 
 namespace PoseKit.Windows;
 
-/// <summary>Live-offset and saved-preset views. They share state but are drawn in separate main
-/// tabs so editing a pose and browsing the preset library each have room to breathe. Pairing itself
-/// lives in PairingPanel (Animations tab) — presets don't name a partner; see DrawPresetEntry.</summary>
+/// <summary>Live-offset editor (drawn in MainWindow's sidebar) and the Presets page: a collapsible
+/// save form above a searchable, filterable library grouped by pose. Pairing itself lives in
+/// PairingPanel — presets don't name a partner; see DrawPresetEntry.</summary>
 public static class PresetButtonsPanel
 {
     private enum AnchorMode { None, Spot, Furniture }
+
+    private enum TypeFilter { All, Solo, Couple }
+
+    /// Which anchor kind a preset carries — "None" is a real filter value (unanchored presets), not
+    /// "no filter"; that's Any.
+    private enum AnchorFilter { Any, None, Spot, Furniture, Partner }
 
     private static readonly FurnitureScanner furnitureScanner = new();
 
@@ -24,11 +30,105 @@ public static class PresetButtonsPanel
     private static int selectedFurnitureIndex = -1;
     private static bool includePartner;
 
+    // Library search/filter state — session-only, like the save form's fields above.
+    private static string presetSearch = "";
+    private static TypeFilter typeFilter = TypeFilter.All;
+    private static AnchorFilter anchorFilter = AnchorFilter.Any;
+
+    private static bool IsFiltering =>
+        presetSearch.Trim().Length > 0 || typeFilter != TypeFilter.All || anchorFilter != AnchorFilter.Any;
+
+    /// The Presets page's title row (title, saved count, right-aligned search) and filter row (type
+    /// and anchor combos, plus Clear while anything is active) — same shape as the Animations page's
+    /// toolbar so both pages read the same.
+    public static void DrawToolbar(Plugin plugin)
+    {
+        ImGui.AlignTextToFramePadding();
+        PoseKitUi.CardTitle("Presets", $"{plugin.PresetManager.Presets.Count} saved");
+        ImGui.SameLine();
+
+        var avail = ImGui.GetContentRegionAvail().X;
+        var searchWidth = Math.Min(280f, avail);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + avail - searchWidth);
+        ImGui.SetNextItemWidth(searchWidth);
+        ImGui.InputTextWithHint("##PoseKitPresetSearch", "Search name, pose, anchor, or animation...", ref presetSearch, 128);
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(PoseKitUi.Muted, "Type");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(110);
+        EnumCombo("##PoseKitPresetTypeFilter", ref typeFilter, TypeFilterOptions);
+
+        ImGui.SameLine(0, 16);
+        ImGui.TextColored(PoseKitUi.Muted, "Anchor");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(120);
+        EnumCombo("##PoseKitPresetAnchorFilter", ref anchorFilter, AnchorFilterOptions);
+
+        if (IsFiltering)
+        {
+            ImGui.SameLine(0, 16);
+            if (ImGui.SmallButton("Clear##PoseKitClearPresetFilters"))
+            {
+                presetSearch = "";
+                typeFilter = TypeFilter.All;
+                anchorFilter = AnchorFilter.Any;
+            }
+        }
+
+        PoseKitUi.CardTitleRule();
+    }
+
+    private static readonly TypeFilter[] TypeFilterOptions = [TypeFilter.All, TypeFilter.Solo, TypeFilter.Couple];
+
+    private static readonly AnchorFilter[] AnchorFilterOptions =
+        [AnchorFilter.Any, AnchorFilter.None, AnchorFilter.Spot, AnchorFilter.Furniture, AnchorFilter.Partner];
+
+    private static void EnumCombo<T>(string id, ref T value, T[] options) where T : struct, Enum
+    {
+        if (!ImGui.BeginCombo(id, value.ToString()))
+            return;
+        foreach (var option in options)
+        {
+            if (ImGui.Selectable(option.ToString(), option.Equals(value)))
+                value = option;
+        }
+        ImGui.EndCombo();
+    }
+
+    /// Type, then anchor kind, then free text — cheapest checks first. The text match is
+    /// case-insensitive over everything a player might remember a preset by; the spot's zone name
+    /// (a game-data sheet lookup) is checked last, only when nothing cheaper matched.
+    private static bool Matches(NamedPose preset)
+    {
+        if (typeFilter == TypeFilter.Solo && preset.PartnerHalf != null) return false;
+        if (typeFilter == TypeFilter.Couple && preset.PartnerHalf == null) return false;
+        if (anchorFilter != AnchorFilter.Any && AnchorKindOf(preset) != anchorFilter) return false;
+
+        var text = presetSearch.Trim();
+        if (text.Length == 0) return true;
+
+        bool Has(string? field) => field != null && field.Contains(text, StringComparison.OrdinalIgnoreCase);
+        return Has(preset.Name)
+               || Has(preset.Pose.DisplayName)
+               || Has(preset.Anchor?.Furniture?.FurnitureName)
+               || Has(preset.Anchor?.Partner?.Partner.Name)
+               || Has(preset.PartnerHalf?.Partner.Name)
+               || Has(preset.Penumbra?.ModName)
+               || Has(preset.Penumbra?.OptionName)
+               || (preset.Anchor?.Spot is { } spot && Has(spot.ZoneName));
+    }
+
+    private static AnchorFilter AnchorKindOf(NamedPose preset) =>
+        preset.Anchor?.Spot != null ? AnchorFilter.Spot
+        : preset.Anchor?.Furniture != null ? AnchorFilter.Furniture
+        : preset.Anchor?.Partner != null ? AnchorFilter.Partner
+        : AnchorFilter.None;
+
     public static void DrawOffsets(Plugin plugin)
     {
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
-        PoseKitUi.SectionHeader("Live Offset");
         PoseKitUi.TextWrappedDisabled(currentPose?.DisplayName ?? "Not currently in a pose/emote loop.");
 
         using (ImRaii.Disabled(currentPose is null))
@@ -36,14 +136,18 @@ public static class PresetButtonsPanel
             var offset = plugin.OffsetEngine.DesiredOffset;
             var changed = false;
 
-            changed |= PoseKitUi.AxisDragFloat("OffsetX", "Left / Right", ref offset.Position.X);
-            changed |= PoseKitUi.AxisDragFloat("OffsetY", "Height", ref offset.Position.Y);
-            changed |= PoseKitUi.AxisDragFloat("OffsetZ", "Forward / Backward", ref offset.Position.Z);
+            // Drawn in the narrow sidebar, so the drag fields take whatever width is left after the
+            // widest label rather than a fixed width that would push labels off the edge.
+            var dragWidth = MathF.Max(60f, ImGui.GetContentRegionAvail().X - ImGui.CalcTextSize("Forward / Back").X
+                                            - ImGui.GetStyle().ItemSpacing.X);
+            changed |= PoseKitUi.AxisDragFloat("OffsetX", "Left / Right", ref offset.Position.X, width: dragWidth);
+            changed |= PoseKitUi.AxisDragFloat("OffsetY", "Height", ref offset.Position.Y, width: dragWidth);
+            changed |= PoseKitUi.AxisDragFloat("OffsetZ", "Forward / Back", ref offset.Position.Z, width: dragWidth);
 
             if (plugin.OffsetEngine.RotationHookResolved)
             {
                 var degrees = offset.Rotation * (180f / MathF.PI);
-                if (PoseKitUi.AxisDragFloat("Rotation", "Rotation (degrees)", ref degrees, 1f))
+                if (PoseKitUi.AxisDragFloat("Rotation", "Rotation", ref degrees, 1f, dragWidth))
                 {
                     degrees %= 360f;
                     if (degrees < 0) degrees += 360f;
@@ -85,11 +189,19 @@ public static class PresetButtonsPanel
         }
     }
 
+    /// The Presets page body below its toolbar: the collapsible save form, then the library.
     public static void DrawPresets(Plugin plugin)
     {
-        var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
+        if (ImGui.CollapsingHeader("Save current offset##PoseKitSaveSection", ImGuiTreeNodeFlags.DefaultOpen))
+            DrawSaveForm(plugin);
 
-        PoseKitUi.SectionHeader("Save Current Offset");
+        ImGui.Spacing();
+        DrawLibrary(plugin);
+    }
+
+    private static void DrawSaveForm(Plugin plugin)
+    {
+        var currentPose = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer);
         PoseKitUi.TextWrappedDisabled(currentPose?.DisplayName ?? "Start a pose or animation before saving a preset.");
 
         if (currentPose is { } pose)
@@ -182,24 +294,42 @@ public static class PresetButtonsPanel
             else
                 DrawAnchorChoice(localPlayer, nearbyFurniture);
         }
+    }
 
-        PoseKitUi.SectionHeader("Preset Library");
-
-        var groups = plugin.PresetManager.Presets.GroupBy(p => p.Pose);
-        if (!groups.Any())
+    /// Presets matching the current search/filters, grouped by pose — groups ordered by pose name,
+    /// presets by their own name, each header showing how many it currently lists. While filtering,
+    /// every remaining group is forced open so matches are never hidden inside a collapsed header.
+    private static void DrawLibrary(Plugin plugin)
+    {
+        var all = plugin.PresetManager.Presets;
+        if (all.Count == 0)
         {
-            ImGui.TextDisabled("No saved presets yet.");
+            PoseKitUi.TextWrappedDisabled("No presets saved yet — save your current offset above.");
+            return;
+        }
+
+        var filtering = IsFiltering;
+        var groups = all.Where(Matches)
+            .GroupBy(p => p.Pose)
+            .OrderBy(g => g.Key.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (groups.Count == 0)
+        {
+            PoseKitUi.TextWrappedDisabled("No presets match your search or filters.");
             return;
         }
 
         foreach (var group in groups)
         {
-            if (!ImGui.CollapsingHeader($"{group.Key.DisplayName}##PoseKitPresetGroup{group.Key.GetHashCode()}",
+            var presets = group.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (filtering)
+                ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+            if (!ImGui.CollapsingHeader($"{group.Key.DisplayName}  ({presets.Count})##PoseKitPresetGroup{group.Key.GetHashCode()}",
                     ImGuiTreeNodeFlags.DefaultOpen))
                 continue;
 
             ImGui.Indent();
-            foreach (var namedPose in group.ToList())
+            foreach (var namedPose in presets)
                 DrawPresetEntry(plugin, namedPose);
             ImGui.Unindent();
         }
@@ -261,19 +391,15 @@ public static class PresetButtonsPanel
     /// Public so PairingPanel can offer the exact same clickable entry (click dispatch, pick
     /// highlighting, anchor/animation info) for whatever a paired partner just picked, without the
     /// user having to scroll down to find it in the Preset Library themselves.
+    ///
+    /// One compact row: the name as the play button, then short tags (Couple, and the anchor kind with
+    /// its target), a right-aligned delete, and the linked animation as a muted second line.
     public static void DrawPresetEntry(Plugin plugin, NamedPose namedPose)
     {
-        var anchorSuffix = namedPose.Anchor?.Spot != null ? " (anchored)"
-            : namedPose.Anchor?.Furniture is { } furnitureAnchor ? $" (anchored: {furnitureAnchor.FurnitureName})"
-            : namedPose.Anchor?.Partner is { } partnerAnchor ? $" (anchored: {partnerAnchor.Partner.Name})"
-            : "";
-        var coupleSuffix = namedPose.PartnerHalf != null ? " (couple)" : "";
-        var label = $"{namedPose.Name}{anchorSuffix}{coupleSuffix}";
-
         var pick = PoseKitUi.GetPickState(plugin, namedPose.Name);
         using (PoseKitUi.PushPickButtonStyle(pick))
         {
-            if (ImGui.Button($"{label}##PoseKitPreset{namedPose.GetHashCode()}"))
+            if (ImGui.Button($"{namedPose.Name}##PoseKitPreset{namedPose.GetHashCode()}"))
             {
                 // Solo play bypass: play this side's own half only, exactly as if unpaired — even for
                 // a couple preset, where that means calling PlayPreset (not PlayCouplePreset) so
@@ -299,20 +425,26 @@ public static class PresetButtonsPanel
         }
         PoseKitUi.DrawPickBadge(pick);
 
-        ImGui.SameLine();
-        if (ImGui.SmallButton($"x##PoseKitDeletePreset{namedPose.GetHashCode()}"))
-            plugin.PresetManager.Delete(namedPose);
+        if (namedPose.PartnerHalf != null)
+            DrawEntryTag("Couple", PoseKitUi.Info);
+        if (AnchorTag(namedPose) is { } anchorTag)
+            DrawEntryTag(anchorTag, PoseKitUi.Muted);
 
-        if (namedPose.Anchor?.Spot is { } spot)
-        {
-            var p = spot.Position;
-            PoseKitUi.TextWrappedDisabled($"Location: {spot.ZoneName} ({p.X:0.0}, {p.Y:0.0}, {p.Z:0.0})");
-        }
+        // Right-aligned, unless the row is already too full to leave room for it.
+        var deleteLabel = $"Delete##PoseKitDeletePreset{namedPose.GetHashCode()}";
+        ImGui.SameLine();
+        var deleteX = ImGui.GetWindowContentRegionMax().X - PoseKitUi.ButtonWidth(deleteLabel);
+        if (ImGui.GetCursorPosX() < deleteX)
+            ImGui.SetCursorPosX(deleteX);
+        if (PoseKitUi.DangerButton(deleteLabel))
+            plugin.PresetManager.Delete(namedPose);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip($"Delete the \"{namedPose.Name}\" preset");
 
         if (namedPose.Penumbra is { ModName.Length: > 0 } link)
         {
             var animation = link.OptionName is "" or "Default" ? link.ModName : $"{link.ModName} — {link.OptionName}";
-            PoseKitUi.TextWrappedDisabled($"Animation: {animation} (enabled automatically when played)");
+            PoseKitUi.TextWrappedDisabled($"Animation: {animation}");
         }
 
         var status = pick switch
@@ -324,5 +456,23 @@ public static class PresetButtonsPanel
         };
         if (status != null)
             PoseKitUi.TextWrappedDisabled(status);
+    }
+
+    private static string? AnchorTag(NamedPose preset) =>
+        preset.Anchor?.Spot is { } spot ? $"Spot: {spot.ZoneName}"
+        : preset.Anchor?.Furniture is { } furniture ? $"Furniture: {furniture.FurnitureName}"
+        : preset.Anchor?.Partner is { } partner ? $"Partner: {partner.Partner.Name}"
+        : null;
+
+    /// A short tag continuing the entry's row, wrapping to the next line instead when it wouldn't
+    /// fit beside what's already there (with room left for the delete button).
+    private static void DrawEntryTag(string text, Vector4 color)
+    {
+        const float deleteReserve = 70f;
+        ImGui.SameLine(0, 10);
+        if (ImGui.GetContentRegionAvail().X < ImGui.CalcTextSize(text).X + deleteReserve)
+            ImGui.NewLine();
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(color, text);
     }
 }

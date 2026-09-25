@@ -43,7 +43,7 @@ public class PartnerAnchor
     }
 
     /// The anchored partner's character if it's currently loaded nearby, matched by name + home world
-    /// (the same identity test AlignService uses for the pairing peer), or null.
+    /// (PartnerIdentity.Matches), or null.
     public static IPlayerCharacter? TryFindLive(PartnerIdentity identity)
     {
         foreach (var gameObject in Plugin.ObjectTable)

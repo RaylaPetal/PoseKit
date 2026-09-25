@@ -92,24 +92,6 @@ public sealed unsafe class OffsetEngine : IDisposable
         setDrawOffsetHook.Original(obj, baseOffset.X, baseOffset.Y, baseOffset.Z);
     }
 
-    /// Directly forces the character's DRAW-time rotation to an absolute value, once — bypassing
-    /// DesiredOffset/Active entirely. This is NOT an offset: it's a one-shot visual sync, called by
-    /// AlignService right after it writes the same absolute value to the real, authoritative
-    /// GameObject.Rotation field. That authoritative write alone doesn't reliably show up visually —
-    /// live testing confirmed the write and its immediate readback both succeed, yet the character
-    /// still doesn't appear to turn, matching this class's own doc comment: the game's draw-time
-    /// rotation is separate state the engine recomputes independently, not something it necessarily
-    /// re-derives from GameObject.Rotation every frame for a standing/idle character. This calls the
-    /// same native function SetDrawRotationDetour hooks, directly, with no addition — so a preset's
-    /// own DesiredOffset.Rotation is never touched or stacked on. See design.md Decision 3k.
-    public void ForceDrawRotation(IPlayerCharacter? localPlayer, float rotation)
-    {
-        if (setDrawRotationHook == null || localPlayer == null) return;
-        var obj = (GameObject*)localPlayer.Address;
-        if (obj == null) return;
-        setDrawRotationHook.Original(obj, rotation);
-    }
-
     /// Called every frame from Plugin's framework tick; re-applies the offset in case nothing
     /// else prompted the game to call SetDrawOffset/SetDrawRotation itself this frame. Position has
     /// always done this; rotation didn't (see "Post-implementation finding" in
@@ -122,8 +104,8 @@ public sealed unsafe class OffsetEngine : IDisposable
     /// there's a real offset to maintain. Every pose trigger calls PoseTrigger.ApplyOffset (which sets
     /// Active = true) regardless of whether that pose has any offset dialed in, so an unconditional
     /// reapply here would force-write a *cached* baseRotation (from whenever the game last happened to
-    /// call SetDrawRotation, which can predate a later real GameObject.Rotation change, e.g. from
-    /// AlignService's own raw rotation write) every single frame with nothing to actually maintain —
+    /// call SetDrawRotation, which can predate a later real GameObject.Rotation change — the character
+    /// turning) every single frame with nothing to actually maintain —
     /// silently overwriting any real rotation change for as long as the pose stays active. See
     /// design.md Decision 3j.
     public void Tick(IPlayerCharacter? localPlayer)

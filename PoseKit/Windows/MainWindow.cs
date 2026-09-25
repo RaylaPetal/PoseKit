@@ -2,33 +2,40 @@ using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
-using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
-using PoseKit.Movement;
 
 namespace PoseKit.Windows;
 
+/// <summary>
+/// Dashboard layout: a header (title, dependency/pairing status, global actions), then three cards —
+/// a sidebar (page navigation, character tools and the live offset editor, all always available),
+/// the selected page, and the Pairing panel — and a color legend footer. Below ThreeColumnMinWidth
+/// the Pairing column folds into a sidebar page instead, so the window still works when shrunk.
+/// </summary>
 public class MainWindow : Window, IDisposable
 {
+    private enum Page { Animations, Presets, Pairing }
+
+    private const float ThreeColumnMinWidth = 860f;
+    private const float SidebarWidth = 250f;
+    private const float PairingColumnWidth = 280f;
+
     private readonly Plugin plugin;
+    private Page page = Page.Animations;
 
     public MainWindow(Plugin plugin)
         : base($"PoseKit v{Plugin.Version}###MainWindow")
     {
-        // The window itself stays fixed so the navigation remains visible. Each tab owns its own
-        // scrolling child region below the tab bar instead.
+        // The window itself stays fixed; each card scrolls on its own.
         Flags |= ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
 
-        // Wide enough by default that pose labels ("Sit on Ground Pose 3" etc.) alongside their
-        // checkboxes/trigger buttons don't get clipped at the window edge.
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(420, 250),
-            MaximumSize = new Vector2(1200, 1200)
+            MinimumSize = new Vector2(560, 420),
+            MaximumSize = new Vector2(1600, 1200)
         };
 
-        Size = new Vector2(600, 700);
+        Size = new Vector2(1000, 660);
         SizeCondition = ImGuiCond.FirstUseEver;
 
         this.plugin = plugin;
@@ -46,83 +53,154 @@ public class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        PoseKitUi.PaintWindowBackground();
         using var theme = PoseKitUi.PushTheme();
 
-        PoseKitUi.DrawDependencyStatus(plugin);
+        DrawHeader();
 
-        if (!ImGui.BeginTabBar("##PoseKitMainTabs", ImGuiTabBarFlags.None))
-            return;
+        var avail = ImGui.GetContentRegionAvail();
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var bodyHeight = Math.Max(120f, avail.Y - ImGui.GetFrameHeightWithSpacing());
+        var threeColumn = avail.X >= ThreeColumnMinWidth;
+        if (threeColumn && page == Page.Pairing)
+            page = Page.Animations;
 
-        if (ImGui.BeginTabItem("Animations"))
+        if (PoseKitUi.BeginCard("##PoseKitSidebar", new Vector2(SidebarWidth, bodyHeight)))
+            DrawSidebar(threeColumn);
+        PoseKitUi.EndCard();
+
+        ImGui.SameLine();
+        var centerWidth = avail.X - SidebarWidth - spacing - (threeColumn ? PairingColumnWidth + spacing : 0f);
+        if (PoseKitUi.BeginCard("##PoseKitContent", new Vector2(centerWidth, bodyHeight),
+                ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
+            DrawPage();
+        PoseKitUi.EndCard();
+
+        if (threeColumn)
         {
-            PairingPanel.Draw(plugin);
-            PenumbraPosePanel.DrawToolbar(plugin);
-            if (ImGui.BeginChild("##PoseKitAnimationsScroll", Vector2.Zero, false, ImGuiWindowFlags.None))
-                PenumbraPosePanel.Draw(plugin);
-            ImGui.EndChild();
-            ImGui.EndTabItem();
-        }
-
-        if (ImGui.BeginTabItem("Offsets"))
-        {
-            if (ImGui.BeginChild("##PoseKitOffsetsScroll", Vector2.Zero, false, ImGuiWindowFlags.None))
+            ImGui.SameLine();
+            if (PoseKitUi.BeginCard("##PoseKitPairing", new Vector2(PairingColumnWidth, bodyHeight)))
             {
-                PresetButtonsPanel.DrawOffsets(plugin);
-
-                // One shared header for all three utility rows below, instead of one per row — each
-                // row is already a single button+status line (DrawAlignSection's own shape, mirrored
-                // here for the other two), so the only real bulk was three separate headers' worth of
-                // spacing/separator/colored-text overhead. Freecam's conditional hint line is the one
-                // allowed second line — collapsing it into the row would make an already-dense line
-                // unreadable, and it isn't shown most of the time anyway. See design.md Decision 4.
-                PoseKitUi.SectionHeader("Utilities");
-
-                if (ImGui.Button("Resync nearby emotes"))
-                    plugin.EmoteSync.Sync();
-                ImGui.SameLine();
-                PoseKitUi.TextWrappedDisabled("Resets all nearby rendered players together on your client.");
-
-                if (ImGui.Button(plugin.FreeCam.Enabled ? "Disable freecam" : "Enable freecam"))
-                    plugin.FreeCam.Toggle();
-                ImGui.SameLine();
-                PoseKitUi.TextWrappedDisabled(plugin.FreeCam.Status);
-                if (plugin.FreeCam.Enabled)
-                    PoseKitUi.TextWrappedDisabled("WASD: move | E/Q: up/down | Right drag: look | /posekit tfc: exit");
-
-                DrawAlignSection();
+                PoseKitUi.CardTitle("Pairing");
+                PoseKitUi.CardTitleRule();
+                PairingPanel.Draw(plugin);
             }
-            ImGui.EndChild();
-            ImGui.EndTabItem();
+            PoseKitUi.EndCard();
         }
 
-        if (ImGui.BeginTabItem("Presets"))
-        {
-            if (ImGui.BeginChild("##PoseKitPresetsScroll", Vector2.Zero, false, ImGuiWindowFlags.None))
-                PresetButtonsPanel.DrawPresets(plugin);
-            ImGui.EndChild();
-            ImGui.EndTabItem();
-        }
-
-        ImGui.EndTabBar();
+        DrawLegend();
     }
 
-    private void DrawAlignSection()
+    private void DrawHeader()
     {
-        var state = plugin.AlignService.GetAlignState();
-        var canAlign = state.hasTarget && state.inRange && state.mode == CharacterModes.Normal && !state.isWalking;
+        ImGui.SetWindowFontScale(1.3f);
+        ImGui.TextColored(PoseKitUi.Accent, "P O S E K I T");
+        ImGui.SetWindowFontScale(1f);
+        ImGui.SameLine(0, 10);
+        ImGui.TextColored(PoseKitUi.Muted, $"v{Plugin.Version}");
 
-        using (ImRaii.Disabled(!canAlign))
+        // Rescan lives on the Animations page's title row, next to the mod count it refreshes.
+        const string settingsLabel = "Settings##PoseKitHeaderSettings";
+        ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - PoseKitUi.ButtonWidth(settingsLabel));
+        if (ImGui.Button(settingsLabel))
+            plugin.ToggleConfigUi();
+
+        PoseKitUi.DrawDependencyStatus(plugin);
+        ImGui.SameLine(0, 16);
+        DrawPairingStatus();
+        ImGui.Spacing();
+    }
+
+    private void DrawPairingStatus()
+    {
+        var state = plugin.PairingState;
+        if (state.Active && state.Peer is { } peer)
+            PoseKitUi.StatusDot(PoseKitUi.Good, $"PAIRED WITH {peer.Name.ToUpperInvariant()}");
+        else if (state.PendingInvite != null)
+            PoseKitUi.StatusDot(PoseKitUi.Info, "PAIRING INVITE WAITING");
+        else if (state.OutgoingInvite != null)
+            PoseKitUi.StatusDot(PoseKitUi.Accent, "INVITE SENT");
+        else
+            PoseKitUi.StatusDot(PoseKitUi.Muted, "NOT PAIRED");
+    }
+
+    private void DrawSidebar(bool threeColumn)
+    {
+        PoseKitUi.CardTitle("Library");
+        PoseKitUi.CardTitleRule();
+
+        if (PoseKitUi.NavItem("Animations", page == Page.Animations, plugin.DiscoveredPoses.Count.ToString()))
+            page = Page.Animations;
+        if (PoseKitUi.NavItem("Presets", page == Page.Presets, plugin.PresetManager.Presets.Count.ToString()))
+            page = Page.Presets;
+        if (!threeColumn)
         {
-            if (ImGui.Button(state.isWalking ? "Aligning..." : "Align to Target"))
-                plugin.AlignService.AlignToTarget();
+            // The Pairing column is hidden at this width, so flag anything waiting on the player (an
+            // incoming couple preset or pairing invite) right on its nav row instead.
+            var needsAttention = plugin.CoupleRelayInbox.PresetName != null || plugin.PairingState.PendingInvite != null;
+            var badge = needsAttention ? "!" : plugin.PairingState.Active ? "●" : null;
+            if (PoseKitUi.NavItem("Pairing", page == Page.Pairing, badge, needsAttention ? PoseKitUi.Info : PoseKitUi.Good))
+                page = Page.Pairing;
         }
-        ImGui.SameLine();
 
-        var status = state.isWalking ? "Walking to target..."
-            : !state.hasTarget ? "No target selected."
-            : state.mode != CharacterModes.Normal ? AlignService.BlockedReason(state.mode)
-            : state.inRange ? $"Ready — target: {state.targetName} ({state.distance:F1}y)"
-            : $"Too far: {state.targetName} ({state.distance:F1}y) — stand within {AlignService.MaxAlignDistance:F0}y first.";
-        PoseKitUi.TextWrappedDisabled(status);
+        ImGui.Spacing();
+        PoseKitUi.SectionHeader("Character Tools");
+
+        if (PoseKitUi.WideButton("Resync nearby emotes"))
+            plugin.EmoteSync.Sync();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Resets all nearby rendered players together on your client.");
+
+        if (PoseKitUi.WideButton(plugin.FreeCam.Enabled ? "Disable freecam" : "Enable freecam"))
+            plugin.FreeCam.Toggle();
+        PoseKitUi.TextWrappedDisabled(plugin.FreeCam.Status);
+        if (plugin.FreeCam.Enabled)
+            PoseKitUi.TextWrappedDisabled("WASD move | E/Q up/down | right-drag look | /posekit tfc exits");
+
+        ImGui.Spacing();
+        PoseKitUi.SectionHeader("Live Offset");
+        PresetButtonsPanel.DrawOffsets(plugin);
+    }
+
+    private void DrawPage()
+    {
+        switch (page)
+        {
+            case Page.Animations:
+                PenumbraPosePanel.DrawToolbar(plugin);
+                DrawScrollRegion("##PoseKitAnimationsScroll", () => PenumbraPosePanel.Draw(plugin));
+                break;
+
+            case Page.Presets:
+                PresetButtonsPanel.DrawToolbar(plugin);
+                DrawScrollRegion("##PoseKitPresetsScroll", () => PresetButtonsPanel.DrawPresets(plugin));
+                break;
+
+            case Page.Pairing:
+                PoseKitUi.CardTitle("Pairing");
+                PoseKitUi.CardTitleRule();
+                DrawScrollRegion("##PoseKitPairingScroll", () => PairingPanel.Draw(plugin));
+                break;
+        }
+    }
+
+    private static void DrawScrollRegion(string id, Action draw)
+    {
+        if (ImGui.BeginChild(id, Vector2.Zero, false, ImGuiWindowFlags.None))
+            draw();
+        ImGui.EndChild();
+    }
+
+    private static void DrawLegend()
+    {
+        ImGui.TextColored(PoseKitUi.Muted, "What do the colors mean?");
+        ImGui.SameLine(0, 14);
+        PoseKitUi.StatusDot(PoseKitUi.Accent, "Your pick");
+        ImGui.SameLine(0, 14);
+        PoseKitUi.StatusDot(PoseKitUi.Info, "Partner's pick");
+        ImGui.SameLine(0, 14);
+        PoseKitUi.StatusDot(PoseKitUi.Good, "Both ready");
+        ImGui.SameLine(0, 14);
+        PoseKitUi.StatusDot(PoseKitUi.Bad, "Conflict");
     }
 }

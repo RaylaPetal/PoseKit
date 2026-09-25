@@ -35,6 +35,7 @@ public class WelcomeWindow : Window, IDisposable
 
     public override void Draw()
     {
+        PoseKitUi.PaintWindowBackground();
         using var theme = PoseKitUi.PushTheme();
 
         ImGui.TextWrapped("PoseKit offsets, saves, and replays poses, auto-discovers Penumbra animation " +
@@ -47,8 +48,8 @@ public class WelcomeWindow : Window, IDisposable
 
         PoseKitUi.SectionHeader("Quick Start");
         ImGui.TextWrapped("1. Set a folder filter below, then pick which mods to scan in Settings.");
-        ImGui.TextWrapped("2. Open the Animations tab and hit Play on any pose.");
-        ImGui.TextWrapped("3. Use the Offsets tab to drag your character into position, then save it as a named preset.");
+        ImGui.TextWrapped("2. Open Animations in the sidebar and hit Play on any pose.");
+        ImGui.TextWrapped("3. Use Live Offset to drag your character into position, then save it as a named preset under Presets.");
 
         PoseKitUi.SectionHeader("Animation Mod Folder Filter");
         var folderFilter = configuration.PenumbraFolderFilter;
