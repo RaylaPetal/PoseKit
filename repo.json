@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "1.0.0.9",
+    "AssemblyVersion": "1.0.0.10",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0.9/PoseKit-1.0.0.9.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0.9/PoseKit-1.0.0.9.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0.10/PoseKit-1.0.0.10.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v1.0.0.10/PoseKit-1.0.0.10.zip",
     "Changelog": "- New look: the main window is now a dashboard. A Library sidebar (Animations, Presets), Character Tools (resync emotes, freecam) and the Live Offset editor sit on the left, the selected page in the middle, and Pairing on the right, with a color legend at the bottom. On a narrow window, Pairing moves into the sidebar.\n- Presets: search by name, pose, anchor (zone, furniture or partner) or animation, and filter by type (Solo/Couple) and anchor. Presets are grouped by pose with counts, shown as compact rows with tags, and the save form is now a collapsible section.\n- Animation conflicts are now a red \"Conflict: keep this\" button. Clicking it turns off the other mod(s) claiming the same pose, including enabled mods not listed in PoseKit, so the one you clicked plays.\n- Removed Align to Target, auto-align and /posekit align. Couple presets saved with \"include partner\" already position you around your partner anywhere, so walking into place first is no longer needed. Couple presets now prompt your partner immediately when clicked.\n- Rescan now sits next to the mod count on the Animations page. Bigger Play, Delete, Rescan and conflict buttons, and the window shows a single resize grip.",
-    "LastUpdate": "1790362129"
+    "LastUpdate": "1790378607"
   }
 ]
