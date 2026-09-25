@@ -28,6 +28,7 @@ public sealed class PenumbraIpc
     private readonly GetModDirectory getModDirectory = new(Plugin.PluginInterface);
     private readonly GetCollectionForObject getCollectionForObject = new(Plugin.PluginInterface);
     private readonly GetCurrentModSettings getCurrentModSettings = new(Plugin.PluginInterface);
+    private readonly GetAllModSettings getAllModSettings = new(Plugin.PluginInterface);
     private readonly SetTemporaryModSettings setTemporaryModSettings = new(Plugin.PluginInterface);
     private readonly RemoveTemporaryModSettings removeTemporaryModSettings = new(Plugin.PluginInterface);
     private readonly RedrawObject redrawObject = new(Plugin.PluginInterface);
@@ -90,31 +91,60 @@ public sealed class PenumbraIpc
         catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCollectionForObject IPC call failed: {ex}"); return null; }
     }
 
-    /// Whether the mod is enabled in this collection, and its current per-group option selections
-    /// (group name -> selected option names). Reflects the *effective* settings, including any
-    /// temporary override already active — permanent or temporary, this is the read side either way.
-    public (bool Enabled, Dictionary<string, List<string>>? Selections) TryGetCurrentSettings(Guid collectionId, string modDirectory)
+    /// Whether the mod is enabled in this collection, its current priority, and its current per-group
+    /// option selections (group name -> selected option names). Reflects the *effective* settings,
+    /// including any temporary override already active — permanent or temporary, this is the read side
+    /// either way. Priority must be round-tripped into any later TrySetTemporarySettings call for this
+    /// mod — Penumbra's temporary-settings API takes priority as a required explicit value with no
+    /// "leave it alone" sentinel, so passing anything other than what's read here silently overwrites
+    /// whatever priority the user configured in Penumbra.
+    public (bool Enabled, int Priority, Dictionary<string, List<string>>? Selections) TryGetCurrentSettings(Guid collectionId, string modDirectory)
     {
         try
         {
             var (_, settings) = getCurrentModSettings.Invoke(collectionId, modDirectory);
-            if (settings is not { } s) return (false, null);
-            var (enabled, _, selections, _) = s;
-            return (enabled, selections);
+            if (settings is not { } s) return (false, 0, null);
+            var (enabled, priority, selections, _) = s;
+            return (enabled, priority, selections);
         }
-        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCurrentModSettings IPC call failed for {modDirectory}: {ex}"); return (false, null); }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCurrentModSettings IPC call failed for {modDirectory}: {ex}"); return (false, 0, null); }
+    }
+
+    /// Every mod's current effective (enabled, priority, selections) in one IPC call — used for the
+    /// broader, all-installed-mods conflict scan (PenumbraPoseScanner.ScanExternalConflicts), where a
+    /// per-mod GetCurrentModSettings call would mean one IPC round-trip per installed mod on a large
+    /// modlist. Null on IPC failure; a mod simply absent from the result (rather than null) means
+    /// Penumbra has no settings entry for it (never configured, so effectively default/disabled).
+    public Dictionary<string, (bool Enabled, int Priority, Dictionary<string, List<string>> Selections)>? TryGetAllSettings(Guid collectionId)
+    {
+        try
+        {
+            var (_, all) = getAllModSettings.Invoke(collectionId);
+            if (all == null) return null;
+
+            var result = new Dictionary<string, (bool, int, Dictionary<string, List<string>>)>();
+            foreach (var (modDirectory, settings) in all)
+            {
+                var (enabled, priority, selections, _, _) = settings;
+                result[modDirectory] = (enabled, priority, selections);
+            }
+            return result;
+        }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetAllModSettings IPC call failed: {ex}"); return null; }
     }
 
     /// Replaces this mod's *entire* set of group selections with a temporary override (Penumbra's
     /// temporary-settings API is all-or-nothing per mod, not per-group) — callers must pass every
-    /// group's selection, not just the one that changed.
-    public bool TrySetTemporarySettings(Guid collectionId, string modDirectory, bool enabled,
+    /// group's selection, not just the one that changed. <paramref name="priority"/> must be the mod's
+    /// own current priority (from TryGetCurrentSettings), not an arbitrary value — see that method's
+    /// doc for why.
+    public bool TrySetTemporarySettings(Guid collectionId, string modDirectory, bool enabled, int priority,
         IReadOnlyDictionary<string, IReadOnlyList<string>> allGroupSelections)
     {
         try
         {
             var ec = setTemporaryModSettings.Invoke(collectionId, modDirectory, inherit: false, enabled: enabled,
-                priority: 0, settings: allGroupSelections, source: Source);
+                priority: priority, settings: allGroupSelections, source: Source);
             if (ec == PenumbraApiEc.Success) touchedModDirectories.Add(modDirectory);
             return ec == PenumbraApiEc.Success;
         }

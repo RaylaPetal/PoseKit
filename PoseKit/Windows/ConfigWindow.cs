@@ -233,7 +233,7 @@ public class ConfigWindow : Window, IDisposable
                     folders.Add(string.Join('/', segments[..i]));
             }
 
-            var (enabled, _) = plugin.PenumbraIpc.TryGetCurrentSettings(cid, directory);
+            var (enabled, _, _) = plugin.PenumbraIpc.TryGetCurrentSettings(cid, directory);
             mods.Add((directory, name, sortPath, enabled));
         }
 

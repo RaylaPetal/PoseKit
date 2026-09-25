@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Interface.Utility.Raii;
 using PoseKit.Furniture;
 using PoseKit.Presets;
@@ -55,7 +57,7 @@ public static class PresetButtonsPanel
             }
 
             if (changed)
-                plugin.PoseTrigger.ApplyOffset(offset);
+                plugin.PoseTrigger.ApplyManualOffset(offset);
         }
 
         // Always available, regardless of current pose — this is the manual escape hatch for a
@@ -71,7 +73,15 @@ public static class PresetButtonsPanel
         {
             ImGui.SameLine();
             if (ImGui.Button("Update preset##PoseKitUpdatePreset"))
-                plugin.PresetManager.Update(loaded, plugin.OffsetEngine.DesiredOffset);
+            {
+                // A partner-anchored preset's live offset has the partner correction folded in —
+                // saving that back would double-apply it on the next replay, so save the tracked base
+                // (the preset's own offset plus any manual nudge) instead. See partner-anchor's spec.
+                var offset = loaded.Anchor?.Partner != null && plugin.PoseTrigger.TryGetTrackedBaseOffset(out var trackedBase)
+                    ? trackedBase
+                    : plugin.OffsetEngine.DesiredOffset;
+                plugin.PresetManager.Update(loaded, offset);
+            }
         }
     }
 
@@ -85,13 +95,18 @@ public static class PresetButtonsPanel
         if (currentPose is { } pose)
         {
             var localPlayer = Plugin.ObjectTable.LocalPlayer;
-            var nearbyFurniture = anchorMode == AnchorMode.Furniture ? furnitureScanner.ScanNearby(localPlayer) : null;
+            // A couple save is positioned relative to the partner instead of a spot/furniture — the
+            // partner is the root on replay, see PartnerAnchor — so the spot/furniture choice doesn't
+            // apply to it at all (and isn't offered below).
+            var savingCouple = includePartner && plugin.PairingState.Active;
+            var effectiveAnchorMode = savingCouple ? AnchorMode.None : anchorMode;
+            var nearbyFurniture = effectiveAnchorMode == AnchorMode.Furniture ? furnitureScanner.ScanNearby(localPlayer) : null;
 
             ImGui.SetNextItemWidth(150);
             ImGui.InputTextWithHint("##PoseKitPresetName", "Preset name", ref newPresetName, 64);
             ImGui.SameLine();
 
-            var furnitureValid = anchorMode != AnchorMode.Furniture ||
+            var furnitureValid = effectiveAnchorMode != AnchorMode.Furniture ||
                                   (nearbyFurniture is { Count: > 0 } && selectedFurnitureIndex >= 0 && selectedFurnitureIndex < nearbyFurniture.Count);
             // Being in a pose (currentPose above) is already the real precondition for "there's
             // something to save" — gating on HasAppliedOffset too meant a legitimate all-zero offset
@@ -104,7 +119,7 @@ public static class PresetButtonsPanel
             {
                 if (ImGui.Button("Save as preset##PoseKitSavePreset"))
                 {
-                    PresetAnchor? anchor = anchorMode switch
+                    PresetAnchor? anchor = effectiveAnchorMode switch
                     {
                         AnchorMode.Spot when localPlayer != null =>
                             PresetAnchor.FromSpot(LocationAnchor.Capture(localPlayer, Plugin.ClientState.TerritoryType)),
@@ -114,8 +129,24 @@ public static class PresetButtonsPanel
                     };
 
                     var name = newPresetName.Trim();
-                    if (includePartner && plugin.PairingState.Active)
+                    if (savingCouple)
                     {
+                        // Captured here, at click time, from both characters' actual transforms — the
+                        // same instant this side's own offset is captured — rather than when the
+                        // partner's reply arrives. No anchor hint goes to the partner (anchor stays
+                        // partner-kind, which the capture request encodes as "none"), so their half
+                        // is stored unanchored: they're the root.
+                        if (plugin.PairingState.Peer is { } peer && localPlayer != null &&
+                            PartnerAnchor.TryFindLive(peer) is { } partnerCharacter)
+                        {
+                            anchor = PresetAnchor.FromPartner(PartnerAnchor.Capture(localPlayer, partnerCharacter, peer));
+                        }
+                        else
+                        {
+                            Plugin.ChatGui.PrintError("[PoseKit] Couldn't find your partner nearby — saved without positioning " +
+                                                      "this preset relative to them.");
+                        }
+
                         // Asynchronous: captures the partner's own current state over a /tell
                         // request/reply and completes the save once it arrives (or times out) — see
                         // CouplePresetCaptureService. LoadedPreset is picked up via its Saved event
@@ -137,57 +168,19 @@ public static class PresetButtonsPanel
             if (plugin.PairingState.Active)
             {
                 ImGui.Checkbox("Include partner##PoseKitIncludePartner", ref includePartner);
-                PoseKitUi.TextWrappedDisabled("Captures your partner's current pose/offset/anchor/mod too, saved only in " +
-                                               "your own library. Playing it later relays their half to them for accept/deny.");
+                PoseKitUi.TextWrappedDisabled("Captures your partner's current pose/offset/mod too, saved only in your own " +
+                                               "library, and remembers where you're standing relative to them. Playing it " +
+                                               "later relays their half to them for accept/deny: they stay put, and you're " +
+                                               "positioned around them wherever you both are.");
             }
 
-            var mode = (int)anchorMode;
-            ImGui.RadioButton("No anchor##PoseKitAnchorNone", ref mode, (int)AnchorMode.None);
-            ImGui.SameLine();
-            ImGui.RadioButton("Anchor to current spot##PoseKitAnchorSpot", ref mode, (int)AnchorMode.Spot);
-            ImGui.SameLine();
-            ImGui.RadioButton("Anchor to furniture##PoseKitAnchorFurniture", ref mode, (int)AnchorMode.Furniture);
-            anchorMode = (AnchorMode)mode;
-
-            if (anchorMode == AnchorMode.Spot)
+            if (savingCouple)
             {
-                PoseKitUi.TextWrappedDisabled("Corrects the offset on replay so the character lands back in this exact " +
-                                               "world spot and facing, not just the same pose relative to wherever you are then.");
+                var partnerName = plugin.PairingState.Peer?.Name ?? "your partner";
+                PoseKitUi.TextWrappedDisabled($"Positioned relative to {partnerName}.");
             }
-            else if (anchorMode == AnchorMode.Furniture)
-            {
-                if (nearbyFurniture is { Count: > 0 } unsorted && localPlayer != null)
-                {
-                    // Nearest first — ScanNearby already limits to nearby items, this just orders
-                    // them by distance so the closest (most likely "the one you're on") sorts to the
-                    // top of the dropdown instead of object-array order.
-                    var list = unsorted.OrderBy(f => Vector3.Distance(f.Position, localPlayer.Position)).ToList();
-                    if (selectedFurnitureIndex < 0 || selectedFurnitureIndex >= list.Count) selectedFurnitureIndex = 0;
-
-                    string LabelFor(NearbyFurniture f) => $"{f.Name} ({Vector3.Distance(f.Position, localPlayer.Position):0.0}y)";
-
-                    ImGui.SetNextItemWidth(220);
-                    var preview = LabelFor(list[selectedFurnitureIndex]);
-                    if (ImGui.BeginCombo("##PoseKitFurniturePicker", preview))
-                    {
-                        for (var i = 0; i < list.Count; i++)
-                        {
-                            var isSelected = i == selectedFurnitureIndex;
-                            if (ImGui.Selectable($"{LabelFor(list[i])}##PoseKitFurniture{i}", isSelected))
-                                selectedFurnitureIndex = i;
-                        }
-                        ImGui.EndCombo();
-                    }
-                    PoseKitUi.TextWrappedDisabled("Corrects the offset on replay against this furniture item's current " +
-                                                   "position, so it still lands right even in a differently laid-out room.");
-                }
-                else
-                {
-                    PoseKitUi.TextWrappedDisabled("No furniture nearby to anchor to.");
-                    if (furnitureScanner.LastDiagnostic is { } diagnostic)
-                        PoseKitUi.TextWrappedDisabled($"Debug: {diagnostic}");
-                }
-            }
+            else
+                DrawAnchorChoice(localPlayer, nearbyFurniture);
         }
 
         PoseKitUi.SectionHeader("Preset Library");
@@ -212,6 +205,59 @@ public static class PresetButtonsPanel
         }
     }
 
+    /// The solo save's spot/furniture anchor picker — not shown for a couple save, which is always
+    /// positioned relative to the partner instead (see DrawPresets).
+    private static void DrawAnchorChoice(IPlayerCharacter? localPlayer, List<NearbyFurniture>? nearbyFurniture)
+    {
+        var mode = (int)anchorMode;
+        ImGui.RadioButton("No anchor##PoseKitAnchorNone", ref mode, (int)AnchorMode.None);
+        ImGui.SameLine();
+        ImGui.RadioButton("Anchor to current spot##PoseKitAnchorSpot", ref mode, (int)AnchorMode.Spot);
+        ImGui.SameLine();
+        ImGui.RadioButton("Anchor to furniture##PoseKitAnchorFurniture", ref mode, (int)AnchorMode.Furniture);
+        anchorMode = (AnchorMode)mode;
+
+        if (anchorMode == AnchorMode.Spot)
+        {
+            PoseKitUi.TextWrappedDisabled("Corrects the offset on replay so the character lands back in this exact " +
+                                           "world spot and facing, not just the same pose relative to wherever you are then.");
+        }
+        else if (anchorMode == AnchorMode.Furniture)
+        {
+            if (nearbyFurniture is { Count: > 0 } unsorted && localPlayer != null)
+            {
+                // Nearest first — ScanNearby already limits to nearby items, this just orders
+                // them by distance so the closest (most likely "the one you're on") sorts to the
+                // top of the dropdown instead of object-array order.
+                var list = unsorted.OrderBy(f => Vector3.Distance(f.Position, localPlayer.Position)).ToList();
+                if (selectedFurnitureIndex < 0 || selectedFurnitureIndex >= list.Count) selectedFurnitureIndex = 0;
+
+                string LabelFor(NearbyFurniture f) => $"{f.Name} ({Vector3.Distance(f.Position, localPlayer.Position):0.0}y)";
+
+                ImGui.SetNextItemWidth(220);
+                var preview = LabelFor(list[selectedFurnitureIndex]);
+                if (ImGui.BeginCombo("##PoseKitFurniturePicker", preview))
+                {
+                    for (var i = 0; i < list.Count; i++)
+                    {
+                        var isSelected = i == selectedFurnitureIndex;
+                        if (ImGui.Selectable($"{LabelFor(list[i])}##PoseKitFurniture{i}", isSelected))
+                            selectedFurnitureIndex = i;
+                    }
+                    ImGui.EndCombo();
+                }
+                PoseKitUi.TextWrappedDisabled("Corrects the offset on replay against this furniture item's current " +
+                                               "position, so it still lands right even in a differently laid-out room.");
+            }
+            else
+            {
+                PoseKitUi.TextWrappedDisabled("No furniture nearby to anchor to.");
+                if (furnitureScanner.LastDiagnostic is { } diagnostic)
+                    PoseKitUi.TextWrappedDisabled($"Debug: {diagnostic}");
+            }
+        }
+    }
+
     /// Public so PairingPanel can offer the exact same clickable entry (click dispatch, pick
     /// highlighting, anchor/animation info) for whatever a paired partner just picked, without the
     /// user having to scroll down to find it in the Preset Library themselves.
@@ -219,6 +265,7 @@ public static class PresetButtonsPanel
     {
         var anchorSuffix = namedPose.Anchor?.Spot != null ? " (anchored)"
             : namedPose.Anchor?.Furniture is { } furnitureAnchor ? $" (anchored: {furnitureAnchor.FurnitureName})"
+            : namedPose.Anchor?.Partner is { } partnerAnchor ? $" (anchored: {partnerAnchor.Partner.Name})"
             : "";
         var coupleSuffix = namedPose.PartnerHalf != null ? " (couple)" : "";
         var label = $"{namedPose.Name}{anchorSuffix}{coupleSuffix}";

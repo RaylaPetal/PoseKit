@@ -131,7 +131,7 @@ public static class PenumbraPosePanel
             ImGui.TextUnformatted(group.Name);
             foreach (var option in group.Options)
             {
-                if (DescribeConflict(activePoses, mod, option) is { } conflict)
+                if (DescribeConflict(plugin, activePoses, mod, option) is { } conflict)
                     PoseKitUi.DrawConflictMarker(conflict);
                 DrawOptionPickMarker(plugin, mod, option);
                 DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitDefaultPlay");
@@ -169,7 +169,7 @@ public static class PenumbraPosePanel
                         ApplyGroupChange(plugin, mod, group, newSelection, cid);
                     }
 
-                    if (isChecked && DescribeConflict(activePoses, mod, option) is { } conflict)
+                    if (isChecked && DescribeConflict(plugin, activePoses, mod, option) is { } conflict)
                         PoseKitUi.DrawConflictMarker(conflict);
                     DrawOptionPickMarker(plugin, mod, option);
 
@@ -210,7 +210,7 @@ public static class PenumbraPosePanel
                 ImGui.EndCombo();
             }
 
-            if (selectedOption != null && DescribeConflict(activePoses, mod, selectedOption) is { } comboConflict)
+            if (selectedOption != null && DescribeConflict(plugin, activePoses, mod, selectedOption) is { } comboConflict)
                 PoseKitUi.DrawConflictMarker(comboConflict);
             if (selectedOption != null)
                 DrawOptionPickMarker(plugin, mod, selectedOption);
@@ -315,19 +315,30 @@ public static class PenumbraPosePanel
     }
 
     /// Null unless this option is currently one of two-or-more selected options claiming the same
-    /// gesture — reports the first such collision found, naming the other claimant.
-    private static string? DescribeConflict(
+    /// gesture — reports the first such collision found, naming the other claimant. Checks both
+    /// PoseKit-tracked mods (activePoses, built from DiscoveredPoses) and every other enabled mod in
+    /// Penumbra that was never added to PoseKit at all (plugin.ExternalPoseClaims) — see
+    /// PenumbraPoseScanner.ScanExternalConflicts for why the latter exists.
+    private static string? DescribeConflict(Plugin plugin,
         Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> activePoses,
         PoseModInfo mod, PoseModOption option)
     {
         foreach (var trigger in option.Triggers)
         {
             if (trigger.PoseIdentifier is not { } pid) continue;
-            if (!activePoses.TryGetValue(pid, out var claimants) || claimants.Count <= 1) continue;
 
-            var other = claimants.FirstOrDefault(c => c.Option != option);
-            if (other.Option != null)
-                return $"Also currently selected: \"{other.Option.Name}\" ({other.Mod.ModName}) — both claim {pid.DisplayName}. Only one will actually play.";
+            if (activePoses.TryGetValue(pid, out var claimants) && claimants.Count > 1)
+            {
+                var other = claimants.FirstOrDefault(c => c.Option != option);
+                if (other.Option != null)
+                    return $"Also currently selected: \"{other.Option.Name}\" ({other.Mod.ModName}) — both claim {pid.DisplayName}. Only one will actually play.";
+            }
+
+            if (plugin.ExternalPoseClaims.TryGetValue(pid, out var external) && external.Count > 0)
+            {
+                var claim = external[0];
+                return $"Also currently active: \"{claim.Label}\" ({claim.ModName}) — not in your Animations tab, but both claim {pid.DisplayName}. Only one will actually play.";
+            }
         }
 
         return null;
@@ -381,7 +392,7 @@ public static class PenumbraPosePanel
             allSelections[g.Name] = g == changedGroup ? [.. newSelection] : [.. g.Selected];
         }
 
-        if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, true, allSelections))
+        if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, true, mod.Priority, allSelections))
             return false;
 
         changedGroup.Selected = newSelection;
@@ -414,7 +425,7 @@ public static class PenumbraPosePanel
             allSelections[g.Name] = [.. g.Selected];
         }
 
-        if (!plugin.PenumbraIpc.TrySetTemporarySettings(cid, mod.ModDirectory, enabled, allSelections))
+        if (!plugin.PenumbraIpc.TrySetTemporarySettings(cid, mod.ModDirectory, enabled, mod.Priority, allSelections))
             return;
 
         mod.Enabled = enabled;

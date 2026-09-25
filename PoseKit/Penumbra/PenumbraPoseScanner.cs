@@ -32,6 +32,12 @@ public sealed class PoseModInfo
     public required string ModDirectory { get; init; }
     public required string ModName { get; init; }
     public bool Enabled { get; set; }
+
+    /// The mod's own current priority in Penumbra (permanent, or temporary if PoseKit already applied
+    /// one this session) — must be passed back into every TrySetTemporarySettings call for this mod, or
+    /// Penumbra resets it to whatever's passed. See PenumbraIpc.TryGetCurrentSettings.
+    public int Priority { get; set; }
+
     public required List<PoseModGroup> Groups { get; init; }
 }
 
@@ -69,6 +75,11 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
     private sealed record OptionFileDto(string Name, Dictionary<string, string>? Files);
 
     public readonly record struct ModGroupInfo(string GroupName, List<string> OptionNames);
+
+    /// A claimant of a specific pose gesture from a mod that ISN'T in Configuration.SelectedPenumbraMods
+    /// — i.e. one PoseKit never scanned into DiscoveredPoses/the Animations tab UI at all — surfaced only
+    /// so the conflict marker can warn about a collision against it too. See ScanExternalConflicts.
+    public readonly record struct ExternalPoseClaim(string ModDirectory, string ModName, string Label);
 
     /// Reads one specific mod's meta.json directly and returns every real group/option name pair it
     /// defines — independent of Configuration.SelectedPenumbraMods, unlike Scan(), since this is used
@@ -118,7 +129,7 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
 
             // Disabled mods are scanned too (not skipped) — PoseKit.PlayTrigger enables one temporarily
             // through Penumbra the moment it's played, so users don't have to flip it on there first.
-            var (modEnabled, currentSelections) = ipc.TryGetCurrentSettings(cid, modDirectory);
+            var (modEnabled, modPriority, currentSelections) = ipc.TryGetCurrentSettings(cid, modDirectory);
 
             var modPath = Path.Combine(modRoot, modDirectory);
             if (!Directory.Exists(modPath))
@@ -206,10 +217,81 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 ModDirectory = modDirectory,
                 ModName = modName,
                 Enabled = modEnabled,
+                Priority = modPriority,
                 Groups = groups,
             });
         }
 
         return results;
+    }
+
+    /// A shallow, all-installed-mods pass used only to widen the conflict marker beyond
+    /// Configuration.SelectedPenumbraMods — Scan() above only looks at mods the user explicitly opted
+    /// into browsing, so a conflicting redirect from any other enabled mod (never added to PoseKit at
+    /// all) previously went completely undetected. Unlike Scan(), this only inspects each mod's
+    /// currently-*selected* option(s) (one GetAllModSettings call up front tells us which, for every
+    /// mod at once, rather than one GetCurrentModSettings round-trip per mod) — it never builds full
+    /// group/option/trigger trees for browsing, since nothing here is ever shown as a clickable button.
+    /// Mods already in SelectedPenumbraMods are skipped — Scan()'s own results already cover them.
+    public Dictionary<PoseIdentifier, List<ExternalPoseClaim>> ScanExternalConflicts()
+    {
+        var claims = new Dictionary<PoseIdentifier, List<ExternalPoseClaim>>();
+
+        var modList = ipc.TryGetModList();
+        var modRoot = ipc.TryGetModDirectory();
+        var collectionId = ipc.TryGetLocalPlayerCollectionId();
+        if (modList == null || modRoot == null || collectionId is not { } cid) return claims;
+
+        var allSettings = ipc.TryGetAllSettings(cid);
+        if (allSettings == null) return claims;
+
+        void RecordClaim(string modDirectory, string modName, string groupName, string optionName, IEnumerable<string> fileKeys)
+        {
+            var label = groupName.Length > 0 && !string.Equals(groupName, optionName, StringComparison.Ordinal)
+                ? $"{groupName}: {optionName}" : optionName;
+            foreach (var trigger in PoseNameHeuristics.Detect(groupName, optionName, fileKeys))
+            {
+                if (trigger.PoseIdentifier is not { } pid) continue;
+                if (!claims.TryGetValue(pid, out var list))
+                    claims[pid] = list = [];
+                list.Add(new ExternalPoseClaim(modDirectory, modName, label));
+            }
+        }
+
+        foreach (var (modDirectory, modName) in modList)
+        {
+            if (configuration.SelectedPenumbraMods.Contains(modDirectory)) continue;
+            if (!allSettings.TryGetValue(modDirectory, out var settings) || !settings.Enabled) continue;
+
+            var metaPath = Path.Combine(modRoot, modDirectory, "meta.json");
+            if (!File.Exists(metaPath)) continue;
+
+            ModMetaDto? meta;
+            try { meta = JsonSerializer.Deserialize<ModMetaDto>(File.ReadAllText(metaPath), JsonOptions); }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warning(ex, $"[PoseKit] ScanExternalConflicts: failed to parse {metaPath}, skipping.");
+                continue;
+            }
+
+            var defaultFileKeys = (meta?.DefaultData?.Files?.Keys ?? Enumerable.Empty<string>())
+                .Where(key => key.StartsWith("chara/", StringComparison.OrdinalIgnoreCase));
+            RecordClaim(modDirectory, modName, modName, modName, defaultFileKeys);
+
+            foreach (var dto in meta?.Groups ?? [])
+            {
+                if (dto.Options == null) continue;
+                if (!settings.Selections.TryGetValue(dto.Name, out var selectedOptions)) continue;
+
+                foreach (var opt in dto.Options)
+                {
+                    if (!selectedOptions.Contains(opt.Name)) continue;
+                    var fileKeys = (IEnumerable<string>?)opt.Files?.Keys ?? Array.Empty<string>();
+                    RecordClaim(modDirectory, modName, dto.Name, opt.Name, fileKeys);
+                }
+            }
+        }
+
+        return claims;
     }
 }

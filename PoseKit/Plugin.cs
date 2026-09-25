@@ -58,6 +58,11 @@ public sealed class Plugin : IDalamudPlugin
     public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
     public List<PoseModInfo> DiscoveredPoses { get; private set; } = new();
 
+    /// Conflict-only data for mods outside Configuration.SelectedPenumbraMods — see
+    /// PenumbraPoseScanner.ScanExternalConflicts. Never used for anything but the conflict marker;
+    /// these mods have no UI representation of their own in the Animations tab.
+    public Dictionary<PoseIdentifier, List<PenumbraPoseScanner.ExternalPoseClaim>> ExternalPoseClaims { get; private set; } = new();
+
     public PairingState PairingState { get; init; }
     public PairingListener PairingListener { get; init; }
     public CoupleQueueService CoupleQueueService { get; init; }
@@ -303,6 +308,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         PenumbraIpc.ResetAllTemporarySettings();
         DiscoveredPoses = PenumbraPoseScanner.Scan();
+        ExternalPoseClaims = PenumbraPoseScanner.ScanExternalConflicts();
     }
 
     /// Replays a saved preset: if it's linked to a Penumbra mod, re-applies that mod's group
@@ -363,7 +369,11 @@ public sealed class Plugin : IDalamudPlugin
         if (link.GroupName.StartsWith('#') && ResolveGroupOption(modDirectory, link.GroupName, link.OptionName) is { } resolved)
             selections[resolved.GroupName] = [resolved.OptionName];
 
-        if (!PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, selections)) return false;
+        // Preserve whatever priority the user already has set for this mod in Penumbra — the temporary-
+        // settings API takes priority as a required value with no "leave it alone" option, so it has to
+        // be read back and passed through explicitly or it gets silently reset to whatever's passed.
+        var (_, priority, _) = PenumbraIpc.TryGetCurrentSettings(collectionId, modDirectory);
+        if (!PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, priority, selections)) return false;
 
         PenumbraIpc.TryRedrawLocalPlayer();
         return true;

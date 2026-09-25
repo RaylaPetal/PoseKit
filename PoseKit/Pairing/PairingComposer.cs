@@ -50,7 +50,9 @@ public static class PairingComposer
     /// this side's; the request just hints which kind of anchor to capture and, for furniture, which
     /// physical item (so both sides anchor to the same piece of furniture). See
     /// couple-preset-relay's spec — the reply (ComposeCoupleCaptureReply) carries the actual captured
-    /// state back.
+    /// state back. A partner-kind anchor (PresetAnchor.Partner) deliberately encodes as kind 0: the
+    /// partner is the root of a partner-anchored couple preset, so its own half is captured unanchored
+    /// — see partner-anchor's spec.
     public static string ComposeCoupleCaptureRequest(PartnerIdentity target, string requestId, PresetAnchor? anchorHint)
     {
         var anchorKind = anchorHint?.Spot != null ? 1 : anchorHint?.Furniture != null ? 2 : 0;
