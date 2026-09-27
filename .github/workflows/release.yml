@@ -99,7 +99,10 @@ jobs:
           if ($isTesting) {
             # Only players who opted into PoseKit testing builds see these; the official version,
             # download links and changelog stay exactly as they were.
+            # TestingDalamudApiLevel is required: Dalamud only offers a testing version whose API
+            # level matches its own, and treats one without it as incompatible (hidden).
             $entry | Add-Member -NotePropertyName TestingAssemblyVersion -NotePropertyValue $version -Force
+            $entry | Add-Member -NotePropertyName TestingDalamudApiLevel -NotePropertyValue $entry.DalamudApiLevel -Force
             $entry | Add-Member -NotePropertyName DownloadLinkTesting -NotePropertyValue $downloadUrl -Force
           } else {
             $entry.AssemblyVersion = $version
