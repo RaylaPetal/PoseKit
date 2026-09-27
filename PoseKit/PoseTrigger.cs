@@ -29,6 +29,18 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// whenever the currently-applied offset (if any) isn't partner-anchored.
     private PartnerTracking? partnerTracking;
 
+    /// The bone-align correction (see SetBoneCorrection), always the outermost layer of the applied
+    /// offset: base + partner-anchor correction + this. Zero whenever nothing has been aligned.
+    private PoseOffset boneCorrection = PoseOffset.Zero;
+
+    /// The bone-align correction currently applied — BoneAlignService adds a fresh measurement to it,
+    /// since bones are measured on the drawn model, which already includes it.
+    public PoseOffset BoneCorrection => boneCorrection;
+
+    /// Bumped whenever the applied offset is reset — a new trigger or ClearOffset — so a Bone Align
+    /// sampling in progress can tell its measurements no longer apply and cancel.
+    public int OffsetGeneration { get; private set; }
+
     /// True whenever an offset is currently applied through *either* path (OffsetEngine's own hook or
     /// the SimpleHeels bridge) — OffsetEngine.Active alone isn't enough to tell, since bridging
     /// deliberately leaves it false to avoid double-applying the offset.
@@ -47,6 +59,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     private void TriggerNow(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent)
     {
         partnerTracking = null;
+        boneCorrection = PoseOffset.Zero;
+        OffsetGeneration++;
         switch (pose.EmoteModeId)
         {
             case 1: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.GroundSit, "/groundsit"); break;
@@ -94,24 +108,34 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     public void ApplyManualOffset(PoseOffset edited)
     {
         if (partnerTracking is { } tracking)
-        {
-            tracking.BaseOffset = new PoseOffset
-            {
-                Position = edited.Position - tracking.LastCorrection.Position,
-                Rotation = edited.Rotation - tracking.LastCorrection.Rotation,
-            };
-        }
+            tracking.BaseOffset = Subtract(Subtract(edited, tracking.LastCorrection), boneCorrection);
         ApplyOffset(edited);
     }
 
-    /// The offset a partner-anchored preset should be saved back as by "Update preset" — the tracked
-    /// base, without the live partner correction folded in (so replaying it doesn't double-apply the
-    /// correction). False when no partner-anchored offset is being tracked.
-    public bool TryGetTrackedBaseOffset(out PoseOffset baseOffset)
+    /// Replaces the bone-align correction layered on top of everything else (see BoneAlignService) and
+    /// re-applies — replacing rather than stacking, so pressing Align twice doesn't double it. Kept
+    /// separate so partner-anchor tracking and live edits don't erase it, and so saving never
+    /// includes it. Cleared by ClearOffset and any new trigger.
+    public void SetBoneCorrection(PoseOffset correction)
     {
-        baseOffset = partnerTracking?.BaseOffset ?? PoseOffset.Zero;
-        return partnerTracking != null;
+        var withoutOld = Subtract(offsetEngine.DesiredOffset, boneCorrection);
+        boneCorrection = correction;
+        ApplyOffset(ComposeOffset(withoutOld, correction));
     }
+
+    /// While true, partner-anchor tracking doesn't re-apply — BoneAlignService sets it for its short
+    /// sampling window so every sampled gap is measured against the same applied offset.
+    public bool PartnerTrackingPaused { get; set; }
+
+    /// The offset a brand-new preset should store: what's applied, minus the bone-align correction
+    /// (body-specific, redone with one click). The partner-anchor correction stays in — a new partner
+    /// anchor is captured from actual positions, so the rendered placement needs it to reproduce.
+    public PoseOffset GetOffsetForNewPreset() => Subtract(offsetEngine.DesiredOffset, boneCorrection);
+
+    /// The offset "Update preset" should store back into the loaded preset: additionally without the
+    /// partner-anchor correction, which that preset's anchor recomputes on every replay.
+    public PoseOffset GetOffsetForUpdate() =>
+        partnerTracking is { } tracking ? Subtract(GetOffsetForNewPreset(), tracking.LastCorrection) : GetOffsetForNewPreset();
 
     /// Clears whichever path is currently applying the offset. Safe to call unconditionally — both
     /// OffsetEngine.Reset and SimpleHeelsBridge.Clear are no-ops if nothing was applied.
@@ -121,6 +145,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         simpleHeelsBridge.Clear();
         HasAppliedOffset = false;
         partnerTracking = null;
+        boneCorrection = PoseOffset.Zero;
+        OffsetGeneration++;
     }
 
     /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
@@ -130,6 +156,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     {
         cyclingTarget = null;
         partnerTracking = null;
+        boneCorrection = PoseOffset.Zero;
+        OffsetGeneration++;
         ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
@@ -324,7 +352,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// offset in place until they're back (or tracking ends).
     private void TickPartnerTracking()
     {
-        if (partnerTracking is not { } tracking) return;
+        if (partnerTracking is not { } tracking || PartnerTrackingPaused) return;
 
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         if (localPlayer == null) return;
@@ -342,7 +370,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         if (bridging && Environment.TickCount64 - tracking.LastApplyTick < BridgeReapplyIntervalMs) return;
 
         RecomputePartnerCorrection(tracking, localPlayer, partner);
-        var offset = ComposeOffset(tracking.BaseOffset, tracking.LastCorrection);
+        var offset = ComposeOffset(ComposeOffset(tracking.BaseOffset, tracking.LastCorrection), boneCorrection);
 
         // Crossing the thresholds doesn't always change the result (e.g. still out of range, so the
         // plain base offset stays applied) — skip the re-apply rather than re-issuing an identical one.
@@ -381,4 +409,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// is what keeps ApplyManualOffset's inverse (edited minus correction) exact.
     private static PoseOffset ComposeOffset(PoseOffset baseOffset, PoseOffset correction) =>
         new() { Position = baseOffset.Position + correction.Position, Rotation = baseOffset.Rotation + correction.Rotation };
+
+    private static PoseOffset Subtract(PoseOffset offset, PoseOffset correction) =>
+        new() { Position = offset.Position - correction.Position, Rotation = offset.Rotation - correction.Rotation };
 }

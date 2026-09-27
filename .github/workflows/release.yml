@@ -4,6 +4,14 @@ name: Release Plugin
 # PoseKit/PoseKit.csproj to match (as a 4-part assembly version, e.g. 1.0.0.0) and
 # commit that first — this workflow builds whatever version is in the csproj, it
 # does not derive one from the tag name.
+#
+# A tag ending in "-testing" (e.g. "v1.0.0.11-testing", usually cut from a feature
+# branch) publishes a testing build instead: a GitHub pre-release, and repo.json
+# gets only TestingAssemblyVersion/DownloadLinkTesting — the official version,
+# download links and changelog are left alone, so only players who opted into
+# testing builds for PoseKit in the plugin installer get it. Either way, the
+# repo.json update is committed on top of origin/master (never the tagged branch),
+# so a testing tag can't drag its branch into master.
 on:
   push:
     tags:
@@ -60,9 +68,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: PoseKit ${{ steps.package.outputs.version }}
+          name: PoseKit ${{ steps.package.outputs.version }}${{ endsWith(github.ref_name, '-testing') && ' (testing)' || '' }}
           files: ${{ steps.package.outputs.zipName }}
           generate_release_notes: true
+          prerelease: ${{ endsWith(github.ref_name, '-testing') }}
+          make_latest: ${{ endsWith(github.ref_name, '-testing') && 'false' || 'true' }}
 
       - name: Update repo.json
         shell: pwsh
@@ -71,6 +81,14 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $zipName = "${{ steps.package.outputs.zipName }}"
           $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$zipName"
+          $isTesting = $tag.EndsWith("-testing")
+
+          # Edit repo.json on top of origin/master in a separate worktree, never on the tagged
+          # commit itself — a testing tag is usually on a feature branch, and pushing HEAD:master
+          # from there would merge the whole branch into master.
+          git fetch origin master
+          git worktree add --detach ../repo-update origin/master
+          Push-Location ../repo-update
 
           # @() forces an array even when repo.json holds a single entry — ConvertFrom-Json
           # otherwise collapses a 1-element JSON array into a bare object, and ConvertTo-Json
@@ -78,9 +96,19 @@ jobs:
           # browser can't parse as a plugin list (it loads as valid JSON, just not as one).
           $entries = @(Get-Content repo.json -Raw | ConvertFrom-Json)
           $entry = $entries | Where-Object { $_.InternalName -eq "PoseKit" }
-          $entry.AssemblyVersion = $version
-          $entry.DownloadLinkInstall = $downloadUrl
-          $entry.DownloadLinkUpdate = $downloadUrl
+          if ($isTesting) {
+            # Only players who opted into PoseKit testing builds see these; the official version,
+            # download links and changelog stay exactly as they were.
+            # TestingDalamudApiLevel is required: Dalamud only offers a testing version whose API
+            # level matches its own, and treats one without it as incompatible (hidden).
+            $entry | Add-Member -NotePropertyName TestingAssemblyVersion -NotePropertyValue $version -Force
+            $entry | Add-Member -NotePropertyName TestingDalamudApiLevel -NotePropertyValue $entry.DalamudApiLevel -Force
+            $entry | Add-Member -NotePropertyName DownloadLinkTesting -NotePropertyValue $downloadUrl -Force
+          } else {
+            $entry.AssemblyVersion = $version
+            $entry.DownloadLinkInstall = $downloadUrl
+            $entry.DownloadLinkUpdate = $downloadUrl
+          }
           $entry.LastUpdate = [string][int](Get-Date -UFormat %s -Millisecond 0)
 
           ($entries | ConvertTo-Json -Depth 10 -AsArray) | Set-Content repo.json -Encoding utf8
@@ -90,3 +118,4 @@ jobs:
           git add repo.json
           git diff --cached --quiet || git commit -m "Update repo.json for $tag"
           git push origin HEAD:master
+          Pop-Location

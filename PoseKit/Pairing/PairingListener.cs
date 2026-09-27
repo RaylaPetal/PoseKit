@@ -50,6 +50,7 @@ public sealed class PairingListener : IDisposable
     private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
     private const string CoupleRelayKeyword = "posekitcoupleplay";
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
+    private const string BoneAlignKeyword = "posekitalign";
 
     // Long enough that a partner briefly disconnecting or a lull in play doesn't drop the pairing,
     // short enough that a pairing nobody remembered to end doesn't just sit "paired" for the rest of
@@ -81,6 +82,10 @@ public sealed class PairingListener : IDisposable
     /// (true) or decline (false) of a couple-preset relay this side sent, naming that preset. See
     /// CoupleRelayOutbox.
     public event Action<PartnerIdentity, string, bool>? CoupleAnswerReceived;
+
+    /// Raised when the currently-paired peer announces they've started a Bone Align — see
+    /// PoseKit.Bones.BoneAlignService's single-mover tie-break. Nothing is sent back.
+    public event Action<PartnerIdentity>? PartnerBoneAlignStarted;
 
     /// Raised when a "posekitforcequeue" tell arrives from the currently-paired peer — Plugin wires
     /// this to resolve the named item against this side's own presets/discovered animations and play
@@ -154,6 +159,14 @@ public sealed class PairingListener : IDisposable
 
     /// Answers a relayed couple preset (accepted or declined) back to the current pairing peer — no-op
     /// while unpaired. See PairingComposer.ComposeCoupleAnswer.
+    /// Announces this side's Bone Align start to the current pairing peer — no-op while unpaired.
+    public void AnnounceBoneAlign()
+    {
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeBoneAlign(peer));
+        state.Touch();
+    }
+
     public void AnswerCoupleRelay(string presetName, bool accepted)
     {
         if (state.Peer is not { } peer) return;
@@ -259,6 +272,14 @@ public sealed class PairingListener : IDisposable
                 state.Touch();
                 CoupleRelayReceived?.Invoke(sender, presetName, captured);
             }
+            return;
+        }
+
+        if (text.StartsWith(BoneAlignKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Active || state.Peer is not { } alignPeer || !alignPeer.Equals(sender)) return;
+            state.Touch();
+            PartnerBoneAlignStarted?.Invoke(sender);
             return;
         }
 

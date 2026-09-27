@@ -26,6 +26,7 @@ public static class PairingComposer
     private const string CoupleCaptureReplyKeyword = "posekitcouplecapturereply";
     private const string CoupleRelayKeyword = "posekitcoupleplay";
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
+    private const string BoneAlignKeyword = "posekitalign";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
@@ -86,6 +87,12 @@ public static class PairingComposer
     /// relay's sender plays its own half only on an accept, the same moment this side plays the
     /// relayed half, so the two start together. Carries the relayed preset's name (free text, so last)
     /// so the sender can match it against its own pending play.
+    /// Sent when this side starts a Bone Align, so a partner who starts one at the same time can apply
+    /// the shared tie-break and let exactly one side move. Carries nothing — it's only a signal. See
+    /// PoseKit.Bones.BoneAlignService.
+    public static string ComposeBoneAlign(PartnerIdentity target) =>
+        $"/tell {target.TellAddress} {BoneAlignKeyword}";
+
     public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, bool accepted) =>
         $"/tell {target.TellAddress} {CoupleAnswerKeyword} {(accepted ? 1 : 0)} {presetName}";
 
