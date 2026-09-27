@@ -436,7 +436,7 @@ public sealed class Plugin : IDalamudPlugin
 
     /// "/posekit bones": writes every bone name and world position of the local player and the current
     /// target (if a player) to the Dalamud log (/xllog), grouped by partial skeleton — for confirming
-    /// the bone names Bone Align looks for (PoseKit.Bones.BodyParts.CandidateBones), including when a
+    /// the bone names Bone Align looks for (PoseKit.Bones.BodyParts), including when a
     /// body mod renames them. Also logs the local player's actual position and applied render offset,
     /// so it's visible whether bone positions follow the drawn (offset) model or the actual position.
     private void DumpBones()

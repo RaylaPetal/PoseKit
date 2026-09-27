@@ -19,33 +19,26 @@ namespace PoseKit.Bones;
 /// </summary>
 public static unsafe class BoneReader
 {
-    /// First bone found among <paramref name="candidateNames"/> (in order, so alternates for the same
-    /// body part can be listed) across every partial skeleton, as a world position. False at any
-    /// missing link — the character isn't drawn, isn't a human model, or no candidate bone exists
-    /// (e.g. the body mod that adds it isn't loaded for that character on this client).
-    public static bool TryGetBoneWorldPosition(IPlayerCharacter character, IReadOnlyList<string> candidateNames, out Vector3 world)
+    /// The average world position of every bone in <paramref name="names"/> that exists on the
+    /// character (each counted once, from the first partial skeleton it appears in) — for a body part
+    /// with no single center bone, like the mouth. False when none of them exist.
+    public static bool TryGetAverageBonePosition(IPlayerCharacter character, IReadOnlyList<string> names, out Vector3 world)
     {
-        world = default;
-        foreach (var name in candidateNames)
+        var wanted = new HashSet<string>(names, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var sum = Vector3.Zero;
+        ForEachBone(character, (boneName, bonePosition) =>
         {
-            var found = false;
-            var position = Vector3.Zero;
-            ForEachBone(character, (boneName, bonePosition) =>
-            {
-                if (found || !string.Equals(boneName, name, StringComparison.Ordinal)) return;
-                found = true;
-                position = bonePosition;
-            });
+            if (!wanted.Contains(boneName) || !seen.Add(boneName)) return;
+            sum += bonePosition;
+        });
 
-            if (!found) continue;
-            world = position;
-            return true;
-        }
-        return false;
+        world = seen.Count > 0 ? sum / seen.Count : default;
+        return seen.Count > 0;
     }
 
     /// Calls <paramref name="visit"/> with every bone's name and world position, partial skeleton by
-    /// partial skeleton — used by TryGetBoneWorldPosition and by the "/posekit bones" dump. The
+    /// partial skeleton — used by TryGetAverageBonePosition and by the "/posekit bones" dump. The
     /// partial skeleton index is passed too, for the dump's grouping.
     public static void ForEachBone(IPlayerCharacter character, Action<string, Vector3> visit) =>
         ForEachBone(character, (_, name, position) => visit(name, position));

@@ -186,6 +186,29 @@ public class MainWindow : Window, IDisposable
             configuration.Save();
         }
 
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(PoseKitUi.Muted, "Gap");
+        ImGui.SameLine(labelWidth + ImGui.GetStyle().WindowPadding.X);
+        ImGui.SetNextItemWidth(-1);
+        var gap = configuration.BoneAlignGap;
+        if (ImGui.SliderFloat("##PoseKitBoneAlignGap", ref gap, 0f, 0.10f, "%.2fy"))
+        {
+            configuration.BoneAlignGap = gap;
+            configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("How much room to leave between the two parts, so they meet instead of fusing.");
+
+        var matchFacing = configuration.BoneAlignMatchFacing;
+        if (ImGui.Checkbox("Match facing##PoseKitBoneAlignFacing", ref matchFacing))
+        {
+            configuration.BoneAlignMatchFacing = matchFacing;
+            configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Also turns you so the two parts face each other (e.g. penis into vagina, face toward crotch).\n" +
+                             "Turn only, no tilt. Skipped when a part points mostly up or down.");
+
         var align = plugin.BoneAlign;
         using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(align.IsAligning))
         {
@@ -193,8 +216,7 @@ public class MainWindow : Window, IDisposable
                 align.Start();
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Resyncs emotes, watches both parts for a moment, then moves you so they meet.\n" +
-                             "Your partner's body mod must be synced to you for their bones to exist.");
+            ImGui.SetTooltip("Resyncs emotes, watches both parts for a moment, then moves you so they meet.");
 
         if (align.Status.Length > 0)
             PoseKitUi.TextWrappedDisabled(align.Status);
