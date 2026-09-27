@@ -67,6 +67,7 @@ public sealed class Plugin : IDalamudPlugin
     public CouplePresetCaptureService CouplePresetCaptureService { get; init; }
     public CoupleRelayInbox CoupleRelayInbox { get; init; }
     public CoupleRelayOutbox CoupleRelayOutbox { get; init; }
+    public Bones.BoneAlignService BoneAlign { get; init; }
 
     /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
     /// "update this preset" instead of only ever "save as new".
@@ -120,6 +121,7 @@ public sealed class Plugin : IDalamudPlugin
         CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener);
         CoupleRelayInbox.AutoApply += ApplyCapturedPartnerState;
         CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, PlayPreset);
+        BoneAlign = new Bones.BoneAlignService(Configuration, PairingState, PairingListener, PoseTrigger, OffsetEngine, EmoteSync);
 
         // A capture request arrives here when the partner is saving an "include partner" preset:
         // reply once with *this* side's own currently-playing pose/offset/Penumbra link — AND its own
@@ -175,7 +177,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes."
+            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes. '/posekit bones' logs your and your target's bone names to /xllog."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -205,6 +207,7 @@ public sealed class Plugin : IDalamudPlugin
         CouplePresetCaptureService.Dispose();
         CoupleRelayInbox.Dispose();
         CoupleRelayOutbox.Dispose();
+        BoneAlign.Dispose();
         PairingListener.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
@@ -260,6 +263,7 @@ public sealed class Plugin : IDalamudPlugin
         CouplePresetCaptureService.Tick();
         CoupleRelayInbox.Tick();
         CoupleRelayOutbox.Tick();
+        BoneAlign.Tick();
     }
 
     /// Defensive fallback for a sit/groundsit/doze loop dropping back to Character->Mode Normal
@@ -430,6 +434,34 @@ public sealed class Plugin : IDalamudPlugin
         return matchedOptions.Count == 1 ? (resolvedGroup.GroupName, matchedOptions[0]) : null;
     }
 
+    /// "/posekit bones": writes every bone name and world position of the local player and the current
+    /// target (if a player) to the Dalamud log (/xllog), grouped by partial skeleton — for confirming
+    /// the bone names Bone Align looks for (PoseKit.Bones.BodyParts.CandidateBones), including when a
+    /// body mod renames them. Also logs the local player's actual position and applied render offset,
+    /// so it's visible whether bone positions follow the drawn (offset) model or the actual position.
+    private void DumpBones()
+    {
+        var targets = new List<(string Label, IPlayerCharacter Character)>();
+        if (ObjectTable.LocalPlayer is { } self)
+            targets.Add(("self", self));
+        if ((TargetManager.Target ?? TargetManager.SoftTarget) is IPlayerCharacter target && target.Address != ObjectTable.LocalPlayer?.Address)
+            targets.Add(("target", target));
+
+        if (ObjectTable.LocalPlayer is { } me)
+            Log.Information($"[bones] self actual position {me.Position}, applied offset {OffsetEngine.DesiredOffset.Position} rot {OffsetEngine.DesiredOffset.Rotation}");
+
+        foreach (var (label, character) in targets)
+        {
+            var count = 0;
+            Bones.BoneReader.ForEachBone(character, (partial, name, world) =>
+            {
+                Log.Information($"[bones] {label} {character.Name.TextValue} partial {partial}: {name} {world}");
+                count++;
+            });
+            ChatGui.Print($"[PoseKit] Logged {count} bones for {character.Name.TextValue} ({label}) — open /xllog and search \"[bones]\".");
+        }
+    }
+
     private void OnCommand(string command, string args)
     {
         var splitArgs = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -449,6 +481,12 @@ public sealed class Plugin : IDalamudPlugin
                 FreeCam.Toggle();
                 ChatGui.Print($"[PoseKit] {FreeCam.Status}");
             }
+            return;
+        }
+
+        if (string.Equals(splitArgs[0], "bones", StringComparison.OrdinalIgnoreCase))
+        {
+            DumpBones();
             return;
         }
 
@@ -491,7 +529,7 @@ public sealed class Plugin : IDalamudPlugin
                 penumbra.GroupSelections[link.GroupName] = [link.OptionName];
         }
 
-        return new CapturedPoseState(pose, OffsetEngine.DesiredOffset, anchor, penumbra);
+        return new CapturedPoseState(pose, PoseTrigger.GetOffsetForNewPreset(), anchor, penumbra);
     }
 
     /// Finds the nearest currently-live furniture instance matching the synced EntryId and captures

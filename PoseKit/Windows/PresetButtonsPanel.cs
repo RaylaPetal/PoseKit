@@ -178,13 +178,10 @@ public static class PresetButtonsPanel
             ImGui.SameLine();
             if (ImGui.Button("Update preset##PoseKitUpdatePreset"))
             {
-                // A partner-anchored preset's live offset has the partner correction folded in —
-                // saving that back would double-apply it on the next replay, so save the tracked base
-                // (the preset's own offset plus any manual nudge) instead. See partner-anchor's spec.
-                var offset = loaded.Anchor?.Partner != null && plugin.PoseTrigger.TryGetTrackedBaseOffset(out var trackedBase)
-                    ? trackedBase
-                    : plugin.OffsetEngine.DesiredOffset;
-                plugin.PresetManager.Update(loaded, offset);
+                // The live offset can carry a partner-anchor correction (recomputed on every replay, so
+                // saving it back would double-apply it) and a bone-align correction (body-specific) —
+                // neither belongs in the stored offset. See partner-anchor's and bone-align's specs.
+                plugin.PresetManager.Update(loaded, plugin.PoseTrigger.GetOffsetForUpdate());
             }
         }
     }
@@ -263,12 +260,12 @@ public static class PresetButtonsPanel
                         // request/reply and completes the save once it arrives (or times out) — see
                         // CouplePresetCaptureService. LoadedPreset is picked up via its Saved event
                         // rather than set here, since the save doesn't happen synchronously.
-                        plugin.CouplePresetCaptureService.RequestAndSave(name, pose, plugin.OffsetEngine.DesiredOffset,
+                        plugin.CouplePresetCaptureService.RequestAndSave(name, pose, plugin.PoseTrigger.GetOffsetForNewPreset(),
                             plugin.LastPlayedPenumbraContext, anchor);
                     }
                     else
                     {
-                        var saved = plugin.PresetManager.Save(name, pose, plugin.OffsetEngine.DesiredOffset,
+                        var saved = plugin.PresetManager.Save(name, pose, plugin.PoseTrigger.GetOffsetForNewPreset(),
                             plugin.LastPlayedPenumbraContext, anchor);
                         plugin.LoadedPreset = saved;
                     }

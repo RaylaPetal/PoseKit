@@ -1,0 +1,90 @@
+using System;
+using System.Collections.Generic;
+using System.Numerics;
+using Dalamud.Game.ClientState.Objects.SubKinds;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
+using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
+using FFXIVClientStructs.Havok.Animation.Rig;
+
+namespace PoseKit.Bones;
+
+/// <summary>
+/// Read-only access to a drawn character's bones, by name, in world space — for any player character
+/// this client renders, not just the local player (same Human → Skeleton → PartialSkeletons walk
+/// EmoteSyncCommand already does to reset emote loops). Never writes a bone. Works outside gpose:
+/// gpose is only needed by posing tools to *edit* bones against the animation, not to read them.
+///
+/// World position = the skeleton's own transform (the drawn model's position/rotation/scale) applied
+/// to the bone's model-space translation from the current Havok pose.
+/// </summary>
+public static unsafe class BoneReader
+{
+    /// First bone found among <paramref name="candidateNames"/> (in order, so alternates for the same
+    /// body part can be listed) across every partial skeleton, as a world position. False at any
+    /// missing link — the character isn't drawn, isn't a human model, or no candidate bone exists
+    /// (e.g. the body mod that adds it isn't loaded for that character on this client).
+    public static bool TryGetBoneWorldPosition(IPlayerCharacter character, IReadOnlyList<string> candidateNames, out Vector3 world)
+    {
+        world = default;
+        foreach (var name in candidateNames)
+        {
+            var found = false;
+            var position = Vector3.Zero;
+            ForEachBone(character, (boneName, bonePosition) =>
+            {
+                if (found || !string.Equals(boneName, name, StringComparison.Ordinal)) return;
+                found = true;
+                position = bonePosition;
+            });
+
+            if (!found) continue;
+            world = position;
+            return true;
+        }
+        return false;
+    }
+
+    /// Calls <paramref name="visit"/> with every bone's name and world position, partial skeleton by
+    /// partial skeleton — used by TryGetBoneWorldPosition and by the "/posekit bones" dump. The
+    /// partial skeleton index is passed too, for the dump's grouping.
+    public static void ForEachBone(IPlayerCharacter character, Action<string, Vector3> visit) =>
+        ForEachBone(character, (_, name, position) => visit(name, position));
+
+    public static void ForEachBone(IPlayerCharacter character, Action<int, string, Vector3> visit)
+    {
+        var native = (Character*)character.Address;
+        if (native == null || native->DrawObject == null) return;
+        if (native->DrawObject->GetObjectType() != ObjectType.CharacterBase) return;
+        var characterBase = (CharacterBase*)native->DrawObject;
+        if (characterBase->GetModelType() != CharacterBase.ModelType.Human) return;
+
+        var skeleton = characterBase->Skeleton;
+        if (skeleton == null) return;
+
+        // Explicit System.Numerics copies — the transform's fields are ClientStructs' own vector types,
+        // which make mixed operators ambiguous.
+        var transform = skeleton->Transform;
+        var skeletonPosition = new Vector3(transform.Position.X, transform.Position.Y, transform.Position.Z);
+        var skeletonRotation = new Quaternion(transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z, transform.Rotation.W);
+        var skeletonScale = new Vector3(transform.Scale.X, transform.Scale.Y, transform.Scale.Z);
+
+        for (var p = 0; p < skeleton->PartialSkeletonCount; p++)
+        {
+            var pose = skeleton->PartialSkeletons[p].GetHavokPose(0);
+            if (pose == null || pose->Skeleton == null) continue;
+
+            var bones = pose->Skeleton->Bones;
+            for (var i = 0; i < bones.Length; i++)
+            {
+                var name = bones[i].Name.String;
+                if (string.IsNullOrEmpty(name)) continue;
+
+                var modelSpace = pose->AccessBoneModelSpace(i, hkaPose.PropagateOrNot.DontPropagate);
+                if (modelSpace == null) continue;
+
+                var local = new Vector3(modelSpace->Translation.X, modelSpace->Translation.Y, modelSpace->Translation.Z);
+                visit(p, name, skeletonPosition + Vector3.Transform(local * skeletonScale, skeletonRotation));
+            }
+        }
+    }
+}

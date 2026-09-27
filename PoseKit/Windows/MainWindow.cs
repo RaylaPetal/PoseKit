@@ -160,6 +160,67 @@ public class MainWindow : Window, IDisposable
         ImGui.Spacing();
         PoseKitUi.SectionHeader("Live Offset");
         PresetButtonsPanel.DrawOffsets(plugin);
+
+        ImGui.Spacing();
+        PoseKitUi.SectionHeader("Bone Align");
+        DrawBoneAlign();
+    }
+
+    /// Self/Partner body-part pickers and the Align button — see Bones.BoneAlignService.
+    private void DrawBoneAlign()
+    {
+        var configuration = plugin.Configuration;
+        var labelWidth = ImGui.CalcTextSize("Partner").X + ImGui.GetStyle().ItemSpacing.X;
+
+        var self = configuration.BoneAlignSelf;
+        if (DrawBodyPartCombo("Self", "##PoseKitBoneAlignSelf", labelWidth, ref self))
+        {
+            configuration.BoneAlignSelf = self;
+            configuration.Save();
+        }
+
+        var partner = configuration.BoneAlignPartner;
+        if (DrawBodyPartCombo("Partner", "##PoseKitBoneAlignPartner", labelWidth, ref partner))
+        {
+            configuration.BoneAlignPartner = partner;
+            configuration.Save();
+        }
+
+        var align = plugin.BoneAlign;
+        using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(align.IsAligning))
+        {
+            if (PoseKitUi.WideButton(align.IsAligning ? "Aligning...##PoseKitBoneAlign" : "Align##PoseKitBoneAlign"))
+                align.Start();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Resyncs emotes, watches both parts for a moment, then moves you so they meet.\n" +
+                             "Your partner's body mod must be synced to you for their bones to exist.");
+
+        if (align.Status.Length > 0)
+            PoseKitUi.TextWrappedDisabled(align.Status);
+    }
+
+    private static bool DrawBodyPartCombo(string label, string id, float labelWidth, ref Bones.BodyPart value)
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(PoseKitUi.Muted, label);
+        ImGui.SameLine(labelWidth + ImGui.GetStyle().WindowPadding.X);
+        ImGui.SetNextItemWidth(-1);
+
+        var changed = false;
+        if (ImGui.BeginCombo(id, Bones.BodyParts.DisplayName(value)))
+        {
+            foreach (var part in Bones.BodyParts.All)
+            {
+                if (ImGui.Selectable(Bones.BodyParts.DisplayName(part), part == value))
+                {
+                    value = part;
+                    changed = true;
+                }
+            }
+            ImGui.EndCombo();
+        }
+        return changed;
     }
 
     private void DrawPage()

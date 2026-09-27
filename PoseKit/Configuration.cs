@@ -40,6 +40,11 @@ public class Configuration : IPluginConfiguration
     /// is ever observed loaded — never again afterward, so a user who turns it back off stays off.
     public bool HasOfferedSimpleHeelsBridge { get; set; }
 
+    /// Bone Align's last-used body parts — this player's own, and the partner's to line it up with.
+    /// See PoseKit.Bones.BoneAlignService.
+    public PoseKit.Bones.BodyPart BoneAlignSelf { get; set; } = PoseKit.Bones.BodyPart.Penis;
+    public PoseKit.Bones.BodyPart BoneAlignPartner { get; set; } = PoseKit.Bones.BodyPart.Vagina;
+
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
     {
         if (!Characters.TryGetValue(homeWorldId, out var byName))
