@@ -249,6 +249,16 @@ internal static class PoseKitUi
     public static float ButtonWidth(string label) =>
         ImGui.CalcTextSize(label.Split("##")[0]).X + ImGui.GetStyle().FramePadding.X * 2;
 
+    /// SameLine only if an item `width` wide still fits after the previous one; otherwise the next
+    /// item starts a new line — so rows of buttons flow-wrap inside narrow cards instead of running
+    /// off the right edge.
+    public static void SameLineIfFits(float width)
+    {
+        var limit = ImGui.GetWindowPos().X + ImGui.GetWindowContentRegionMax().X;
+        if (ImGui.GetItemRectMax().X + ImGui.GetStyle().ItemSpacing.X + width <= limit)
+            ImGui.SameLine();
+    }
+
     /// A single-axis drag float with its label always visible next to it, rather than an unlabeled
     /// X/Y/Z DragFloat3 that gives no indication which axis does what in-game.
     public static bool AxisDragFloat(string id, string label, ref float value, float speed = 0.005f, float width = 90f)
@@ -314,7 +324,7 @@ internal static class PoseKitUi
         };
         if (badge is not { } b) return;
 
-        ImGui.SameLine();
+        SameLineIfFits(ImGui.CalcTextSize(b.Text).X);
         ImGui.TextColored(b.Color, b.Text);
     }
 

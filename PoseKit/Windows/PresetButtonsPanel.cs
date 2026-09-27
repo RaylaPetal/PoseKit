@@ -429,7 +429,7 @@ public static class PresetButtonsPanel
 
         // Right-aligned, unless the row is already too full to leave room for it.
         var deleteLabel = $"Delete##PoseKitDeletePreset{namedPose.GetHashCode()}";
-        ImGui.SameLine();
+        PoseKitUi.SameLineIfFits(PoseKitUi.ButtonWidth(deleteLabel));
         var deleteX = ImGui.GetWindowContentRegionMax().X - PoseKitUi.ButtonWidth(deleteLabel);
         if (ImGui.GetCursorPosX() < deleteX)
             ImGui.SetCursorPosX(deleteX);

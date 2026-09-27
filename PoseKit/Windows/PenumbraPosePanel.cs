@@ -540,8 +540,8 @@ public static class PenumbraPosePanel
 
             using (PoseKitUi.PushPickButtonStyle(pick))
             {
-                ImGui.SameLine();
                 var label = $"{buttonText}##{idPrefix}{i}";
+                PoseKitUi.SameLineIfFits(PoseKitUi.ButtonWidth(label));
                 if (compact ? ImGui.SmallButton(label) : ImGui.Button(label))
                 {
                     void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
@@ -700,11 +700,11 @@ public static class PenumbraPosePanel
         var (mod, group, matchedOption, _) = found;
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
 
-        ImGui.TextUnformatted($"{mod.ModName} — {group.Name}:");
+        ImGui.TextWrapped($"{mod.ModName} — {group.Name}:");
 
         if (matchedOption.Triggers.Count > 1)
         {
-            ImGui.TextUnformatted(matchedOption.Name);
+            ImGui.TextWrapped(matchedOption.Name);
             DrawTriggerButtons(plugin, mod, group, matchedOption, collectionId, $"PoseKitQuickPlay{matchedOption.Name.GetHashCode()}",
                 SelectOptionBeforePlay(plugin, mod, group, matchedOption, collectionId));
             return true;
@@ -713,7 +713,7 @@ public static class PenumbraPosePanel
         foreach (var sibling in group.Options)
         {
             if (sibling.Triggers.Count == 0) continue;
-            ImGui.TextUnformatted(sibling.Name);
+            ImGui.TextWrapped(sibling.Name);
             DrawTriggerButtons(plugin, mod, group, sibling, collectionId, $"PoseKitQuickPlay{sibling.Name.GetHashCode()}",
                 SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
         }

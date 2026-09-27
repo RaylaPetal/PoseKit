@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.0.0.0/PoseKit-2.0.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.0.0.0/PoseKit-2.0.0.0.zip",
-    "Changelog": "- New: Bone Align (sidebar, under Live Offset). Pick a body part for yourself and your partner (penis, vagina, anus, left/right buttock, mouth, left/right hand, left/right fingers) and press Align. It resyncs emotes, watches both parts for a moment, then moves you so they meet at the animation's contact point. Works with your paired partner or any targeted player, and needs no update on their side.\n- Align leaves a little room between the parts (Gap slider, default 0.02y) so they meet instead of fusing.\n- Match facing (on by default): Align also turns you so the two parts face each other, e.g. when one of you starts facing the wrong way. It only turns, never tilts, and skips parts pointing mostly up or down.\n- If both paired partners press Align at once, only one of you moves. The alignment is temporary: Reset or a new pose clears it, and it's never saved into presets.\n- New /posekit bones command: logs your and your target's bone names to /xllog.",
+    "Changelog": "- Fix: in the Pairing card, long animation and option names now wrap, and the play buttons for your half of your partner's pick move to a new line instead of running off the edge.\n- Button rows elsewhere (Animations list, Preset Library) also wrap in narrow windows.",
     "LastUpdate": "1790536208"
   }
 ]
