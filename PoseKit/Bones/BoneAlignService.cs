@@ -69,6 +69,13 @@ public sealed class BoneAlignService : IDisposable
     private Vector3? bestMyDirection;
     private Vector3? bestTheirDirection;
 
+    // Both drawn models' own position and heading at that moment, for the shared-origin facing snap.
+    private bool bestModelsKnown;
+    private Vector3 bestMyModel;
+    private float bestMyModelYaw;
+    private Vector3 bestTheirModel;
+    private float bestTheirModelYaw;
+
     // Both bodies' outlines (BodyParts.BodyOutline) on every sampled frame, for the 180-degree check.
     private readonly List<(Vector3?[] Mine, Vector3?[] Theirs)> outlineFrames = [];
 
@@ -215,6 +222,8 @@ public sealed class BoneAlignService : IDisposable
                 bestActualPosition = localPlayer.Position;
                 bestMyDirection = BodyParts.TryGetDirection(localPlayer, selfPart, out var myDirection) ? myDirection : null;
                 bestTheirDirection = BodyParts.TryGetDirection(partner, partnerPart, out var theirDirection) ? theirDirection : null;
+                bestModelsKnown = BoneReader.TryGetModelTransform(localPlayer, out bestMyModel, out bestMyModelYaw) &
+                                  BoneReader.TryGetModelTransform(partner, out bestTheirModel, out bestTheirModelYaw);
                 sampled = true;
             }
         }
@@ -261,7 +270,9 @@ public sealed class BoneAlignService : IDisposable
         var rotationApplies = offsetEngine.RotationHookResolved;
         var facing = localPlayer.Rotation + (rotationApplies ? offsetEngine.DesiredOffset.Rotation : 0f);
         var (turn, facingNote) = configuration.BoneAlignMatchFacing ? FacingTurn(rotationApplies) : (0f, "");
-        if (configuration.BoneAlignMatchFacing && rotationApplies && ShouldFlip(turn, localPlayer, partner))
+        if (configuration.BoneAlignMatchFacing && rotationApplies && SharedOriginTurn(localPlayer, partner) is { } snapped)
+            (turn, facingNote) = snapped;
+        else if (configuration.BoneAlignMatchFacing && rotationApplies && ShouldFlip(turn, localPlayer, partner))
         {
             turn = MathF.IEEERemainder(turn + MathF.PI, MathF.Tau);
             facingNote = $", flipped to {turn * 180f / MathF.PI:0} deg — the bodies overlapped the other way";
@@ -303,6 +314,44 @@ public sealed class BoneAlignService : IDisposable
             return (0f, "");
 
         return (turn, $", turned {turn * 180f / MathF.PI:0} deg");
+    }
+
+    // Couple animations are authored with both characters standing on one spot, most often facing the
+    // same way, sometimes facing each other (quarter turns are rare but cost nothing to try).
+    private static readonly (float Angle, string Label)[] SharedOriginFacings =
+        [(0f, "same way as partner"), (MathF.PI, "facing partner"), (MathF.PI / 2, "partner's left"), (-MathF.PI / 2, "partner's right")];
+
+    // How close the two drawn models have to land for the shared-origin reading to count — generous
+    // enough for different body proportions (height, race, body mods move the parts a little).
+    private const float SharedOriginTolerance = 0.3f;
+
+    /// The turn that puts this player on the animation's intended facing, when the animation is a
+    /// couple animation authored in one shared scene: then the right facing is one of a few fixed
+    /// angles relative to the partner's drawn model, and it's the one where bringing the parts
+    /// together also lands this player's drawn model on the partner's spot. Null when no candidate
+    /// lands close enough — not a shared-origin animation (two unrelated emotes, a hand on a
+    /// shoulder), so the direction-based facing decides instead.
+    private (float Turn, string Note)? SharedOriginTurn(IPlayerCharacter localPlayer, IPlayerCharacter partner)
+    {
+        if (!bestModelsKnown) return null;
+
+        var actual = bestActualPosition;
+        (float Turn, string Label, float Miss)? best = null;
+        foreach (var (angle, label) in SharedOriginFacings)
+        {
+            var turn = MathF.IEEERemainder(bestTheirModelYaw + angle - bestMyModelYaw, MathF.Tau);
+            var yaw = Yaw(turn);
+            var mineAfterTurn = actual + Vector3.Transform(bestMine - actual, yaw);
+            var shift = StopShort(bestTheirs, mineAfterTurn, localPlayer, partner) - mineAfterTurn;
+            var modelAfter = actual + Vector3.Transform(bestMyModel - actual, yaw) + shift;
+            var miss = new Vector2(modelAfter.X - bestTheirModel.X, modelAfter.Z - bestTheirModel.Z).Length();
+            if (best is not { } b || miss < b.Miss)
+                best = (turn, label, miss);
+        }
+
+        if (best is not { } found || found.Miss > SharedOriginTolerance) return null;
+        var note = MathF.Abs(found.Turn) < MinFacingTurn ? "" : $", turned {found.Turn * 180f / MathF.PI:0} deg";
+        return (found.Turn, $"{note}, {found.Label}");
     }
 
     // Two outline bones closer than this count as bodies passing through each other. Well under the

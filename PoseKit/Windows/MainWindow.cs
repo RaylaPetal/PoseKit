@@ -206,7 +206,9 @@ public class MainWindow : Window, IDisposable
             configuration.Save();
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Also turns you so the two parts face each other (e.g. penis into vagina, face toward crotch).\n" +
+            ImGui.SetTooltip("Also turns you to the animation's intended facing. For couple animations made to be played\n" +
+                             "standing on the same spot, it snaps to the facing that puts you both on that spot.\n" +
+                             "Otherwise it turns you so the two parts face each other (e.g. penis into vagina, face toward crotch).\n" +
                              "Turn only, no tilt. Also flips you 180 degrees when the other way round would put\n" +
                              "your bodies inside each other, e.g. an animation made for facing the opposite way.");
 

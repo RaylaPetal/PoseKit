@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.0.0.2/PoseKit-2.0.0.2.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.0.0.2/PoseKit-2.0.0.2.zip",
-    "Changelog": "- Bone Align: Match facing now flips you 180 degrees automatically when an animation was made for the opposite facing (e.g. 306 Kittylingus), by checking which way leaves your bodies not overlapping. No more turning around first.\n- Fix: conflicts between two options of the same mod (e.g. two GoonersLife groups both on GroundSit) now get a \"Conflict: keep this\" button that deselects the other option.",
+    "Changelog": "- Bone Align: Match facing now snaps to the facing a couple animation was made for (same way as your partner, or facing them) instead of guessing from which way the body parts point, so animations like 306 Kittylingus line up straight even if you started slightly off. The status line says which facing it picked.\n- Animations not made to be played on the same spot still use the previous part-direction turn and 180 degree check.",
     "LastUpdate": "1790566095"
   }
 ]

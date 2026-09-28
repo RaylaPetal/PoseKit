@@ -37,6 +37,27 @@ public static unsafe class BoneReader
         return seen.Count > 0;
     }
 
+    /// Where the drawn model itself stands and which way it faces (the game's heading convention: yaw
+    /// r faces (sin r, 0, cos r)) — the skeleton's own transform, so it includes any render offset
+    /// the character's own plugins applied, unlike GameObject.Position/Rotation.
+    public static bool TryGetModelTransform(IPlayerCharacter character, out Vector3 position, out float yaw)
+    {
+        position = default;
+        yaw = 0f;
+        var native = (Character*)character.Address;
+        if (native == null || native->DrawObject == null) return false;
+        if (native->DrawObject->GetObjectType() != ObjectType.CharacterBase) return false;
+        var skeleton = ((CharacterBase*)native->DrawObject)->Skeleton;
+        if (skeleton == null) return false;
+
+        var transform = skeleton->Transform;
+        position = new Vector3(transform.Position.X, transform.Position.Y, transform.Position.Z);
+        var rotation = new Quaternion(transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z, transform.Rotation.W);
+        var forward = Vector3.Transform(Vector3.UnitZ, rotation);
+        yaw = MathF.Atan2(forward.X, forward.Z);
+        return true;
+    }
+
     /// The world position of each bone in <paramref name="names"/>, by index — null where the character
     /// has no such bone. One skeleton walk for all of them.
     public static Vector3?[] GetBonePositions(IPlayerCharacter character, IReadOnlyList<string> names)
