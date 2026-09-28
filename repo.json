@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.1.0/PoseKit-2.1.1.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.1.0/PoseKit-2.1.1.0.zip",
-    "Changelog": "- New layout: Animations and Presets are now tabs at the top, next to the title, and the page gets the full width. Pairing, Live Offset and Bone Align are always shown together in one column on the right.\n- Resync and Freecam moved up next to Settings. Freecam turns green while it's on, and its controls show in the status line.\n- The color legend now sits on the status line under the title.\n- An idle pairing (2 hours with no activity) now ends quietly on each side without sending an unpair tell.",
+    "Changelog": "- Bone Align: new Left/Right foot and Left/Right toes body parts. Foot is the middle of the sole; toes are the tips of all five toes (IVCS), or the toe base without IVCS. Match facing turns you heel-to-toe for both.",
     "LastUpdate": "1790606614"
   }
 ]

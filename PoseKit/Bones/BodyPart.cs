@@ -18,6 +18,10 @@ public enum BodyPart
     RightHand,
     LeftFingers,
     RightFingers,
+    LeftFoot,
+    RightFoot,
+    LeftToes,
+    RightToes,
 }
 
 public static class BodyParts
@@ -27,6 +31,7 @@ public static class BodyParts
     [
         BodyPart.Penis, BodyPart.Vagina, BodyPart.Anus, BodyPart.LeftButtock, BodyPart.RightButtock,
         BodyPart.Mouth, BodyPart.LeftHand, BodyPart.RightHand, BodyPart.LeftFingers, BodyPart.RightFingers,
+        BodyPart.LeftFoot, BodyPart.RightFoot, BodyPart.LeftToes, BodyPart.RightToes,
     ];
 
     public static string DisplayName(BodyPart part) => part switch
@@ -37,6 +42,10 @@ public static class BodyParts
         BodyPart.RightHand => "Right hand",
         BodyPart.LeftFingers => "Left fingers",
         BodyPart.RightFingers => "Right fingers",
+        BodyPart.LeftFoot => "Left foot",
+        BodyPart.RightFoot => "Right foot",
+        BodyPart.LeftToes => "Left toes",
+        BodyPart.RightToes => "Right toes",
         _ => part.ToString(),
     };
 
@@ -62,8 +71,20 @@ public static class BodyParts
         // second joints when a character has no IVCS finger tips.
         BodyPart.LeftFingers => [["iv_hito_c_l", "iv_naka_c_l"], ["j_hito_b_l", "j_naka_b_l"]],
         BodyPart.RightFingers => [["iv_hito_c_r", "iv_naka_c_r"], ["j_hito_b_r", "j_naka_b_r"]],
+        // Middle of the sole: halfway between the ankle (j_asi_d) and the toe base (j_asi_e).
+        BodyPart.LeftFoot => [["j_asi_d_l", "j_asi_e_l"]],
+        BodyPart.RightFoot => [["j_asi_d_r", "j_asi_e_r"]],
+        // The five IVCS toe tips averaged (big, index, middle, fore, pinky), falling back to the
+        // vanilla toe base when a character has no IVCS toes.
+        BodyPart.LeftToes => [LeftToeTips, ["j_asi_e_l"]],
+        BodyPart.RightToes => [RightToeTips, ["j_asi_e_r"]],
         _ => [],
     };
+
+    private static readonly string[] LeftToeTips =
+        ["iv_asi_oya_b_l", "iv_asi_hito_b_l", "iv_asi_naka_b_l", "iv_asi_kusu_b_l", "iv_asi_ko_b_l"];
+    private static readonly string[] RightToeTips =
+        ["iv_asi_oya_b_r", "iv_asi_hito_b_r", "iv_asi_naka_b_r", "iv_asi_kusu_b_r", "iv_asi_ko_b_r"];
 
     /// A sparse vanilla skeleton outline — spine, head, arms and legs — for judging whether two bodies
     /// overlap (Bone Align's automatic 180-degree check). Vanilla bones only, so every body mod has them.
@@ -112,6 +133,12 @@ public static class BodyParts
         BodyPart.RightHand => ([["j_te_r"]], [["j_naka_a_r"]]),
         BodyPart.LeftFingers => ([["j_hito_a_l", "j_naka_a_l"]], BoneGroups(BodyPart.LeftFingers)),
         BodyPart.RightFingers => ([["j_hito_a_r", "j_naka_a_r"]], BoneGroups(BodyPart.RightFingers)),
+        // Feet and toes point heel/ankle → toes; the ankle is the start for both so the toes still
+        // get a direction on a character without IVCS toe bones.
+        BodyPart.LeftFoot => ([["j_asi_d_l"]], [["j_asi_e_l"]]),
+        BodyPart.RightFoot => ([["j_asi_d_r"]], [["j_asi_e_r"]]),
+        BodyPart.LeftToes => ([["j_asi_d_l"]], BoneGroups(BodyPart.LeftToes)),
+        BodyPart.RightToes => ([["j_asi_d_r"]], BoneGroups(BodyPart.RightToes)),
         _ => ([], []),
     };
 
