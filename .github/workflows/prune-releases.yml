@@ -1,0 +1,67 @@
+name: Prune Releases
+
+# Keeps the Releases page short: deletes all but the newest `keep` official releases and the newest
+# testing (pre-release) one, along with their tags. Anything repo.json on master links to (install,
+# update or testing download) is always kept, since the in-game installer downloads from those zips.
+#
+# Runs automatically after every release (called from release.yml), and can be run by hand from the
+# Actions tab ("Run workflow") to clean up at any time.
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: 'How many of the newest official releases to keep'
+        required: false
+        default: '5'
+  workflow_call:
+    inputs:
+      keep:
+        type: string
+        required: false
+        default: '5'
+      keep_tag:
+        description: 'A tag to always keep, e.g. the release that was just published'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Prune old releases
+        shell: pwsh
+        # A cleanup problem should never make a release look failed.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: ${{ inputs.keep }}
+          KEEP_TAG: ${{ inputs.keep_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          $repoJson = gh api "repos/$env:REPO/contents/repo.json?ref=master" -H "Accept: application/vnd.github.raw" | Out-String
+          $referenced = @([regex]::Matches($repoJson, '/releases/download/([^/"]+)/') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          Write-Host "Kept because repo.json links to them: $($referenced -join ', ')"
+
+          $releases = gh release list --repo $env:REPO --limit 500 --json tagName,isPrerelease,createdAt | ConvertFrom-Json
+          $official = @($releases | Where-Object { -not $_.isPrerelease } | Sort-Object createdAt -Descending)
+          $testing = @($releases | Where-Object { $_.isPrerelease } | Sort-Object createdAt -Descending)
+
+          $keepCount = if ($env:KEEP) { [int]$env:KEEP } else { 5 }
+          $keep = @($official | Select-Object -First $keepCount | ForEach-Object tagName) +
+                  @($testing | Select-Object -First 1 | ForEach-Object tagName) +
+                  $referenced + @($env:KEEP_TAG | Where-Object { $_ })
+          Write-Host "Keeping: $(($keep | Sort-Object -Unique) -join ', ')"
+
+          $deleted = 0
+          foreach ($release in $releases) {
+            if ($keep -contains $release.tagName) { continue }
+            Write-Host "Deleting release and tag $($release.tagName)"
+            gh release delete $release.tagName --repo $env:REPO --cleanup-tag --yes
+            $deleted++
+          }
+          Write-Host "Deleted $deleted release(s)."
