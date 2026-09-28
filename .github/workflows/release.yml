@@ -12,6 +12,9 @@ name: Release Plugin
 # testing builds for PoseKit in the plugin installer get it. Either way, the
 # repo.json update is committed on top of origin/master (never the tagged branch),
 # so a testing tag can't drag its branch into master.
+#
+# Afterwards, older releases (and their tags) are pruned down to the newest few; see the
+# "Prune old releases" step.
 on:
   push:
     tags:
@@ -119,3 +122,34 @@ jobs:
           git diff --cached --quiet || git commit -m "Update repo.json for $tag"
           git push origin HEAD:master
           Pop-Location
+
+      # Keeps the Releases page short: after publishing, deletes all but the newest KEEP_RELEASES
+      # official releases and the newest testing one, along with their tags. Anything repo.json
+      # links to (install, update or testing download) is always kept, since the in-game installer
+      # downloads from those zips. Runs after the repo.json update so it sees the new links, and
+      # never fails the release if the cleanup itself hits a problem.
+      - name: Prune old releases
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_RELEASES: 5
+        run: |
+          git fetch origin master
+          $repoJson = git show origin/master:repo.json | Out-String
+          $referenced = [regex]::Matches($repoJson, '/releases/download/([^/"]+)/') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+          Write-Host "Kept because repo.json links to them: $($referenced -join ', ')"
+
+          $releases = gh release list --repo "${{ github.repository }}" --limit 500 --json tagName,isPrerelease,createdAt | ConvertFrom-Json
+          $official = @($releases | Where-Object { -not $_.isPrerelease } | Sort-Object createdAt -Descending)
+          $testing = @($releases | Where-Object { $_.isPrerelease } | Sort-Object createdAt -Descending)
+
+          $keep = @($official | Select-Object -First ([int]$env:KEEP_RELEASES) | ForEach-Object tagName) +
+                  @($testing | Select-Object -First 1 | ForEach-Object tagName) +
+                  @($referenced) + @("${{ github.ref_name }}")
+
+          foreach ($release in $releases) {
+            if ($keep -contains $release.tagName) { continue }
+            Write-Host "Deleting release and tag $($release.tagName)"
+            gh release delete $release.tagName --repo "${{ github.repository }}" --cleanup-tag --yes
+          }
