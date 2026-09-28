@@ -236,6 +236,29 @@ internal static class PoseKitUi
             return ImGui.Button(label);
     }
 
+    public const string KofiUrl = "https://ko-fi.com/raylapetal";
+    private const string KofiLabel = "Donate";
+    private static readonly Vector4 KofiRed = new(1f, 0.369f, 0.357f, 1f);        // Ko-fi's brand #FF5E5B
+    private static readonly Vector4 KofiRedHovered = new(1f, 0.47f, 0.46f, 1f);
+    private static readonly Vector4 KofiRedActive = new(0.85f, 0.29f, 0.28f, 1f);
+
+    /// Width of KofiButton, for right-aligning a row that ends with it.
+    public static float KofiButtonWidth() =>
+        Dalamud.Interface.Components.ImGuiComponents.GetIconButtonWithTextWidth(Dalamud.Interface.FontAwesomeIcon.MugHot, KofiLabel);
+
+    /// Ko-fi's coffee cup and "Donate" in Ko-fi red, opening the Ko-fi page in the browser.
+    public static void KofiButton()
+    {
+        using (ImRaii.PushColor(ImGuiCol.Text, new Vector4(1f, 1f, 1f, 1f)))
+        {
+            if (Dalamud.Interface.Components.ImGuiComponents.IconButtonWithText(Dalamud.Interface.FontAwesomeIcon.MugHot, KofiLabel,
+                    KofiRed, KofiRedActive, KofiRedHovered))
+                Dalamud.Utility.Util.OpenLink(KofiUrl);
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Support PoseKit on Ko-fi\nko-fi.com/raylapetal");
+    }
+
     /// A normal-size button tinted in the muted warning red — for destructive actions like deleting a
     /// preset, so they read as different from the lavender buttons around them.
     public static bool DangerButton(string label)

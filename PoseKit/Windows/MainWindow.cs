@@ -99,7 +99,9 @@ public class MainWindow : Window, IDisposable
         const string settingsLabel = "Settings##PoseKitHeaderSettings";
         var freecamLabel = plugin.FreeCam.Enabled ? "Freecam on##PoseKitHeaderFreecam" : "Freecam##PoseKitHeaderFreecam";
         var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var toolsWidth = PoseKitUi.ButtonWidth(resyncLabel) + PoseKitUi.ButtonWidth(freecamLabel) + PoseKitUi.ButtonWidth(settingsLabel) + spacing * 2;
+        const float donateGap = 14f;
+        var toolsWidth = PoseKitUi.ButtonWidth(resyncLabel) + PoseKitUi.ButtonWidth(freecamLabel) + PoseKitUi.ButtonWidth(settingsLabel) + spacing * 2
+                         + donateGap + PoseKitUi.KofiButtonWidth();
         var toolsX = ImGui.GetWindowContentRegionMax().X - toolsWidth;
         PoseKitUi.SameLineIfFits(toolsWidth);
         if (ImGui.GetCursorPosX() < toolsX)
@@ -117,6 +119,10 @@ public class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button(settingsLabel))
             plugin.ToggleConfigUi();
+
+        // Set a little apart from the tools, so it reads as its own thing rather than a fourth tool.
+        ImGui.SameLine(0, donateGap);
+        PoseKitUi.KofiButton();
     }
 
     /// Dependencies and pairing on the left, the pick-color legend on the right (wrapping under when

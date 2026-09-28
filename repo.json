@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.2.0/PoseKit-2.1.2.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.2.0/PoseKit-2.1.2.0.zip",
-    "Changelog": "- Bone Align: new Left/Right foot and Left/Right toes body parts. Foot is the middle of the sole; toes are the tips of all five toes (IVCS), or the toe base without IVCS. Match facing turns you heel-to-toe for both.",
+    "Changelog": "- New Donate button in the header (next to Settings) that opens PoseKit's Ko-fi page, if you'd like to support development.",
     "LastUpdate": "1790612653"
   }
 ]
