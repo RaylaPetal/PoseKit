@@ -207,7 +207,8 @@ public class MainWindow : Window, IDisposable
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Also turns you so the two parts face each other (e.g. penis into vagina, face toward crotch).\n" +
-                             "Turn only, no tilt. Skipped when a part points mostly up or down.");
+                             "Turn only, no tilt. Also flips you 180 degrees when the other way round would put\n" +
+                             "your bodies inside each other, e.g. an animation made for facing the opposite way.");
 
         var align = plugin.BoneAlign;
         using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(align.IsAligning))

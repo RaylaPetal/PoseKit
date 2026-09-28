@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using PoseKit.Pairing;
@@ -67,6 +68,9 @@ public sealed class BoneAlignService : IDisposable
     private Vector3 bestActualPosition;
     private Vector3? bestMyDirection;
     private Vector3? bestTheirDirection;
+
+    // Both bodies' outlines (BodyParts.BodyOutline) on every sampled frame, for the 180-degree check.
+    private readonly List<(Vector3?[] Mine, Vector3?[] Theirs)> outlineFrames = [];
 
     /// The outcome of the last Align (or what it's doing right now) — shown under the button.
     public string Status { get; private set; } = "";
@@ -141,6 +145,7 @@ public sealed class BoneAlignService : IDisposable
         partnerObjectId = partner.GameObjectId;
         sampled = false;
         bestDistance = float.MaxValue;
+        outlineFrames.Clear();
 
         emoteSync.Sync();
         poseTrigger.PartnerTrackingPaused = true;
@@ -214,6 +219,10 @@ public sealed class BoneAlignService : IDisposable
             }
         }
 
+        if (configuration.BoneAlignMatchFacing)
+            outlineFrames.Add((BoneReader.GetBonePositions(localPlayer, BodyParts.BodyOutline),
+                               BoneReader.GetBonePositions(partner, BodyParts.BodyOutline)));
+
         if (elapsed >= SampleMs)
             Finish(localPlayer, partner);
     }
@@ -252,6 +261,11 @@ public sealed class BoneAlignService : IDisposable
         var rotationApplies = offsetEngine.RotationHookResolved;
         var facing = localPlayer.Rotation + (rotationApplies ? offsetEngine.DesiredOffset.Rotation : 0f);
         var (turn, facingNote) = configuration.BoneAlignMatchFacing ? FacingTurn(rotationApplies) : (0f, "");
+        if (configuration.BoneAlignMatchFacing && rotationApplies && ShouldFlip(turn, localPlayer, partner))
+        {
+            turn = MathF.IEEERemainder(turn + MathF.PI, MathF.Tau);
+            facingNote = $", flipped to {turn * 180f / MathF.PI:0} deg — the bodies overlapped the other way";
+        }
 
         var actual = bestActualPosition;
         var mineAfterTurn = actual + Vector3.Transform(bestMine - actual, Yaw(turn));
@@ -289,6 +303,57 @@ public sealed class BoneAlignService : IDisposable
             return (0f, "");
 
         return (turn, $", turned {turn * 180f / MathF.PI:0} deg");
+    }
+
+    // Two outline bones closer than this count as bodies passing through each other. Well under the
+    // spacing of two torsos pressed together, so close-contact poses don't read as overlap.
+    private const float OverlapDistance = 0.15f;
+
+    // The flip has to cut overlap by at least this much (summed per frame) and by at least this
+    // fraction before it wins — ties and near-ties keep the direction-based facing.
+    private const float FlipMinGain = 0.1f;
+    private const float FlipMaxRatio = 0.7f;
+
+    /// Couple animations are authored for one relative facing, often either "same way as the partner"
+    /// or "facing them", and the part directions alone can't always tell which (a mouth meeting a
+    /// vagina that points up says nothing about head-to-feet). So the chosen turn is compared with
+    /// the same turn plus 180 degrees, each with the parts brought together exactly as Finish will:
+    /// whichever leaves the two bodies less inside each other across the sampled loop is the
+    /// animation's intended facing.
+    private bool ShouldFlip(float turn, IPlayerCharacter localPlayer, IPlayerCharacter partner)
+    {
+        if (outlineFrames.Count == 0) return false;
+        var kept = Overlap(turn, localPlayer, partner);
+        var flipped = Overlap(turn + MathF.PI, localPlayer, partner);
+        return flipped < kept - FlipMinGain && flipped < kept * FlipMaxRatio;
+    }
+
+    /// Average, per sampled frame, of how far outline bone pairs sit inside OverlapDistance of each
+    /// other once this player is turned by `turn` around their actual position and shifted so the
+    /// chosen parts meet.
+    private float Overlap(float turn, IPlayerCharacter localPlayer, IPlayerCharacter partner)
+    {
+        var actual = bestActualPosition;
+        var yaw = Yaw(turn);
+        var mineAfterTurn = actual + Vector3.Transform(bestMine - actual, yaw);
+        var shift = StopShort(bestTheirs, mineAfterTurn, localPlayer, partner) - mineAfterTurn;
+
+        var total = 0f;
+        foreach (var (mine, theirs) in outlineFrames)
+        {
+            foreach (var m in mine)
+            {
+                if (m is not { } mp) continue;
+                var moved = actual + Vector3.Transform(mp - actual, yaw) + shift;
+                foreach (var t in theirs)
+                {
+                    if (t is not { } tp) continue;
+                    var d = Vector3.Distance(moved, tp);
+                    if (d < OverlapDistance) total += OverlapDistance - d;
+                }
+            }
+        }
+        return total / outlineFrames.Count;
     }
 
     private static bool IsMostlyHorizontal(Vector3 direction)

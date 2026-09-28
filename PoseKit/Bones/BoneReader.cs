@@ -37,6 +37,21 @@ public static unsafe class BoneReader
         return seen.Count > 0;
     }
 
+    /// The world position of each bone in <paramref name="names"/>, by index — null where the character
+    /// has no such bone. One skeleton walk for all of them.
+    public static Vector3?[] GetBonePositions(IPlayerCharacter character, IReadOnlyList<string> names)
+    {
+        var result = new Vector3?[names.Count];
+        var index = new Dictionary<string, int>(names.Count, StringComparer.Ordinal);
+        for (var i = 0; i < names.Count; i++) index[names[i]] = i;
+        ForEachBone(character, (boneName, bonePosition) =>
+        {
+            if (index.TryGetValue(boneName, out var i) && result[i] == null)
+                result[i] = bonePosition;
+        });
+        return result;
+    }
+
     /// Calls <paramref name="visit"/> with every bone's name and world position, partial skeleton by
     /// partial skeleton — used by TryGetAverageBonePosition and by the "/posekit bones" dump. The
     /// partial skeleton index is passed too, for the dump's grouping.

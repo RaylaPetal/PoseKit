@@ -336,11 +336,13 @@ public static class PenumbraPosePanel
     /// Penumbra that was never added to PoseKit at all (plugin.ExternalPoseClaims) — see
     /// PenumbraPoseScanner.ScanExternalConflicts for why the latter exists.
     ///
-    /// Also returns how to fix it, when it can be fixed by turning other mods off: every conflicting
-    /// claimant that lives in a *different* mod (PoseKit-tracked or external) gets disabled, keeping
-    /// this option's mod as the one that plays. Null Resolve when the only other claimant is another
-    /// option of this same mod — disabling "the other mod" would disable this one too, so that case
-    /// stays a hover-only warning.
+    /// Also returns how to fix it, keeping this option as the one that plays: every conflicting
+    /// claimant that lives in a *different* mod (PoseKit-tracked or external) gets disabled, and every
+    /// other claimant option inside this *same* mod (e.g. two GoonersLife groups both on "GroundSit
+    /// Pose 3") gets deselected instead, since disabling its mod would disable this option too. A
+    /// same-mod claimant in a single-select group is switched to one of that group's options with no
+    /// pose triggers at all (a "None"/"Off" choice); if the group has none, it can't be cleared
+    /// automatically and is left out of the fix. Null Resolve when nothing at all can be fixed.
     private static (string Tooltip, Action? Resolve)? DescribeConflict(Plugin plugin,
         Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> activePoses,
         PoseModInfo mod, PoseModOption option, Guid? collectionId)
@@ -348,6 +350,7 @@ public static class PenumbraPosePanel
         string? description = null;
         var otherTrackedMods = new List<PoseModInfo>();
         var otherExternalMods = new List<(string ModDirectory, string ModName)>();
+        var sameModOthers = new List<PoseModOption>();
 
         foreach (var trigger in option.Triggers)
         {
@@ -361,6 +364,8 @@ public static class PenumbraPosePanel
                     description ??= $"Also currently selected: \"{other.Option.Name}\" ({other.Mod.ModName}) — both claim {pid.DisplayName}. Only one will actually play.";
                     if (other.Mod != mod && !otherTrackedMods.Contains(other.Mod))
                         otherTrackedMods.Add(other.Mod);
+                    else if (other.Mod == mod && !sameModOthers.Contains(other.Option))
+                        sameModOthers.Add(other.Option);
                 }
             }
 
@@ -377,12 +382,16 @@ public static class PenumbraPosePanel
 
         if (description == null) return null;
 
-        var modsToDisable = otherTrackedMods.Count + otherExternalMods.Count;
-        if (modsToDisable == 0 || collectionId is not { } cid)
+        var sameModChanges = SameModDeselection(mod, sameModOthers, out var clearedOptions);
+        if (otherTrackedMods.Count + otherExternalMods.Count + clearedOptions.Count == 0 || collectionId is not { } cid)
             return (description, null);
 
-        var names = string.Join(", ", otherTrackedMods.Select(m => m.ModName).Concat(otherExternalMods.Select(e => e.ModName)));
-        var tooltip = $"{description}\n\nClick to disable {names} so {mod.ModName} plays instead.";
+        var fixes = new List<string>();
+        if (otherTrackedMods.Count + otherExternalMods.Count > 0)
+            fixes.Add("disable " + string.Join(", ", otherTrackedMods.Select(m => m.ModName).Concat(otherExternalMods.Select(e => e.ModName))));
+        if (clearedOptions.Count > 0)
+            fixes.Add("deselect " + string.Join(", ", clearedOptions.Select(o => $"\"{o.Name}\"")));
+        var tooltip = $"{description}\n\nClick to {string.Join(" and ", fixes)} so \"{option.Name}\" plays instead.";
 
         return (tooltip, () =>
         {
@@ -390,9 +399,45 @@ public static class PenumbraPosePanel
                 SetModEnabled(plugin, other, cid, false);
             foreach (var (modDirectory, _) in otherExternalMods)
                 DisableExternalMod(plugin, cid, modDirectory);
+            if (sameModChanges.Count > 0)
+                ApplyGroupChanges(plugin, mod, sameModChanges, cid);
             SetModEnabled(plugin, mod, cid, true);
             plugin.PenumbraIpc.TryRedrawLocalPlayer();
         });
+    }
+
+    /// The group selections that clear <paramref name="others"/> (other options of this same mod)
+    /// while keeping everything else selected — see DescribeConflict. <paramref name="cleared"/> lists
+    /// the options that change actually clears.
+    private static Dictionary<PoseModGroup, HashSet<string>> SameModDeselection(PoseModInfo mod, List<PoseModOption> others,
+        out List<PoseModOption> cleared)
+    {
+        var changes = new Dictionary<PoseModGroup, HashSet<string>>();
+        cleared = [];
+        foreach (var other in others)
+        {
+            if (mod.Groups.FirstOrDefault(g => !g.IsImplicit && g.Options.Contains(other)) is not { } group)
+                continue;
+            if (!changes.TryGetValue(group, out var selection))
+                selection = new HashSet<string>(group.Selected);
+
+            if (group.MultiSelect)
+            {
+                selection.Remove(other.Name);
+            }
+            else if (group.Options.FirstOrDefault(o => o.Triggers.Count == 0) is { } none)
+            {
+                selection = [none.Name];
+            }
+            else
+            {
+                continue;
+            }
+
+            changes[group] = selection;
+            cleared.Add(other);
+        }
+        return changes;
     }
 
     /// A per-mod, per-option ImGui id for the conflict button — group names like "Default" repeat
@@ -460,19 +505,25 @@ public static class PenumbraPosePanel
     /// Implicit groups (PenumbraPoseScanner's synthetic "Default" from default_mod.json) are skipped
     /// — Penumbra has no group by that name, so including one would corrupt the payload.
     private static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,
-        HashSet<string> newSelection, Guid collectionId)
+        HashSet<string> newSelection, Guid collectionId) =>
+        ApplyGroupChanges(plugin, mod, new Dictionary<PoseModGroup, HashSet<string>> { [changedGroup] = newSelection }, collectionId);
+
+    /// ApplyGroupChange for several groups of the same mod in one Penumbra call.
+    private static bool ApplyGroupChanges(Plugin plugin, PoseModInfo mod, Dictionary<PoseModGroup, HashSet<string>> changes,
+        Guid collectionId)
     {
         var allSelections = new Dictionary<string, IReadOnlyList<string>>();
         foreach (var g in mod.Groups)
         {
             if (g.IsImplicit) continue;
-            allSelections[g.Name] = g == changedGroup ? [.. newSelection] : [.. g.Selected];
+            allSelections[g.Name] = changes.TryGetValue(g, out var changed) ? [.. changed] : [.. g.Selected];
         }
 
         if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, true, mod.Priority, allSelections))
             return false;
 
-        changedGroup.Selected = newSelection;
+        foreach (var (group, selection) in changes)
+            group.Selected = selection;
         mod.Enabled = true;
         plugin.PenumbraIpc.TryRedrawLocalPlayer();
         return true;

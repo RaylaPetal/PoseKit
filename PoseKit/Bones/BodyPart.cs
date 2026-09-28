@@ -65,6 +65,15 @@ public static class BodyParts
         _ => [],
     };
 
+    /// A sparse vanilla skeleton outline — spine, head, arms and legs — for judging whether two bodies
+    /// overlap (Bone Align's automatic 180-degree check). Vanilla bones only, so every body mod has them.
+    public static readonly string[] BodyOutline =
+    [
+        "j_kosi", "j_sebo_a", "j_sebo_b", "j_sebo_c", "j_kubi", "j_kao",
+        "j_ude_a_l", "j_ude_a_r", "j_ude_b_l", "j_ude_b_r",
+        "j_asi_a_l", "j_asi_a_r", "j_asi_b_l", "j_asi_b_r", "j_asi_c_l", "j_asi_c_r", "j_asi_d_l", "j_asi_d_r",
+    ];
+
     /// Where <paramref name="part"/> is on <paramref name="character"/> right now, in world space.
     public static bool TryLocate(IPlayerCharacter character, BodyPart part, out Vector3 world) =>
         TryLocateGroups(character, BoneGroups(part), out world);
