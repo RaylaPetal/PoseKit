@@ -46,6 +46,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// deliberately leaves it false to avoid double-applying the offset.
     public bool HasAppliedOffset { get; private set; }
 
+    /// True while a sit/groundsit/doze variant is still being cycled into — the pose passes through
+    /// other variants on the way, which aren't new plays.
+    public bool IsCycling => cyclingTarget != null;
+
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
     /// <param name="silent">Suppresses the chat notice ResolveOffset would otherwise print when the

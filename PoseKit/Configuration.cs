@@ -53,6 +53,11 @@ public class Configuration : IPluginConfiguration
     /// penis pointing into the vagina, a face toward a crotch) — horizontal turn only.
     public bool BoneAlignMatchFacing { get; set; } = true;
 
+    /// When on, playing an animation with a remembered alignment while paired aligns it automatically.
+    /// Off stops auto-aligning only — successful manual Aligns are still remembered. See
+    /// PoseKit.Bones.AlignmentMemory.
+    public bool AutoAlignFromMemory { get; set; } = true;
+
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
     {
         if (!Characters.TryGetValue(homeWorldId, out var byName))

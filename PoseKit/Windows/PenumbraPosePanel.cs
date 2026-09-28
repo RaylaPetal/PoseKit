@@ -83,7 +83,7 @@ public static class PenumbraPosePanel
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         var anyVisible = false;
-        var activePoses = BuildActivePoseMap(plugin.DiscoveredPoses);
+        var activePoses = ActivePoseMap.Build(plugin.DiscoveredPoses);
 
         foreach (var mod in plugin.DiscoveredPoses)
         {
@@ -295,39 +295,6 @@ public static class PenumbraPosePanel
         if (option.Triggers.Count <= 1) return optionLabel;
         var triggerText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
         return $"{optionLabel} ({triggerText})";
-    }
-
-    /// Every currently-*selected* option's pose triggers across the whole discovered-mods list, keyed
-    /// by PoseIdentifier — only selected options in an *enabled* mod are actually "live" in Penumbra
-    /// (a disabled mod contributes no file redirects at all, and Penumbra keeps remembering its last
-    /// group selection even while it's off, so that stale selection must not count either), so those
-    /// are the only ones that can genuinely collide. With a large curated pack like GoonersLife, it's
-    /// easy to have e.g. two different groups (or two checked options in the same multi-select group)
-    /// both claim "GroundSit Pose 3": only one of their file redirects actually wins in Penumbra, so
-    /// playing either button may not produce what its own label promised.
-    private static Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> BuildActivePoseMap(List<PoseModInfo> mods)
-    {
-        var map = new Dictionary<PoseIdentifier, List<(PoseModInfo, PoseModOption)>>();
-        foreach (var mod in mods)
-        {
-            if (!mod.Enabled) continue;
-
-            foreach (var group in mod.Groups)
-            {
-                foreach (var option in group.Options)
-                {
-                    if (!group.Selected.Contains(option.Name)) continue;
-                    foreach (var trigger in option.Triggers)
-                    {
-                        if (trigger.PoseIdentifier is not { } pid) continue;
-                        if (!map.TryGetValue(pid, out var claimants))
-                            map[pid] = claimants = [];
-                        claimants.Add((mod, option));
-                    }
-                }
-            }
-        }
-        return map;
     }
 
     /// Null unless this option is currently one of two-or-more selected options claiming the same
@@ -642,7 +609,14 @@ public static class PenumbraPosePanel
         EnsureModEnabled(plugin, mod, collectionId);
         CapturePenumbraContext(plugin, mod, group, option);
         PlayTrigger(plugin, trigger);
+        plugin.SetPlayContext(mod.ModDirectory, mod.ModName, group.IsImplicit ? "" : group.Name, option.Name,
+            TriggerText(trigger), trigger.PoseIdentifier);
     }
+
+    /// A trigger's identity text: its slash command (without "/") or its pose's display name — shared
+    /// by pairing's trigger hash and alignment memory's key.
+    public static string TriggerText(PoseTriggerHint trigger) =>
+        trigger.SlashCommand is { } cmd ? cmd : trigger.PoseIdentifier!.Value.DisplayName;
 
     /// Finds the mod/group/option/trigger whose DescribeTriggerLabel matches `label` exactly, or null
     /// tuple if none currently matches — the receiving side may simply not have that mod.

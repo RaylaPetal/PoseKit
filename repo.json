@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.0.0.3/PoseKit-2.0.0.3.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.0.0.3/PoseKit-2.0.0.3.zip",
-    "Changelog": "- Bone Align: Match facing now snaps to the facing a couple animation was made for (same way as your partner, or facing them) instead of guessing from which way the body parts point, so animations like 306 Kittylingus line up straight even if you started slightly off. The status line says which facing it picked.\n- Animations not made to be played on the same spot still use the previous part-direction turn and 180 degree check.",
+    "Changelog": "- New: Bone Align remembers. Every successful Align is saved for the animation you're playing, and the next time you play that animation near your partner (or a targeted player, unpaired) PoseKit aligns you by itself with the same parts, gap and facing.\n- Auto-align waits until both of you are actually playing the animation's loop (past the sit-down intro and any mod redraw), so it no longer aligns to the wrong position.\n- The Bone Align section shows a Known animation panel with the remembered parts, what it's waiting for, and a Forget button. Self/Partner are filled in for you so you can re-align by hand.\n- New Auto-align from memory setting (on by default). Auto-align never sends tells; with the SimpleHeels bridge on, only one of you moves.\n- /posekit bones also logs animation timeline slots.",
     "LastUpdate": "1790598677"
   }
 ]

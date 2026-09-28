@@ -56,8 +56,12 @@ public sealed class BoneAlignService : IDisposable
     private PoseIdentifier poseAtStart;
     private int offsetGenerationAtStart;
     private ulong partnerObjectId;
-    private BodyPart selfPart;
-    private BodyPart partnerPart;
+    private AlignRequest request = new(BodyPart.Penis, BodyPart.Vagina, 0f, AlignFacing.Unchanged, AlignOrigin.Manual);
+    private BodyPart selfPart => request.Self;
+    private BodyPart partnerPart => request.Partner;
+
+    // Measuring the part directions and body outlines is only needed when the facing is worked out.
+    private bool NeedsFacingSamples => request.Facing is AlignFacing.Auto or AlignFacing.PartDirection;
 
     // Everything about the closest sampled moment: both parts' positions and facing directions, and
     // this player's actual (server) position, which the facing turn pivots around.
@@ -84,6 +88,10 @@ public sealed class BoneAlignService : IDisposable
 
     public bool IsAligning => phase != Phase.Idle;
 
+    /// Raised when an Align succeeds, with its request and the facing it actually settled on (never
+    /// Auto) — alignment memory records manual ones.
+    public event Action<AlignRequest, AlignFacing>? Aligned;
+
     public BoneAlignService(Configuration configuration, PairingState pairingState, PairingListener pairingListener,
         PoseTrigger poseTrigger, OffsetEngine offsetEngine, EmoteSyncCommand emoteSync)
     {
@@ -102,38 +110,36 @@ public sealed class BoneAlignService : IDisposable
         poseTrigger.PartnerTrackingPaused = false;
     }
 
-    public void Start()
+    public void Start(AlignRequest alignRequest)
     {
         if (IsAligning) return;
 
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         if (localPlayer == null) return;
+        request = alignRequest;
 
         if (PoseIdentifier.FromCharacter(localPlayer) is not { } pose)
         {
-            Status = "Start a pose or emote first.";
+            SetStatus("Start a pose or emote first.");
             return;
         }
 
         if (ResolvePartner(localPlayer, out var failure) is not { } partner)
         {
-            Status = failure;
+            SetStatus(failure);
             return;
         }
 
-        selfPart = configuration.BoneAlignSelf;
-        partnerPart = configuration.BoneAlignPartner;
-
         if (!BodyParts.TryLocate(localPlayer, selfPart, out _))
         {
-            Status = $"Couldn't find your {BodyParts.DisplayName(selfPart).ToLowerInvariant()} bone.";
+            SetStatus($"Couldn't find your {BodyParts.DisplayName(selfPart).ToLowerInvariant()} bone.");
             return;
         }
 
         if (!BodyParts.TryLocate(partner, partnerPart, out _))
         {
-            Status = $"Couldn't find {partner.Name.TextValue}'s {BodyParts.DisplayName(partnerPart).ToLowerInvariant()} bone — " +
-                     "their mods may still be loading.";
+            SetStatus($"Couldn't find {partner.Name.TextValue}'s {BodyParts.DisplayName(partnerPart).ToLowerInvariant()} bone — " +
+                      "their mods may still be loading.");
             return;
         }
 
@@ -144,7 +150,10 @@ public sealed class BoneAlignService : IDisposable
                 YieldToPartner();
                 return;
             }
-            pairingListener.AnnounceBoneAlign();
+            // Only a button press may send a tell (PairingSender's one-click-one-tell rule), so an
+            // auto-align from memory never announces itself.
+            if (request.Origin == AlignOrigin.Manual)
+                pairingListener.AnnounceBoneAlign();
         }
 
         poseAtStart = pose;
@@ -158,8 +167,15 @@ public sealed class BoneAlignService : IDisposable
         poseTrigger.PartnerTrackingPaused = true;
         phase = Phase.Settling;
         phaseStartedAt = Environment.TickCount64;
-        Status = "Aligning...";
+        SetStatus($"Aligning {BodyParts.DisplayName(selfPart)} -> {BodyParts.DisplayName(partnerPart)}...");
     }
+
+    /// Status text, prefixed "From memory:" for an auto-align so the player can tell where it came from.
+    private void SetStatus(string text) =>
+        Status = request.Origin == AlignOrigin.Memory ? $"From memory: {text}" : text;
+
+    /// Who an Align would line up with right now (see ResolvePartner), or null.
+    public IPlayerCharacter? FindPartner(IPlayerCharacter localPlayer) => ResolvePartner(localPlayer, out _);
 
     /// The paired partner while pairing is active; otherwise the current target, if it's another
     /// player character.
@@ -228,7 +244,7 @@ public sealed class BoneAlignService : IDisposable
             }
         }
 
-        if (configuration.BoneAlignMatchFacing)
+        if (NeedsFacingSamples)
             outlineFrames.Add((BoneReader.GetBonePositions(localPlayer, BodyParts.BodyOutline),
                                BoneReader.GetBonePositions(partner, BodyParts.BodyOutline)));
 
@@ -251,13 +267,13 @@ public sealed class BoneAlignService : IDisposable
 
         if (!sampled)
         {
-            Status = "Couldn't read the bones while aligning.";
+            SetStatus("Couldn't read the bones while aligning.");
             return;
         }
 
         if (bestDistance > MaxAlignDistance)
         {
-            Status = $"Too far apart to align ({bestDistance:0.00}y, max {MaxAlignDistance:0.0}y) — move closer first.";
+            SetStatus($"Too far apart to align ({bestDistance:0.00}y, max {MaxAlignDistance:0.0}y) — move closer first.");
             return;
         }
 
@@ -269,14 +285,7 @@ public sealed class BoneAlignService : IDisposable
         // R(f)^-1 (T - B), the position-only move.
         var rotationApplies = offsetEngine.RotationHookResolved;
         var facing = localPlayer.Rotation + (rotationApplies ? offsetEngine.DesiredOffset.Rotation : 0f);
-        var (turn, facingNote) = configuration.BoneAlignMatchFacing ? FacingTurn(rotationApplies) : (0f, "");
-        if (configuration.BoneAlignMatchFacing && rotationApplies && SharedOriginTurn(localPlayer, partner) is { } snapped)
-            (turn, facingNote) = snapped;
-        else if (configuration.BoneAlignMatchFacing && rotationApplies && ShouldFlip(turn, localPlayer, partner))
-        {
-            turn = MathF.IEEERemainder(turn + MathF.PI, MathF.Tau);
-            facingNote = $", flipped to {turn * 180f / MathF.PI:0} deg — the bodies overlapped the other way";
-        }
+        var (turn, facingNote, resolvedFacing) = ChooseFacing(rotationApplies, localPlayer, partner);
 
         var actual = bestActualPosition;
         var mineAfterTurn = actual + Vector3.Transform(bestMine - actual, Yaw(turn));
@@ -293,9 +302,64 @@ public sealed class BoneAlignService : IDisposable
             Rotation = previous.Rotation + turn,
         });
 
-        Status = $"Aligned {BodyParts.DisplayName(selfPart)} -> {BodyParts.DisplayName(partnerPart)} " +
-                 $"({bestDistance:0.00}y, {configuration.BoneAlignGap:0.00}y gap{facingNote}).";
+        SetStatus($"Aligned {BodyParts.DisplayName(selfPart)} -> {BodyParts.DisplayName(partnerPart)} " +
+                  $"({bestDistance:0.00}y, {request.Gap:0.00}y gap{facingNote}).");
+        Aligned?.Invoke(request, resolvedFacing);
     }
+
+    /// The turn for this Align, a note for the status line, and which facing that turn stands for.
+    /// Auto tries the shared-origin snap, then the part-direction turn with its 180-degree overlap
+    /// check. A remembered fixed facing (same way, facing, quarter turns) is applied straight from the
+    /// drawn models' headings; PartDirection recomputes from the current bodies; Unchanged turns nothing.
+    private (float Turn, string Note, AlignFacing Resolved) ChooseFacing(bool rotationApplies, IPlayerCharacter localPlayer, IPlayerCharacter partner)
+    {
+        if (request.Facing == AlignFacing.Unchanged)
+            return (0f, "", AlignFacing.Unchanged);
+
+        if (FixedFacingAngle(request.Facing) is { } angle)
+        {
+            if (!rotationApplies) return (0f, ", facing unchanged: rotation offset unavailable", request.Facing);
+            if (!bestModelsKnown) return (0f, ", facing unchanged: couldn't read the models' facing", request.Facing);
+            var fixedTurn = MathF.IEEERemainder(bestTheirModelYaw + angle - bestMyModelYaw, MathF.Tau);
+            return (fixedTurn, TurnNote(fixedTurn) + $", {FacingLabel(request.Facing)}", request.Facing);
+        }
+
+        if (request.Facing == AlignFacing.Auto && rotationApplies && SharedOriginTurn(localPlayer, partner) is { } snapped)
+            return snapped;
+
+        var (turn, note) = FacingTurn(rotationApplies);
+        if (rotationApplies && ShouldFlip(turn, localPlayer, partner))
+        {
+            turn = MathF.IEEERemainder(turn + MathF.PI, MathF.Tau);
+            note = $", flipped to {turn * 180f / MathF.PI:0} deg — the bodies overlapped the other way";
+        }
+        return (turn, note, AlignFacing.PartDirection);
+    }
+
+    private static string TurnNote(float turn) =>
+        MathF.Abs(turn) < MinFacingTurn ? "" : $", turned {turn * 180f / MathF.PI:0} deg";
+
+    /// The heading offset from the partner's drawn model for a fixed facing, or null for the others.
+    private static float? FixedFacingAngle(AlignFacing facing) => facing switch
+    {
+        AlignFacing.SameWay => 0f,
+        AlignFacing.Facing => MathF.PI,
+        AlignFacing.QuarterLeft => MathF.PI / 2,
+        AlignFacing.QuarterRight => -MathF.PI / 2,
+        _ => null,
+    };
+
+    /// Short wording for a facing, for status lines and the Bone Align section.
+    public static string FacingLabel(AlignFacing facing) => facing switch
+    {
+        AlignFacing.SameWay => "same way as partner",
+        AlignFacing.Facing => "facing partner",
+        AlignFacing.QuarterLeft => "partner's left",
+        AlignFacing.QuarterRight => "partner's right",
+        AlignFacing.PartDirection => "parts facing each other",
+        AlignFacing.Unchanged => "facing unchanged",
+        _ => "auto facing",
+    };
 
     /// How far to turn this player so the two chosen parts face each other — this player's part's
     /// horizontal direction onto the reverse of the partner's — plus a short note for the status line.
@@ -318,8 +382,8 @@ public sealed class BoneAlignService : IDisposable
 
     // Couple animations are authored with both characters standing on one spot, most often facing the
     // same way, sometimes facing each other (quarter turns are rare but cost nothing to try).
-    private static readonly (float Angle, string Label)[] SharedOriginFacings =
-        [(0f, "same way as partner"), (MathF.PI, "facing partner"), (MathF.PI / 2, "partner's left"), (-MathF.PI / 2, "partner's right")];
+    private static readonly AlignFacing[] SharedOriginFacings =
+        [AlignFacing.SameWay, AlignFacing.Facing, AlignFacing.QuarterLeft, AlignFacing.QuarterRight];
 
     // How close the two drawn models have to land for the shared-origin reading to count — generous
     // enough for different body proportions (height, race, body mods move the parts a little).
@@ -331,27 +395,26 @@ public sealed class BoneAlignService : IDisposable
     /// together also lands this player's drawn model on the partner's spot. Null when no candidate
     /// lands close enough — not a shared-origin animation (two unrelated emotes, a hand on a
     /// shoulder), so the direction-based facing decides instead.
-    private (float Turn, string Note)? SharedOriginTurn(IPlayerCharacter localPlayer, IPlayerCharacter partner)
+    private (float Turn, string Note, AlignFacing Resolved)? SharedOriginTurn(IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         if (!bestModelsKnown) return null;
 
         var actual = bestActualPosition;
-        (float Turn, string Label, float Miss)? best = null;
-        foreach (var (angle, label) in SharedOriginFacings)
+        (float Turn, AlignFacing Facing, float Miss)? best = null;
+        foreach (var facing in SharedOriginFacings)
         {
-            var turn = MathF.IEEERemainder(bestTheirModelYaw + angle - bestMyModelYaw, MathF.Tau);
+            var turn = MathF.IEEERemainder(bestTheirModelYaw + FixedFacingAngle(facing)!.Value - bestMyModelYaw, MathF.Tau);
             var yaw = Yaw(turn);
             var mineAfterTurn = actual + Vector3.Transform(bestMine - actual, yaw);
             var shift = StopShort(bestTheirs, mineAfterTurn, localPlayer, partner) - mineAfterTurn;
             var modelAfter = actual + Vector3.Transform(bestMyModel - actual, yaw) + shift;
             var miss = new Vector2(modelAfter.X - bestTheirModel.X, modelAfter.Z - bestTheirModel.Z).Length();
             if (best is not { } b || miss < b.Miss)
-                best = (turn, label, miss);
+                best = (turn, facing, miss);
         }
 
         if (best is not { } found || found.Miss > SharedOriginTolerance) return null;
-        var note = MathF.Abs(found.Turn) < MinFacingTurn ? "" : $", turned {found.Turn * 180f / MathF.PI:0} deg";
-        return (found.Turn, $"{note}, {found.Label}");
+        return (found.Turn, $"{TurnNote(found.Turn)}, {FacingLabel(found.Facing)}", found.Facing);
     }
 
     // Two outline bones closer than this count as bodies passing through each other. Well under the
@@ -427,7 +490,7 @@ public sealed class BoneAlignService : IDisposable
     /// straight away from the partner.
     private Vector3 StopShort(Vector3 theirs, Vector3 mine, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
-        var room = configuration.BoneAlignGap;
+        var room = request.Gap;
         if (room <= 0f) return theirs;
 
         var gap = theirs - mine;
@@ -452,7 +515,7 @@ public sealed class BoneAlignService : IDisposable
     {
         phase = Phase.Idle;
         poseTrigger.PartnerTrackingPaused = false;
-        Status = reason;
+        SetStatus(reason);
     }
 
     private void OnPartnerAlignStarted(PartnerIdentity sender)
@@ -465,7 +528,8 @@ public sealed class BoneAlignService : IDisposable
     private void YieldToPartner()
     {
         Cancel("Your partner is aligning instead.");
-        Plugin.ChatGui.Print("[PoseKit] Your partner is aligning instead.");
+        if (request.Origin == AlignOrigin.Manual)
+            Plugin.ChatGui.Print("[PoseKit] Your partner is aligning instead.");
     }
 
     /// The shared tie-break: whichever side's own "Name@World" sorts first (ordinal) keeps aligning.

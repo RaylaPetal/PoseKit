@@ -68,6 +68,8 @@ public sealed class Plugin : IDalamudPlugin
     public CoupleRelayInbox CoupleRelayInbox { get; init; }
     public CoupleRelayOutbox CoupleRelayOutbox { get; init; }
     public Bones.BoneAlignService BoneAlign { get; init; }
+    public Bones.AlignmentMemory AlignmentMemory { get; init; }
+    public Bones.AutoAlignCoordinator AutoAlign { get; init; }
 
     /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
     /// "update this preset" instead of only ever "save as new".
@@ -78,6 +80,17 @@ public sealed class Plugin : IDalamudPlugin
     /// the offset. Best-effort: goes stale if the user changes Penumbra settings some other way
     /// afterward, same as any other snapshot.
     public PenumbraLink? LastPlayedPenumbraContext { get; set; }
+
+    /// Which animation mod (down to the trigger) the current pose comes from, if known — alignment
+    /// memory's key source. See Bones.PlayContext and SetPlayContext.
+    public Bones.PlayContext? CurrentPlayContext { get; private set; }
+
+    /// Records the animation a PoseKit play just triggered. Call right after triggering, so the
+    /// context carries the play's own OffsetGeneration.
+    public void SetPlayContext(string modDirectory, string modName, string group, string option, string trigger,
+        PoseIdentifier? pose, bool fromPartnerAnchoredPreset = false) =>
+        CurrentPlayContext = new Bones.PlayContext(modDirectory, modName, group, option, trigger, pose,
+            fromPartnerAnchoredPreset, PoseTrigger.OffsetGeneration, Environment.TickCount64);
 
     /// One-shot latch for the Animations-tab scan, mirroring HasOfferedSimpleHeelsBridge below —
     /// on a fresh full game launch, Penumbra (or the local player's collection specifically) may
@@ -122,6 +135,8 @@ public sealed class Plugin : IDalamudPlugin
         CoupleRelayInbox.AutoApply += ApplyCapturedPartnerState;
         CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, PlayPreset);
         BoneAlign = new Bones.BoneAlignService(Configuration, PairingState, PairingListener, PoseTrigger, OffsetEngine, EmoteSync);
+        AlignmentMemory = new Bones.AlignmentMemory(PluginInterface.GetPluginConfigDirectory());
+        AutoAlign = new Bones.AutoAlignCoordinator(this);
 
         // A capture request arrives here when the partner is saving an "include partner" preset:
         // reply once with *this* side's own currently-playing pose/offset/Penumbra link — AND its own
@@ -207,6 +222,7 @@ public sealed class Plugin : IDalamudPlugin
         CouplePresetCaptureService.Dispose();
         CoupleRelayInbox.Dispose();
         CoupleRelayOutbox.Dispose();
+        AutoAlign.Dispose();
         BoneAlign.Dispose();
         PairingListener.Dispose();
 
@@ -219,6 +235,7 @@ public sealed class Plugin : IDalamudPlugin
         var localPlayer = ObjectTable.LocalPlayer;
         var currentPose = PoseIdentifier.FromCharacter(localPlayer);
         RestorePoseIfDropped(currentPose);
+        UpdatePlayContext(currentPose);
 
         // Auto-clear once the character leaves the pose/emote loop entirely — without this, a
         // leftover offset keeps fighting the game's own draw-offset updates during normal
@@ -234,6 +251,7 @@ public sealed class Plugin : IDalamudPlugin
             PoseTrigger.ClearOffset(localPlayer);
             LoadedPreset = null;
             LastPlayedPenumbraContext = null;
+            CurrentPlayContext = null;
         }
 
         // One-shot: the first time SimpleHeels is ever observed loaded (which may not be until well
@@ -264,6 +282,50 @@ public sealed class Plugin : IDalamudPlugin
         CoupleRelayInbox.Tick();
         CoupleRelayOutbox.Tick();
         BoneAlign.Tick();
+        AutoAlign.Tick();
+    }
+
+    // A play context this fresh belongs to the play that set it, whatever the pose does meanwhile —
+    // cycling variants, or passing through no pose while one emote hands over to the next.
+    private const long FreshPlayContextMs = 8000;
+
+    private PoseIdentifier? lastPoseForPlayContext;
+
+    /// Keeps CurrentPlayContext in step with poses PoseKit didn't start itself. Leaving the pose ends
+    /// the context (so playing the same animation again counts as a new play). Entering a pose that
+    /// isn't the current context's resolves a hand-typed emote from Penumbra's selected options: exactly
+    /// one selected option claiming that pose gives a context, anything else gives none.
+    private void UpdatePlayContext(PoseIdentifier? currentPose)
+    {
+        if (currentPose == lastPoseForPlayContext) return;
+        var previous = lastPoseForPlayContext;
+        lastPoseForPlayContext = currentPose;
+
+        var context = CurrentPlayContext;
+        var fresh = context != null && Environment.TickCount64 - context.SetAt < FreshPlayContextMs;
+
+        if (currentPose is not { } pose)
+        {
+            if (previous != null && !fresh)
+                CurrentPlayContext = null;
+            return;
+        }
+
+        if (PoseTrigger.IsCycling || fresh || (context != null && context.Pose == pose))
+            return;
+
+        CurrentPlayContext = null;
+        if (!ActivePoseMap.Build(DiscoveredPoses).TryGetValue(pose, out var claimants)) return;
+        var options = claimants.DistinctBy(c => c.Option).ToList();
+        if (options.Count != 1) return;
+
+        var (mod, option) = options[0];
+        if (mod.Groups.FirstOrDefault(g => g.Options.Contains(option)) is not { } group) return;
+        var triggerIndex = option.Triggers.FindIndex(t => t.PoseIdentifier == pose);
+        if (triggerIndex < 0) return;
+        var trigger = option.Triggers[triggerIndex];
+        SetPlayContext(mod.ModDirectory, mod.ModName, group.IsImplicit ? "" : group.Name, option.Name,
+            PenumbraPosePanel.TriggerText(trigger), pose);
     }
 
     /// Defensive fallback for a sit/groundsit/doze loop dropping back to Character->Mode Normal
@@ -357,6 +419,45 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         PoseTrigger.Trigger(pose, offset, anchor, silent);
+        SetPresetPlayContext(pose, anchor, penumbra);
+    }
+
+    /// The play context for a preset (or accepted partner half): its Penumbra link names the mod and
+    /// option, and the trigger is that option's one trigger entering the preset's own pose. No link, a
+    /// mod or option that doesn't resolve here, or zero/several matching triggers all leave no
+    /// context — alignment memory then neither records nor auto-aligns this play.
+    private void SetPresetPlayContext(PoseIdentifier pose, PresetAnchor? anchor, PenumbraLink? penumbra)
+    {
+        CurrentPlayContext = null;
+        if (penumbra is not { ModDirectory.Length: > 0 } link || ResolveModDirectory(link.ModDirectory) is not { } modDirectory) return;
+        if (DiscoveredPoses.FirstOrDefault(m => m.ModDirectory == modDirectory) is not { } mod) return;
+
+        var matches = new List<(PoseModGroup Group, PoseModOption Option, PoseTriggerHint Trigger)>();
+        foreach (var group in mod.Groups)
+        {
+            var groupMatches = link.GroupName.Length == 0 ? group.IsImplicit
+                : link.GroupName.StartsWith('#') ? ModDirectoryHash.Compute(group.Name) == link.GroupName[1..]
+                : group.Name == link.GroupName;
+            if (!groupMatches) continue;
+
+            foreach (var option in group.Options)
+            {
+                var optionMatches = group.IsImplicit
+                    || (link.OptionName.StartsWith('#') ? ModDirectoryHash.Compute(option.Name) == link.OptionName[1..] : option.Name == link.OptionName);
+                if (!optionMatches) continue;
+
+                foreach (var trigger in option.Triggers)
+                {
+                    if (trigger.PoseIdentifier == pose)
+                        matches.Add((group, option, trigger));
+                }
+            }
+        }
+
+        if (matches.Count != 1) return;
+        var (g, o, t) = matches[0];
+        SetPlayContext(mod.ModDirectory, mod.ModName, g.IsImplicit ? "" : g.Name, o.Name,
+            PenumbraPosePanel.TriggerText(t), pose, fromPartnerAnchoredPreset: anchor?.Partner != null);
     }
 
     /// Applies a Penumbra link's mod/group/option selection, enabling the mod if needed — true only
@@ -452,6 +553,7 @@ public sealed class Plugin : IDalamudPlugin
 
         foreach (var (label, character) in targets)
         {
+            Log.Information($"[bones] {label} {character.Name.TextValue} timelines: {Bones.AnimationReadiness.DescribeTimelines(character)}");
             var count = 0;
             Bones.BoneReader.ForEachBone(character, (partial, name, world) =>
             {

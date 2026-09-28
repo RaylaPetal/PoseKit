@@ -172,6 +172,11 @@ public class MainWindow : Window, IDisposable
         var configuration = plugin.Configuration;
         var labelWidth = ImGui.CalcTextSize("Partner").X + ImGui.GetStyle().ItemSpacing.X;
 
+        // A remembered animation: say so, with what's remembered, and offer to forget it. The
+        // dropdowns below were already filled from it by AutoAlignCoordinator.
+        if (plugin.AutoAlign.CurrentEntry is { } known)
+            DrawKnownAnimation(known);
+
         var self = configuration.BoneAlignSelf;
         if (DrawBodyPartCombo("Self", "##PoseKitBoneAlignSelf", labelWidth, ref self))
         {
@@ -212,17 +217,86 @@ public class MainWindow : Window, IDisposable
                              "Turn only, no tilt. Also flips you 180 degrees when the other way round would put\n" +
                              "your bodies inside each other, e.g. an animation made for facing the opposite way.");
 
+        var autoAlign = configuration.AutoAlignFromMemory;
+        if (ImGui.Checkbox("Auto-align from memory##PoseKitAutoAlign", ref autoAlign))
+        {
+            configuration.AutoAlignFromMemory = autoAlign;
+            configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Each successful Align is remembered for the animation you're playing. Next time you play it\n" +
+                             "near your partner (or a targeted player), PoseKit aligns you by itself with the same parts.\n" +
+                             "Turning this off stops auto-aligning; Aligns are still remembered.");
+
         var align = plugin.BoneAlign;
         using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(align.IsAligning))
         {
             if (PoseKitUi.WideButton(align.IsAligning ? "Aligning...##PoseKitBoneAlign" : "Align##PoseKitBoneAlign"))
-                align.Start();
+                align.Start(Bones.AlignRequest.FromConfiguration(configuration));
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Resyncs emotes, watches both parts for a moment, then moves you so they meet.");
 
         if (align.Status.Length > 0)
             PoseKitUi.TextWrappedDisabled(align.Status);
+    }
+
+    /// The remembered alignment for the animation playing, as a small green-tinted panel: a
+    /// "● Known animation" header with Forget on the right, then the parts and the facing/gap on
+    /// their own short lines, so it reads cleanly in the narrow sidebar.
+    private void DrawKnownAnimation(Bones.AlignmentEntry known)
+    {
+        const float pad = 8f;
+        var drawList = ImGui.GetWindowDrawList();
+        var start = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X;
+
+        // Content on the top channel, the panel behind it on the bottom one, drawn once its height is known.
+        drawList.ChannelsSplit(2);
+        drawList.ChannelsSetCurrent(1);
+
+        ImGui.SetCursorScreenPos(start + new Vector2(pad, pad));
+        ImGui.BeginGroup();
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + width - pad * 2);
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(PoseKitUi.Good, "●");
+        ImGui.SameLine(0, 5);
+        ImGui.TextColored(PoseKitUi.Good, "Known animation");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip($"{known.ModName} — {known.Option} ({known.Trigger})\nRemembered from your last successful Align on this animation.");
+
+        const string forgetLabel = "Forget##PoseKitBoneAlignForget";
+        var forgetWidth = ImGui.CalcTextSize("Forget").X + ImGui.GetStyle().FramePadding.X * 2;
+        ImGui.SameLine(width - pad * 2 - forgetWidth); // relative to the group, which starts pad in
+        if (ImGui.SmallButton(forgetLabel))
+            plugin.AlignmentMemory.Forget(known.Key);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Stop auto-aligning this animation until you align it manually again.");
+
+        ImGui.TextUnformatted(Bones.BodyParts.DisplayName(known.Self));
+        ImGui.SameLine(0, 6);
+        ImGui.TextColored(PoseKitUi.Muted, "to");
+        ImGui.SameLine(0, 6);
+        ImGui.TextUnformatted(Bones.BodyParts.DisplayName(known.Partner));
+
+        var facing = Bones.BoneAlignService.FacingLabel(known.Facing);
+        PoseKitUi.TextWrappedDisabled($"{char.ToUpperInvariant(facing[0])}{facing[1..]} · {known.Gap:0.00}y gap");
+        if (plugin.AutoAlign.Waiting.Length > 0)
+            PoseKitUi.TextWrappedDisabled(plugin.AutoAlign.Waiting);
+
+        ImGui.PopTextWrapPos();
+        ImGui.EndGroup();
+        var end = new Vector2(start.X + width, ImGui.GetItemRectMax().Y + pad);
+
+        drawList.ChannelsSetCurrent(0);
+        drawList.AddRectFilled(start, end, ImGui.GetColorU32(PoseKitUi.Good with { W = 0.10f }), 6f);
+        drawList.AddRect(start, end, ImGui.GetColorU32(PoseKitUi.Good with { W = 0.35f }), 6f);
+        drawList.ChannelsMerge();
+
+        ImGui.SetCursorScreenPos(new Vector2(start.X, end.Y));
+        ImGui.Dummy(new Vector2(width, 0));
+        ImGui.Spacing();
     }
 
     private static bool DrawBodyPartCombo(string label, string id, float labelWidth, ref Bones.BodyPart value)
