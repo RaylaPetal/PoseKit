@@ -48,7 +48,7 @@ public class WelcomeWindow : Window, IDisposable
 
         PoseKitUi.SectionHeader("Quick Start");
         ImGui.TextWrapped("1. Set a folder filter below, then pick which mods to scan in Settings.");
-        ImGui.TextWrapped("2. Open Animations in the sidebar and hit Play on any pose.");
+        ImGui.TextWrapped("2. Open the Animations tab at the top and hit Play on any pose.");
         ImGui.TextWrapped("3. Use Live Offset to drag your character into position, then save it as a named preset under Presets.");
 
         PoseKitUi.SectionHeader("Animation Mod Folder Filter");

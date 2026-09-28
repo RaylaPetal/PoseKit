@@ -102,14 +102,14 @@ public sealed class PairingListener : IDisposable
 
     /// Called every framework tick: ends a pairing that's gone stale — 2 hours with no pairing-protocol
     /// message sent or received with the current peer (see PairingState.Touch/TicksSinceActivity for
-    /// what counts) — via the same Unpair() path a manual click uses, so the partner gets the same
-    /// best-effort notice. No-op while unpaired. See design.md (pairing-solo-play-idle-unpair)
-    /// Decisions 4-5.
+    /// what counts). Clears locally only, with no unpair tell: both sides reset their clocks on the same
+    /// messages, so the partner's own timer ends their side at about the same moment anyway. No-op while
+    /// unpaired. See design.md (pairing-solo-play-idle-unpair) Decisions 4-5.
     public void Tick()
     {
         if (!state.Active) return;
         if (state.TicksSinceActivity > StaleTimeoutMs)
-            Unpair();
+            state.Clear();
     }
 
     /// Inviter side, one click: sends exactly one invite tell and records it so a later accept can be

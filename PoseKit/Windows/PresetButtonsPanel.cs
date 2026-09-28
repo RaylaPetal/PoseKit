@@ -10,7 +10,7 @@ using PoseKit.Presets;
 
 namespace PoseKit.Windows;
 
-/// <summary>Live-offset editor (drawn in MainWindow's sidebar) and the Presets page: a collapsible
+/// <summary>Live-offset editor (drawn in MainWindow's right rail) and the Presets page: a collapsible
 /// save form above a searchable, filterable library grouped by pose. Pairing itself lives in
 /// PairingPanel — presets don't name a partner; see DrawPresetEntry.</summary>
 public static class PresetButtonsPanel
@@ -136,7 +136,7 @@ public static class PresetButtonsPanel
             var offset = plugin.OffsetEngine.DesiredOffset;
             var changed = false;
 
-            // Drawn in the narrow sidebar, so the drag fields take whatever width is left after the
+            // Drawn in the narrow right rail, so the drag fields take whatever width is left after the
             // widest label rather than a fixed width that would push labels off the edge.
             var dragWidth = MathF.Max(60f, ImGui.GetContentRegionAvail().X - ImGui.CalcTextSize("Forward / Back").X
                                             - ImGui.GetStyle().ItemSpacing.X);

@@ -211,24 +211,29 @@ internal static class PoseKitUi
 
     public static void EndCard() => ImGui.EndChild();
 
-    /// A full-width sidebar navigation row: highlighted while selected, with an optional count (or
-    /// short badge) right-aligned in muted text. True when clicked.
-    public static bool NavItem(string label, bool selected, string? count = null, Vector4? countColor = null)
+    /// A pill-shaped page tab for the header: filled lavender when selected, text-only (with a soft
+    /// hover) when not, with an optional count after the label. Returns true when clicked.
+    public static bool PillTab(string label, bool selected, string? count = null)
     {
-        const float extraHeight = 8f;
-        var rowY = ImGui.GetCursorPosY();
-        ImGui.PushStyleVar(ImGuiStyleVar.SelectableTextAlign, new Vector2(0f, 0.5f));
-        var clicked = ImGui.Selectable($"  {label}##PoseKitNav{label}", selected, ImGuiSelectableFlags.None,
-            new Vector2(0, ImGui.GetTextLineHeight() + extraHeight));
-        ImGui.PopStyleVar();
-        if (count != null)
-        {
-            var width = ImGui.CalcTextSize(count).X;
-            ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - width - 8f);
-            ImGui.SetCursorPosY(rowY + extraHeight / 2f);
-            ImGui.TextColored(countColor ?? Muted, count);
-        }
-        return clicked;
+        var text = count != null ? $"{label}  {count}" : label;
+        using var rounding = ImRaii.PushStyle(ImGuiStyleVar.FrameRounding, 12f)
+            .Push(ImGuiStyleVar.FramePadding, new Vector2(14f, 5f));
+        using var colors = ImRaii.PushColor(ImGuiCol.Button, selected ? AccentMuted : new Vector4(0f, 0f, 0f, 0f))
+            .Push(ImGuiCol.ButtonHovered, selected ? AccentMuted : FieldBgHovered)
+            .Push(ImGuiCol.ButtonActive, AccentActive)
+            .Push(ImGuiCol.Text, selected ? new Vector4(1f, 1f, 1f, 1f) : Muted);
+        return ImGui.Button($"{text}##PoseKitTab{label}");
+    }
+
+    /// A header tool button that shows its on/off state: green-tinted while on, the usual lavender
+    /// while off. Returns true when clicked.
+    public static bool ToggleButton(string label, bool on)
+    {
+        if (!on) return ImGui.Button(label);
+        using (ImRaii.PushColor(ImGuiCol.Button, GoodMuted)
+                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.30f, 0.60f, 0.30f, 1f))
+                   .Push(ImGuiCol.ButtonActive, Good))
+            return ImGui.Button(label);
     }
 
     /// A normal-size button tinted in the muted warning red — for destructive actions like deleting a

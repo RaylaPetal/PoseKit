@@ -7,18 +7,20 @@ using Dalamud.Interface.Windowing;
 namespace PoseKit.Windows;
 
 /// <summary>
-/// Dashboard layout: a header (title, dependency/pairing status, global actions), then three cards —
-/// a sidebar (page navigation, character tools and the live offset editor, all always available),
-/// the selected page, and the Pairing panel — and a color legend footer. Below ThreeColumnMinWidth
-/// the Pairing column folds into a sidebar page instead, so the window still works when shrunk.
+/// Two-part layout. A header carries the title, the Animations/Presets page tabs (the only thing that
+/// switches content) and the global tools (resync, freecam, settings), with a status line under it
+/// (dependencies, pairing, color legend). Below it are two cards: the selected page, taking all
+/// the width it can, and a fixed right rail that always shows Pairing, Live Offset and Bone Align
+/// top to bottom, in the order a couple session uses them. The rail scrolls on its own; nothing
+/// collapses or hides.
 /// </summary>
 public class MainWindow : Window, IDisposable
 {
-    private enum Page { Animations, Presets, Pairing }
+    private enum Page { Animations, Presets }
 
-    private const float ThreeColumnMinWidth = 860f;
-    private const float SidebarWidth = 250f;
-    private const float PairingColumnWidth = 280f;
+    private const float RailWidth = 300f;
+    private const float NarrowRailWidth = 260f;
+    private const float NarrowWindowWidth = 820f;
 
     private readonly Plugin plugin;
     private Page page = Page.Animations;
@@ -31,11 +33,11 @@ public class MainWindow : Window, IDisposable
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(560, 420),
+            MinimumSize = new Vector2(680, 460),
             MaximumSize = new Vector2(1600, 1200)
         };
 
-        Size = new Vector2(1000, 660);
+        Size = new Vector2(1000, 680);
         SizeCondition = ImGuiCond.FirstUseEver;
 
         this.plugin = plugin;
@@ -57,58 +59,96 @@ public class MainWindow : Window, IDisposable
         using var theme = PoseKitUi.PushTheme();
 
         DrawHeader();
+        DrawStatusLine();
+        ImGui.Spacing();
 
         var avail = ImGui.GetContentRegionAvail();
         var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var bodyHeight = Math.Max(120f, avail.Y - ImGui.GetFrameHeightWithSpacing());
-        var threeColumn = avail.X >= ThreeColumnMinWidth;
-        if (threeColumn && page == Page.Pairing)
-            page = Page.Animations;
+        var railWidth = avail.X < NarrowWindowWidth ? NarrowRailWidth : RailWidth;
 
-        if (PoseKitUi.BeginCard("##PoseKitSidebar", new Vector2(SidebarWidth, bodyHeight)))
-            DrawSidebar(threeColumn);
-        PoseKitUi.EndCard();
-
-        ImGui.SameLine();
-        var centerWidth = avail.X - SidebarWidth - spacing - (threeColumn ? PairingColumnWidth + spacing : 0f);
-        if (PoseKitUi.BeginCard("##PoseKitContent", new Vector2(centerWidth, bodyHeight),
+        if (PoseKitUi.BeginCard("##PoseKitContent", new Vector2(avail.X - railWidth - spacing, avail.Y),
                 ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
             DrawPage();
         PoseKitUi.EndCard();
 
-        if (threeColumn)
-        {
-            ImGui.SameLine();
-            if (PoseKitUi.BeginCard("##PoseKitPairing", new Vector2(PairingColumnWidth, bodyHeight)))
-            {
-                PoseKitUi.CardTitle("Pairing");
-                PoseKitUi.CardTitleRule();
-                PairingPanel.Draw(plugin);
-            }
-            PoseKitUi.EndCard();
-        }
-
-        DrawLegend();
+        ImGui.SameLine();
+        if (PoseKitUi.BeginCard("##PoseKitRail", new Vector2(railWidth, avail.Y)))
+            DrawRail();
+        PoseKitUi.EndCard();
     }
 
+    /// Title and version, the page tabs beside them, and the global tools right-aligned — freecam
+    /// tinted green while it's on, so its state is visible at a glance.
     private void DrawHeader()
     {
         ImGui.SetWindowFontScale(1.3f);
+        ImGui.AlignTextToFramePadding();
         ImGui.TextColored(PoseKitUi.Accent, "P O S E K I T");
         ImGui.SetWindowFontScale(1f);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, 8);
         ImGui.TextColored(PoseKitUi.Muted, $"v{Plugin.Version}");
 
-        // Rescan lives on the Animations page's title row, next to the mod count it refreshes.
+        ImGui.SameLine(0, 24);
+        if (PoseKitUi.PillTab("Animations", page == Page.Animations, plugin.DiscoveredPoses.Count.ToString()))
+            page = Page.Animations;
+        ImGui.SameLine(0, 4);
+        if (PoseKitUi.PillTab("Presets", page == Page.Presets, plugin.PresetManager.Presets.Count.ToString()))
+            page = Page.Presets;
+
+        const string resyncLabel = "Resync##PoseKitHeaderResync";
         const string settingsLabel = "Settings##PoseKitHeaderSettings";
-        ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - PoseKitUi.ButtonWidth(settingsLabel));
+        var freecamLabel = plugin.FreeCam.Enabled ? "Freecam on##PoseKitHeaderFreecam" : "Freecam##PoseKitHeaderFreecam";
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var toolsWidth = PoseKitUi.ButtonWidth(resyncLabel) + PoseKitUi.ButtonWidth(freecamLabel) + PoseKitUi.ButtonWidth(settingsLabel) + spacing * 2;
+        var toolsX = ImGui.GetWindowContentRegionMax().X - toolsWidth;
+        PoseKitUi.SameLineIfFits(toolsWidth);
+        if (ImGui.GetCursorPosX() < toolsX)
+            ImGui.SetCursorPosX(toolsX);
+
+        if (ImGui.Button(resyncLabel))
+            plugin.EmoteSync.Sync();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Restart every nearby player's emote together, on your screen.");
+        ImGui.SameLine();
+        if (PoseKitUi.ToggleButton(freecamLabel, plugin.FreeCam.Enabled))
+            plugin.FreeCam.Toggle();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(plugin.FreeCam.Status);
+        ImGui.SameLine();
         if (ImGui.Button(settingsLabel))
             plugin.ToggleConfigUi();
+    }
 
+    /// Dependencies and pairing on the left, the pick-color legend on the right (wrapping under when
+    /// the window is narrow). While freecam is on, its controls replace the legend, since they're what
+    /// the player needs right then.
+    private void DrawStatusLine()
+    {
         PoseKitUi.DrawDependencyStatus(plugin);
         ImGui.SameLine(0, 16);
         DrawPairingStatus();
-        ImGui.Spacing();
+
+        if (plugin.FreeCam.Enabled)
+        {
+            const string hint = "Freecam: WASD move · E/Q up/down · right-drag look";
+            var hintWidth = ImGui.CalcTextSize(hint).X;
+            PoseKitUi.SameLineIfFits(hintWidth + 16);
+            RightAlign(hintWidth);
+            ImGui.TextColored(PoseKitUi.Good, hint);
+            return;
+        }
+
+        var legendWidth = LegendWidth();
+        PoseKitUi.SameLineIfFits(legendWidth + 16);
+        RightAlign(legendWidth);
+        DrawLegend();
+    }
+
+    private static void RightAlign(float width)
+    {
+        var x = ImGui.GetWindowContentRegionMax().X - width;
+        if (ImGui.GetCursorPosX() < x)
+            ImGui.SetCursorPosX(x);
     }
 
     private void DrawPairingStatus()
@@ -124,38 +164,13 @@ public class MainWindow : Window, IDisposable
             PoseKitUi.StatusDot(PoseKitUi.Muted, "NOT PAIRED");
     }
 
-    private void DrawSidebar(bool threeColumn)
+    /// Everything for the session, always visible, top to bottom: who you're paired with and what's
+    /// picked, then fine-tuning your placement, then lining up body parts.
+    private void DrawRail()
     {
-        PoseKitUi.CardTitle("Library");
+        PoseKitUi.CardTitle("Pairing");
         PoseKitUi.CardTitleRule();
-
-        if (PoseKitUi.NavItem("Animations", page == Page.Animations, plugin.DiscoveredPoses.Count.ToString()))
-            page = Page.Animations;
-        if (PoseKitUi.NavItem("Presets", page == Page.Presets, plugin.PresetManager.Presets.Count.ToString()))
-            page = Page.Presets;
-        if (!threeColumn)
-        {
-            // The Pairing column is hidden at this width, so flag anything waiting on the player (an
-            // incoming couple preset or pairing invite) right on its nav row instead.
-            var needsAttention = plugin.CoupleRelayInbox.PresetName != null || plugin.PairingState.PendingInvite != null;
-            var badge = needsAttention ? "!" : plugin.PairingState.Active ? "●" : null;
-            if (PoseKitUi.NavItem("Pairing", page == Page.Pairing, badge, needsAttention ? PoseKitUi.Info : PoseKitUi.Good))
-                page = Page.Pairing;
-        }
-
-        ImGui.Spacing();
-        PoseKitUi.SectionHeader("Character Tools");
-
-        if (PoseKitUi.WideButton("Resync nearby emotes"))
-            plugin.EmoteSync.Sync();
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Resets all nearby rendered players together on your client.");
-
-        if (PoseKitUi.WideButton(plugin.FreeCam.Enabled ? "Disable freecam" : "Enable freecam"))
-            plugin.FreeCam.Toggle();
-        PoseKitUi.TextWrappedDisabled(plugin.FreeCam.Status);
-        if (plugin.FreeCam.Enabled)
-            PoseKitUi.TextWrappedDisabled("WASD move | E/Q up/down | right-drag look | /posekit tfc exits");
+        PairingPanel.Draw(plugin);
 
         ImGui.Spacing();
         PoseKitUi.SectionHeader("Live Offset");
@@ -243,7 +258,7 @@ public class MainWindow : Window, IDisposable
 
     /// The remembered alignment for the animation playing, as a small green-tinted panel: a
     /// "● Known animation" header with Forget on the right, then the parts and the facing/gap on
-    /// their own short lines, so it reads cleanly in the narrow sidebar.
+    /// their own short lines, so it reads cleanly in the narrow right rail.
     private void DrawKnownAnimation(Bones.AlignmentEntry known)
     {
         const float pad = 8f;
@@ -335,12 +350,6 @@ public class MainWindow : Window, IDisposable
                 PresetButtonsPanel.DrawToolbar(plugin);
                 DrawScrollRegion("##PoseKitPresetsScroll", () => PresetButtonsPanel.DrawPresets(plugin));
                 break;
-
-            case Page.Pairing:
-                PoseKitUi.CardTitle("Pairing");
-                PoseKitUi.CardTitleRule();
-                DrawScrollRegion("##PoseKitPairingScroll", () => PairingPanel.Draw(plugin));
-                break;
         }
     }
 
@@ -351,16 +360,33 @@ public class MainWindow : Window, IDisposable
         ImGui.EndChild();
     }
 
+    // The pick colors, in the order a couple round goes: yours, theirs, both, and a conflict.
+    private static readonly (Vector4 Color, string Label)[] LegendEntries =
+    [
+        (PoseKitUi.Accent, "Your pick"), (PoseKitUi.Info, "Partner's pick"),
+        (PoseKitUi.Good, "Both ready"), (PoseKitUi.Bad, "Conflict"),
+    ];
+
+    private const float LegendGap = 12f;
+
+    private static float LegendWidth()
+    {
+        var width = 0f;
+        foreach (var (_, label) in LegendEntries)
+            width += ImGui.CalcTextSize("●").X + 5f + ImGui.CalcTextSize(label).X;
+        return width + LegendGap * (LegendEntries.Length - 1);
+    }
+
     private static void DrawLegend()
     {
-        ImGui.TextColored(PoseKitUi.Muted, "What do the colors mean?");
-        ImGui.SameLine(0, 14);
-        PoseKitUi.StatusDot(PoseKitUi.Accent, "Your pick");
-        ImGui.SameLine(0, 14);
-        PoseKitUi.StatusDot(PoseKitUi.Info, "Partner's pick");
-        ImGui.SameLine(0, 14);
-        PoseKitUi.StatusDot(PoseKitUi.Good, "Both ready");
-        ImGui.SameLine(0, 14);
-        PoseKitUi.StatusDot(PoseKitUi.Bad, "Conflict");
+        ImGui.BeginGroup();
+        for (var i = 0; i < LegendEntries.Length; i++)
+        {
+            if (i > 0) ImGui.SameLine(0, LegendGap);
+            PoseKitUi.StatusDot(LegendEntries[i].Color, LegendEntries[i].Label);
+        }
+        ImGui.EndGroup();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("What the highlight colors on animations and presets mean while paired.");
     }
 }

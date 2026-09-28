@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.0.0/PoseKit-2.1.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.0.0/PoseKit-2.1.0.0.zip",
-    "Changelog": "- New: Bone Align remembers. Every successful Align is saved for the animation you're playing, and the next time you play that animation near your partner (or a targeted player, unpaired) PoseKit aligns you by itself with the same parts, gap and facing.\n- Auto-align waits until both of you are actually playing the animation's loop (past the sit-down intro and any mod redraw), so it no longer aligns to the wrong position.\n- The Bone Align section shows a Known animation panel with the remembered parts, what it's waiting for, and a Forget button. Self/Partner are filled in for you so you can re-align by hand.\n- New Auto-align from memory setting (on by default). Auto-align never sends tells; with the SimpleHeels bridge on, only one of you moves.\n- /posekit bones also logs animation timeline slots.",
+    "Changelog": "- New layout: Animations and Presets are now tabs at the top, next to the title, and the page gets the full width. Pairing, Live Offset and Bone Align are always shown together in one column on the right.\n- Resync and Freecam moved up next to Settings. Freecam turns green while it's on, and its controls show in the status line.\n- The color legend now sits on the status line under the title.\n- An idle pairing (2 hours with no activity) now ends quietly on each side without sending an unpair tell.",
     "LastUpdate": "1790603154"
   }
 ]

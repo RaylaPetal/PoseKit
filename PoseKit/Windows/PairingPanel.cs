@@ -10,7 +10,7 @@ namespace PoseKit.Windows;
 /// presets, both sides' picks, and unpair — independent of any particular preset. Presets don't name
 /// a partner; whether clicking one queues (paired) or plays immediately (not paired) is decided purely
 /// by PairingState, which this panel is the one place to see and change. Drawn inside a narrow card
-/// (MainWindow's Pairing column), so every row wraps or fills the width rather than assuming a
+/// (the top of MainWindow's right rail), so every row wraps or fills the width rather than assuming a
 /// wide line.</summary>
 public static class PairingPanel
 {
