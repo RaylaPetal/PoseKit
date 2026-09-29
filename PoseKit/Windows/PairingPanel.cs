@@ -6,12 +6,8 @@ using PoseKit.Pairing;
 
 namespace PoseKit.Windows;
 
-/// <summary>Couple pairing status and controls — who you're paired with, pending invites and couple
-/// presets, both sides' picks, and unpair — independent of any particular preset. Presets don't name
-/// a partner; whether clicking one queues (paired) or plays immediately (not paired) is decided purely
-/// by PairingState, which this panel is the one place to see and change. Drawn inside a narrow card
-/// (the top of MainWindow's right rail), so every row wraps or fills the width rather than assuming a
-/// wide line.</summary>
+/// <summary>Pairing status and controls: invites, couple preset requests, both sides' picks, and
+/// options.</summary>
 public static class PairingPanel
 {
     private static string inviteAddress = "";
@@ -111,8 +107,6 @@ public static class PairingPanel
         DrawPickRow(PoseKitUi.Accent, "You", queue.QueuedSelectionName);
         DrawPickRow(PoseKitUi.Info, "Partner", queue.PartnerSelectionName);
 
-        // Only while nothing's queued on this side yet — once it is, both plays fire immediately and
-        // PartnerSelectionName clears, so there'd be nothing left to pick.
         if (queue.PartnerSelectionName is { } theirs && queue.QueuedSelectionName == null)
         {
             ImGui.Spacing();
@@ -136,8 +130,7 @@ public static class PairingPanel
         else if (state.LocalOverrideEnabled)
             PoseKitUi.TextWrappedDisabled("Waiting on your partner to enable override too — until then, a second click just replaces your own pick.");
 
-        // Unlike "Override queue" above (mutual, forces a pick onto the partner), this is one-sided
-        // and sends nothing at all — the partner is never told and never affected.
+        // One-sided; nothing is sent to the partner.
         var soloPlayEnabled = state.SoloPlayEnabled;
         if (ImGui.Checkbox("Play solo##PoseKitSoloPlay", ref soloPlayEnabled))
             state.SetSoloPlayEnabled(soloPlayEnabled);
@@ -153,8 +146,6 @@ public static class PairingPanel
             plugin.PairingListener.Unpair();
     }
 
-    /// "● You   Sit Pose 2" — a colored dot and muted role label, then the pick (or a muted
-    /// placeholder), wrapping under itself when the name is long.
     private static void DrawPickRow(Vector4 color, string who, string? pick)
     {
         ImGui.TextColored(color, "●");
@@ -176,11 +167,7 @@ public static class PairingPanel
         return ImGui.Button(label, new Vector2(width, 0));
     }
 
-    /// Offers "your half" of whatever the partner just picked right here, so picking it doesn't
-    /// require scrolling down to find the matching preset or animation elsewhere: a saved preset by
-    /// the same name if there is one, otherwise the matching Penumbra mod+option's own trigger
-    /// button(s) if this side has that mod discovered. Silently shows nothing found rather than
-    /// erroring — the partner's pick may simply not exist on this side yet.
+    /// This side's matching preset or animation for the partner's pick, if any.
     private static void DrawQuickPick(Plugin plugin, string partnerSelectionName)
     {
         var preset = plugin.PresetManager.Presets.FirstOrDefault(p => p.Name == partnerSelectionName);

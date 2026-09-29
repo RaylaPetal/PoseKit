@@ -4,29 +4,20 @@ using System.Collections.Generic;
 using PoseKit;
 using PoseKit.Pairing;
 
-/// <summary>Which Penumbra mod (and exact group selections) a preset was captured from, if any —
-/// lets replaying the preset re-enable that mod/option automatically instead of just applying the
-/// offset against whatever happens to be active at the time.</summary>
+/// <summary>The Penumbra mod and option selections a preset was captured with, so replaying it can
+/// re-enable them.</summary>
 public class PenumbraLink
 {
     public string ModDirectory = "";
     public Dictionary<string, List<string>> GroupSelections = new();
 
-    /// Display-only — captured at save time purely so the preset library can show "which
-    /// animation this plays" without needing a live Penumbra round-trip (and staying correct even
-    /// if the mod's since been renamed, moved, or uninstalled). Never used for the actual replay,
-    /// which goes through ModDirectory/GroupSelections instead.
+    /// Display only; replay uses ModDirectory and GroupSelections.
     public string ModName = "";
 
-    /// The specific option that was playing when this preset was captured — "Default" for
-    /// PenumbraPoseScanner's synthetic default_mod.json group, since there's nothing more specific
-    /// to name there.
+    /// The option that was playing; "Default" for a mod's default files.
     public string OptionName = "";
 
-    /// The group OptionName belongs to, or "" for an implicit (no real Penumbra group) mod — needed
-    /// separately from GroupSelections (which snapshots every group of the mod, for local replay)
-    /// whenever only the *one* relevant group/option pair matters, e.g. syncing a couple preset to a
-    /// partner without also sending every other group's selection.
+    /// The group OptionName belongs to, or "" for a mod without groups.
     public string GroupName = "";
 }
 
@@ -37,25 +28,16 @@ public class NamedPose
     public PoseOffset Offset;
     public PenumbraLink? Penumbra;
 
-    /// Where the player was standing (or which furniture they were near) when this preset was
-    /// saved, if the user opted in — lets replaying it fold a correction into the offset instead of
-    /// only looking right from the exact same spot/furniture instance. Null (the default, including
-    /// for every preset saved before this existed) means "not anchored," which is unaffected. See
-    /// PresetAnchor.
+    /// Null when the preset isn't anchored.
     public PresetAnchor? Anchor;
 
-    /// The paired partner's own pose/offset/anchor/mod state, captured (via a request/reply over
-    /// /tell) at the moment this preset was saved with "include partner" enabled — null (the
-    /// default, including for every preset saved before this existed, or saved without that option)
-    /// means this is an ordinary, saver-only preset. Stored only here, never written to the
-    /// partner's own config — see couple-preset-relay's spec for why: the old model (partner
-    /// auto-saves its own matching copy) is what let the two sides silently diverge.
+    /// The partner's half of a couple preset; null for a solo preset. Only stored on the saving
+    /// side, so the two halves can't drift apart.
     public PartnerHalf? PartnerHalf;
 }
 
-/// <summary>A partner's own pose/offset/anchor/mod state captured into one side's preset, plus who it
-/// was captured from — see NamedPose.PartnerHalf. Playing a preset with this set relays it back to
-/// that exact partner instead of the ordinary queue-and-match flow (see couple-preset-relay).</summary>
+/// <summary>A partner's pose state captured into a couple preset, plus who it came from. Playing
+/// the preset relays this half to that partner.</summary>
 public class PartnerHalf
 {
     public PartnerIdentity Partner;

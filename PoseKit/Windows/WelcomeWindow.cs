@@ -6,10 +6,7 @@ using Dalamud.Interface.Windowing;
 namespace PoseKit.Windows;
 
 /// <summary>
-/// First-run tutorial — opens automatically once (gated on Configuration.HasSeenWelcome) and never
-/// again after being closed. Covers what PoseKit needs (Penumbra required, SimpleHeels optional),
-/// the basic workflow, and lets the user set their animation-mod folder filter right away instead of
-/// meeting an unfiltered wall of every installed mod the first time they open the mod picker.
+/// First-run tutorial, shown once.
 /// </summary>
 public class WelcomeWindow : Window, IDisposable
 {

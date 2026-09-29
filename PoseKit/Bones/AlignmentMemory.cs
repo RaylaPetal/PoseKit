@@ -6,8 +6,7 @@ using System.Text.Json.Serialization;
 
 namespace PoseKit.Bones;
 
-/// <summary>One remembered alignment: how Bone Align last succeeded on one animation. Mod, group,
-/// option and trigger are stored separately beside the key so the file stays readable and editable.</summary>
+/// <summary>How Bone Align last succeeded on one animation.</summary>
 public sealed class AlignmentEntry
 {
     public string Key { get; set; } = "";
@@ -24,17 +23,11 @@ public sealed class AlignmentEntry
 }
 
 /// <summary>
-/// The growing alignment memory: every successful manual Bone Align records an entry for the
-/// animation playing, keyed by the animation mod alone (mod directory, group, option, trigger — never
-/// the partner), so the next play of that animation while paired can align itself (see
-/// AutoAlignCoordinator). Kept in its own alignments.json beside the plugin config rather than in
-/// Configuration: it's growing data meant to be readable and shareable, and a corrupt file must never
-/// take the settings down with it.
+/// Remembers each successful manual Bone Align per animation, so later plays can align themselves.
+/// Stored in its own alignments.json so a bad file can't break the settings.
 ///
-/// Loaded once at startup. A missing file is empty memory. An unreadable one is also treated as empty
-/// (with a warning), and is renamed to alignments.json.bad just before the first save rather than
-/// silently overwritten. Saves write a temp file and swap it in, so an interrupted save never leaves a
-/// half-written file.
+/// An unreadable file starts empty and is renamed to .bad on the next save. Saves go through a temp
+/// file.
 /// </summary>
 public sealed class AlignmentMemory
 {
@@ -63,7 +56,6 @@ public sealed class AlignmentMemory
         Load();
     }
 
-    /// The memory key for one trigger of one option — see design D1.
     public static string KeyFor(string modDirectory, string group, string option, string trigger) =>
         $"{modDirectory}|{group}|{option}|{trigger}";
 

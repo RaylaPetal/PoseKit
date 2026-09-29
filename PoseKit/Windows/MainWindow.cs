@@ -7,12 +7,8 @@ using Dalamud.Interface.Windowing;
 namespace PoseKit.Windows;
 
 /// <summary>
-/// Two-part layout. A header carries the title, the Animations/Presets page tabs (the only thing that
-/// switches content) and the global tools (resync, freecam, settings), with a status line under it
-/// (dependencies, pairing, color legend). Below it are two cards: the selected page, taking all
-/// the width it can, and a fixed right rail that always shows Pairing, Live Offset and Bone Align
-/// top to bottom, in the order a couple session uses them. The rail scrolls on its own; nothing
-/// collapses or hides.
+/// Header with page tabs and tools, then the selected page beside a right rail with Pairing, Live
+/// Offset and Bone Align.
 /// </summary>
 public class MainWindow : Window, IDisposable
 {
@@ -77,8 +73,6 @@ public class MainWindow : Window, IDisposable
         PoseKitUi.EndCard();
     }
 
-    /// Title and version, the page tabs beside them, and the global tools right-aligned — freecam
-    /// tinted green while it's on, so its state is visible at a glance.
     private void DrawHeader()
     {
         ImGui.SetWindowFontScale(1.3f);
@@ -120,14 +114,11 @@ public class MainWindow : Window, IDisposable
         if (ImGui.Button(settingsLabel))
             plugin.ToggleConfigUi();
 
-        // Set a little apart from the tools, so it reads as its own thing rather than a fourth tool.
         ImGui.SameLine(0, donateGap);
         PoseKitUi.KofiButton();
     }
 
-    /// Dependencies and pairing on the left, the pick-color legend on the right (wrapping under when
-    /// the window is narrow). While freecam is on, its controls replace the legend, since they're what
-    /// the player needs right then.
+    /// While freecam is on, its controls replace the color legend.
     private void DrawStatusLine()
     {
         PoseKitUi.DrawDependencyStatus(plugin);
@@ -170,8 +161,6 @@ public class MainWindow : Window, IDisposable
             PoseKitUi.StatusDot(PoseKitUi.Muted, "NOT PAIRED");
     }
 
-    /// Everything for the session, always visible, top to bottom: who you're paired with and what's
-    /// picked, then fine-tuning your placement, then lining up body parts.
     private void DrawRail()
     {
         PoseKitUi.CardTitle("Pairing");
@@ -187,14 +176,11 @@ public class MainWindow : Window, IDisposable
         DrawBoneAlign();
     }
 
-    /// Self/Partner body-part pickers and the Align button — see Bones.BoneAlignService.
     private void DrawBoneAlign()
     {
         var configuration = plugin.Configuration;
         var labelWidth = ImGui.CalcTextSize("Partner").X + ImGui.GetStyle().ItemSpacing.X;
 
-        // A remembered animation: say so, with what's remembered, and offer to forget it. The
-        // dropdowns below were already filled from it by AutoAlignCoordinator.
         if (plugin.AutoAlign.CurrentEntry is { } known)
             DrawKnownAnimation(known);
 
@@ -262,9 +248,7 @@ public class MainWindow : Window, IDisposable
             PoseKitUi.TextWrappedDisabled(align.Status);
     }
 
-    /// The remembered alignment for the animation playing, as a small green-tinted panel: a
-    /// "● Known animation" header with Forget on the right, then the parts and the facing/gap on
-    /// their own short lines, so it reads cleanly in the narrow right rail.
+    /// The remembered alignment for the playing animation, with a Forget button.
     private void DrawKnownAnimation(Bones.AlignmentEntry known)
     {
         const float pad = 8f;
@@ -366,7 +350,6 @@ public class MainWindow : Window, IDisposable
         ImGui.EndChild();
     }
 
-    // The pick colors, in the order a couple round goes: yours, theirs, both, and a conflict.
     private static readonly (Vector4 Color, string Label)[] LegendEntries =
     [
         (PoseKitUi.Accent, "Your pick"), (PoseKitUi.Info, "Partner's pick"),

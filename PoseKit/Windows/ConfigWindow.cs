@@ -14,9 +14,7 @@ public class ConfigWindow : Window, IDisposable
     private readonly Plugin plugin;
     private readonly Configuration configuration;
 
-    /// Unfiltered snapshot of every installed mod (one Penumbra IPC round-trip per mod, the expensive
-    /// part) — the folder dropdown and the mod picker both derive from this in-memory list, rather
-    /// than re-scanning Penumbra every time the folder filter or search text changes.
+    /// Every installed mod, cached since building it costs one IPC call per mod.
     private List<(string Directory, string Name, string? SortPath, bool Enabled)>? allModsCache;
     private List<string>? availableFoldersCache;
     private string modSearch = "";
@@ -38,11 +36,7 @@ public class ConfigWindow : Window, IDisposable
 
     public void Dispose() { }
 
-    /// Penumbra's collection/mod-settings IPC isn't reliably ready right after login (or right after
-    /// the game finishes loading), so a cache built on the window's first-ever draw can permanently
-    /// miss mods that hadn't synced yet. Dropping the cache each time the window opens means it
-    /// re-scans against Penumbra's current state instead of a stale snapshot, without needing a
-    /// manual "Refresh mods" click.
+    /// Penumbra may not be ready right after login, so rebuild the cache on every open.
     public override void OnOpen()
     {
         allModsCache = null;
@@ -54,9 +48,6 @@ public class ConfigWindow : Window, IDisposable
         PoseKitUi.PaintWindowBackground();
         using var theme = PoseKitUi.PushTheme();
 
-        // The window can be shrunk below what its content needs (down to the 400x250 minimum), so
-        // everything below is wrapped in its own scroll region rather than relying on the outer
-        // window to somehow fit it all — same pattern MainWindow uses per tab.
         if (ImGui.BeginChild("##PoseKitSettingsScroll", Vector2.Zero, false, ImGuiWindowFlags.None))
         {
             PoseKitUi.DrawDependencyStatus(plugin);
@@ -188,19 +179,13 @@ public class ConfigWindow : Window, IDisposable
         ImGui.EndChild();
     }
 
-    /// Just saves the config — the mod picker below re-filters itself from allModsCache in memory
-    /// every frame, and PenumbraPoseScanner scans by SelectedPenumbraMods, not this filter, so neither
-    /// needs an explicit refresh here.
     private void SetFolderFilter(string folder)
     {
         configuration.PenumbraFolderFilter = folder;
         configuration.Save();
     }
 
-    /// One IPC round-trip per installed mod to build an unfiltered snapshot of every mod's sort-folder
-    /// path and enabled state, plus the set of distinct folders the dropdown offers — a mod filed
-    /// under "Animations/Idles/Foo" contributes both "Animations" and "Animations/Idles" as selectable
-    /// folders, since the folder filter matches anything nested under the selected path.
+    /// Also collects every parent folder, since the filter matches nested paths.
     private void RefreshAllMods()
     {
         var modList = plugin.PenumbraIpc.TryGetModList();

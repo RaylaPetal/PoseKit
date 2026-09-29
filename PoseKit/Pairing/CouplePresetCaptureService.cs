@@ -4,16 +4,11 @@ using System;
 using PoseKit.Presets;
 
 /// <summary>
-/// Drives the "include partner" save flow: sends a capture request to the current pairing peer, waits
-/// (via Tick, not async — mirrors CoupleQueueService's polling shape) for a matching reply, and
-/// completes the save with or without a captured PartnerHalf once the reply arrives or the request
-/// times out. Only one request is ever in flight — a second save attempt while one is pending simply
-/// replaces it, same as CoupleQueueService's "a fresh click always overwrites" rule.
+/// The "include partner" save: asks the partner for their pose state and saves once the reply
+/// arrives, or without a partner half on timeout. A new save replaces a pending one.
 /// </summary>
 public sealed class CouplePresetCaptureService : IDisposable
 {
-    // Long enough for a same-room /tell round trip, short enough not to leave the Save button
-    // hanging if the partner's client doesn't reply at all.
     private const long CaptureTimeoutMs = 5_000;
 
     private readonly PairingState pairingState;
@@ -28,8 +23,6 @@ public sealed class CouplePresetCaptureService : IDisposable
     private PresetAnchor? pendingAnchor;
     private long pendingDeadline;
 
-    /// Raised once the save actually completes (with or without a captured partner half) — lets the
-    /// UI pick up LoadedPreset/etc. the same way an immediate local save already does.
     public event Action<NamedPose>? Saved;
 
     public CouplePresetCaptureService(PairingState pairingState, PairingListener pairingListener, PresetManager presetManager)
@@ -42,8 +35,7 @@ public sealed class CouplePresetCaptureService : IDisposable
 
     public void Dispose() => pairingListener.CoupleCaptureReplyReceived -= OnReplyReceived;
 
-    /// Starts (or replaces) an in-flight "include partner" save. If not currently paired, completes
-    /// the save immediately with no partner half, exactly as if the option had been left unchecked.
+    /// Saves immediately without a partner half when not paired.
     public void RequestAndSave(string name, PoseIdentifier pose, PoseOffset offset, PenumbraLink? penumbra, PresetAnchor? anchor)
     {
         if (pairingState.Peer == null)
@@ -75,9 +67,6 @@ public sealed class CouplePresetCaptureService : IDisposable
         Complete(pendingName!, pendingPose, pendingOffset, pendingPenumbra, pendingAnchor, partnerHalf);
     }
 
-    /// Called every framework tick: completes a pending save with no partner half once it's waited
-    /// longer than the capture timeout with no reply — per couple-preset-relay's "silently omitted"
-    /// requirement.
     public void Tick()
     {
         if (pendingRequestId == null) return;

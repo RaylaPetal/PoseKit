@@ -5,8 +5,7 @@ using Dalamud.Interface.Utility.Raii;
 
 namespace PoseKit.Windows;
 
-/// <summary>Small shared UI helpers so section styling and labeled controls stay consistent across
-/// windows instead of each panel reinventing its own spacing/labels.</summary>
+/// <summary>Shared theme and UI helpers.</summary>
 internal static class PoseKitUi
 {
     public static readonly Vector4 Accent = new(0.78f, 0.65f, 1f, 1f);
@@ -18,14 +17,11 @@ internal static class PoseKitUi
     private static readonly Vector4 BadMuted = new(0.55f, 0.20f, 0.24f, 1f);
     private static readonly Vector4 BadHovered = new(0.72f, 0.28f, 0.32f, 1f);
 
-    /// A distinct hue from the plugin's own lavender accent — used only for "this is the partner's
-    /// pick, not yours" so the two are never confusable at a glance.
+    /// The partner's pick, distinct from the accent.
     public static readonly Vector4 Info = new(0.4f, 0.65f, 0.95f, 1f);
     private static readonly Vector4 InfoMuted = new(0.24f, 0.36f, 0.55f, 1f);
     private static readonly Vector4 GoodMuted = new(0.24f, 0.5f, 0.24f, 1f);
 
-    /// Secondary text — a lavender-tinted grey rather than plain grey, so muted text still reads as
-    /// part of the same purple palette.
     public static readonly Vector4 Muted = new(0.56f, 0.52f, 0.64f, 1f);
 
     // Surfaces, darkest to lightest: window, card, input field.
@@ -36,23 +32,15 @@ internal static class PoseKitUi
     private static readonly Vector4 FieldBgHovered = new(0.21f, 0.16f, 0.28f, 1f);
     private static readonly Vector4 FieldBgActive = new(0.27f, 0.20f, 0.36f, 1f);
 
-    /// Paints PoseKit's darker purple background over the current window's body (below the title
-    /// bar), as the first thing in Draw(). Deliberately not done by pushing ImGuiCol.WindowBg from
-    /// Window.PreDraw()/PostDraw(): Dalamud's WindowHost doesn't guarantee those run as a matched pair
-    /// around the window, and an unmatched PopStyleColor there crashed the game inside cimgui. Drawing
-    /// directly onto the window's draw list touches no style stack at all, so it can't unbalance one.
+    /// Paints the window body background. Pushing WindowBg in PreDraw/PostDraw isn't safe: they
+    /// aren't guaranteed to run as a pair, and an unmatched pop crashed the game.
     public static void PaintWindowBackground()
     {
         var style = ImGui.GetStyle();
         var pos = ImGui.GetWindowPos();
         var size = ImGui.GetWindowSize();
         var titleBarHeight = ImGui.GetFontSize() + style.FramePadding.Y * 2f;
-        // The bottom-right resize-grip triangle is deliberately left unpainted, so ImGui's own grip is
-        // the only one ever visible — whether ImGui draws it before or after this runs. (Painting over
-        // it and redrawing a replacement showed two grips in-game.) Three pieces cover everything else:
-        //   top:    the body down to the grip square, rounded on no corners
-        //   strip:  the bottom band up to the grip square, rounded bottom-left only
-        //   corner: the upper-left half of the grip square, leaving the grip's own half untouched
+        // Leaves the resize-grip triangle unpainted so only ImGui's own grip shows.
         var gripSize = MathF.Max(ImGui.GetFontSize() * 1.35f, style.WindowRounding + 1f + ImGui.GetFontSize() * 0.2f);
         var bodyMin = new Vector2(pos.X, pos.Y + titleBarHeight);
         var max = pos + size;
@@ -67,8 +55,6 @@ internal static class PoseKitUi
         drawList.AddTriangleFilled(new Vector2(gripLeft, gripTop), new Vector2(max.X, gripTop), new Vector2(gripLeft, max.Y), color);
     }
 
-    /// Applies PoseKit's shared lavender theme for the lifetime of the returned scope: controls,
-    /// input fields, cards (child windows) and separators.
     public static ThemeScope PushTheme()
     {
         ImGui.PushStyleColor(ImGuiCol.Button, AccentMuted);
@@ -107,9 +93,6 @@ internal static class PoseKitUi
         return new ThemeScope();
     }
 
-    /// A red/green status line for the two things PoseKit's fuller feature set depends on — Penumbra
-    /// (animation discovery) and SimpleHeels (optional offset sync) — so a user missing one notices
-    /// immediately instead of quietly getting a degraded experience.
     public static void DrawDependencyStatus(Plugin plugin)
     {
         DrawStatus("Penumbra", plugin.PenumbraIpc.IsAvailable);
@@ -124,7 +107,6 @@ internal static class PoseKitUi
             ImGui.SetTooltip(detected ? $"{name} detected." : $"{name} not found.");
     }
 
-    /// A colored dot followed by a muted label, as one hoverable unit.
     public static void StatusDot(Vector4 color, string label)
     {
         ImGui.BeginGroup();
@@ -134,9 +116,7 @@ internal static class PoseKitUi
         ImGui.EndGroup();
     }
 
-    /// ImGui.TextDisabled doesn't wrap — fine for the short one-liners it's used for elsewhere, but a
-    /// longer explanatory sentence just gets clipped at the window edge instead of flowing to a new
-    /// line. This pushes the same muted color TextDisabled uses, but through TextWrapped.
+    /// Muted text that wraps, unlike ImGui.TextDisabled.
     public static void TextWrappedDisabled(string text)
     {
         ImGui.PushStyleColor(ImGuiCol.Text, Muted);
@@ -144,10 +124,7 @@ internal static class PoseKitUi
         ImGui.PopStyleColor();
     }
 
-    /// Inline conflict marker in warning red with a hover tooltip carrying the full explanation — used
-    /// wherever a currently-selected option's gesture collides with another active option's. When the
-    /// conflict can be fixed automatically (<paramref name="resolve"/> non-null), it's a red button
-    /// that runs the fix on click; otherwise plain "(conflict)" text.
+    /// A button that runs <paramref name="resolve"/>, or plain "(conflict)" text when it's null.
     public static void DrawConflictMarker(string id, string tooltip, Action? resolve)
     {
         ImGui.SameLine();
@@ -171,7 +148,6 @@ internal static class PoseKitUi
             ImGui.SetTooltip(tooltip);
     }
 
-    /// A sub-section title inside a card: small uppercase accent text with a faint rule under it.
     public static void SectionHeader(string text)
     {
         ImGui.Spacing();
@@ -180,9 +156,7 @@ internal static class PoseKitUi
         ImGui.Spacing();
     }
 
-    /// A card's own title row: uppercase accent title, an optional muted count/subtitle beside it.
-    /// Callers can keep drawing on the same line (e.g. a right-aligned search box) before closing the
-    /// row with CardTitleRule.
+    /// Close the row with CardTitleRule.
     public static void CardTitle(string title, string? subtitle = null)
     {
         ImGui.TextColored(Accent, title.ToUpperInvariant());
@@ -199,8 +173,7 @@ internal static class PoseKitUi
         ImGui.Spacing();
     }
 
-    /// A bordered, rounded, padded panel — PoseKit's basic layout block. Always pair with EndCard,
-    /// whatever BeginCard returns (same contract as ImGui.BeginChild).
+    /// Always pair with EndCard, whatever this returns.
     public static bool BeginCard(string id, Vector2 size, ImGuiWindowFlags flags = ImGuiWindowFlags.None)
     {
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(12f, 10f));
@@ -211,8 +184,6 @@ internal static class PoseKitUi
 
     public static void EndCard() => ImGui.EndChild();
 
-    /// A pill-shaped page tab for the header: filled lavender when selected, text-only (with a soft
-    /// hover) when not, with an optional count after the label. Returns true when clicked.
     public static bool PillTab(string label, bool selected, string? count = null)
     {
         var text = count != null ? $"{label}  {count}" : label;
@@ -225,8 +196,6 @@ internal static class PoseKitUi
         return ImGui.Button($"{text}##PoseKitTab{label}");
     }
 
-    /// A header tool button that shows its on/off state: green-tinted while on, the usual lavender
-    /// while off. Returns true when clicked.
     public static bool ToggleButton(string label, bool on)
     {
         if (!on) return ImGui.Button(label);
@@ -242,11 +211,9 @@ internal static class PoseKitUi
     private static readonly Vector4 KofiRedHovered = new(1f, 0.47f, 0.46f, 1f);
     private static readonly Vector4 KofiRedActive = new(0.85f, 0.29f, 0.28f, 1f);
 
-    /// Width of KofiButton, for right-aligning a row that ends with it.
     public static float KofiButtonWidth() =>
         Dalamud.Interface.Components.ImGuiComponents.GetIconButtonWithTextWidth(Dalamud.Interface.FontAwesomeIcon.MugHot, KofiLabel);
 
-    /// Ko-fi's coffee cup and "Donate" in Ko-fi red, opening the Ko-fi page in the browser.
     public static void KofiButton()
     {
         using (ImRaii.PushColor(ImGuiCol.Text, new Vector4(1f, 1f, 1f, 1f)))
@@ -259,8 +226,7 @@ internal static class PoseKitUi
             ImGui.SetTooltip("Support PoseKit on Ko-fi\nko-fi.com/raylapetal");
     }
 
-    /// A normal-size button tinted in the muted warning red — for destructive actions like deleting a
-    /// preset, so they read as different from the lavender buttons around them.
+    /// For destructive actions.
     public static bool DangerButton(string label)
     {
         using (ImRaii.PushColor(ImGuiCol.Button, BadMuted)
@@ -269,17 +235,13 @@ internal static class PoseKitUi
             return ImGui.Button(label);
     }
 
-    /// A button that fills the remaining width of the current line/card.
     public static bool WideButton(string label) =>
         ImGui.Button(label, new Vector2(ImGui.GetContentRegionAvail().X, 0));
 
-    /// Width a normal (auto-sized) button with this label will take — for right-aligning a row.
     public static float ButtonWidth(string label) =>
         ImGui.CalcTextSize(label.Split("##")[0]).X + ImGui.GetStyle().FramePadding.X * 2;
 
-    /// SameLine only if an item `width` wide still fits after the previous one; otherwise the next
-    /// item starts a new line — so rows of buttons flow-wrap inside narrow cards instead of running
-    /// off the right edge.
+    /// SameLine only if the next item fits, so button rows wrap.
     public static void SameLineIfFits(float width)
     {
         var limit = ImGui.GetWindowPos().X + ImGui.GetWindowContentRegionMax().X;
@@ -287,8 +249,6 @@ internal static class PoseKitUi
             ImGui.SameLine();
     }
 
-    /// A single-axis drag float with its label always visible next to it, rather than an unlabeled
-    /// X/Y/Z DragFloat3 that gives no indication which axis does what in-game.
     public static bool AxisDragFloat(string id, string label, ref float value, float speed = 0.005f, float width = 90f)
     {
         ImGui.SetNextItemWidth(width);
@@ -298,10 +258,7 @@ internal static class PoseKitUi
         return changed;
     }
 
-    /// Whether — and whose — pick a given queueable item (a preset name, or a Penumbra "ModName —
-    /// OptionName" label) currently is, relative to the couple queue. Shared by the Presets and
-    /// Animations tabs so both highlight consistently instead of each reinventing the comparison
-    /// (the Presets tab previously only checked its own pick, missing the partner's entirely).
+    /// Whose pick a queueable item is.
     public enum PickState { None, Own, Partner, Both }
 
     public static PickState GetPickState(Plugin plugin, string label)
@@ -312,12 +269,7 @@ internal static class PoseKitUi
         return isOwn && isPartner ? PickState.Both : isOwn ? PickState.Own : isPartner ? PickState.Partner : PickState.None;
     }
 
-    /// Strong, unmistakable styling for a queued item's button — filled background, a colored border,
-    /// and bright text, not just a small marker — so a pick reads clearly even at a glance. Own pick
-    /// is the plugin's usual accent color; the partner's pick uses a distinct blue so the two are
-    /// never confused; both-picked (about to fire) turns green. Dispose the returned scope (or just
-    /// `using`) to restore normal styling regardless of which branch was taken — PickState.None
-    /// pushes nothing and returns a no-op scope, so callers don't need to branch themselves.
+    /// Own pick in the accent color, partner's in blue, both in green. None pushes nothing.
     public static PickStyleScope PushPickButtonStyle(PickState state)
     {
         (Vector4 Fill, Vector4 Border)? colors = state switch
@@ -338,9 +290,6 @@ internal static class PoseKitUi
         return new PickStyleScope(pushedColors, true);
     }
 
-    /// Inline "● you" / "● them" / "● ready!" tag matching PushPickButtonStyle's color choice — put
-    /// next to a mod header or option label so the *whole path* to a pick reads clearly, not just its
-    /// own Play button.
     public static void DrawPickBadge(PickState state)
     {
         (Vector4 Color, string Text)? badge = state switch

@@ -7,9 +7,7 @@ using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
 
 namespace PoseKit.Sync;
 
-/// Resets the currently playing emote loop timer for every nearby rendered player character.
-/// This is still client-side only: it changes how those actors are animated on this client and
-/// does not send a synchronization request to the other players.
+/// Restarts the emote loop of every nearby player, on this client only.
 public sealed unsafe class EmoteSyncCommand : IDisposable
 {
     private readonly CancellationTokenSource cancellationTokenSource = new();
@@ -20,8 +18,7 @@ public sealed unsafe class EmoteSyncCommand : IDisposable
         cancellationTokenSource.Dispose();
     }
 
-    /// Parses "" or "delay &lt;seconds&gt;" (as split, whitespace-separated args) and triggers a sync.
-    /// Returns an error message on invalid syntax, or null on success.
+    /// Parses "" or "delay &lt;seconds&gt;". Returns an error message, or null on success.
     public string? HandleArgs(string[] splitArgs)
     {
         var delay = 0f;

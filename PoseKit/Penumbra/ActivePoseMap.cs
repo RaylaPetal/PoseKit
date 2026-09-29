@@ -6,14 +6,8 @@ namespace PoseKit.Penumbra;
 /// markers and alignment memory's resolution of hand-typed emotes.</summary>
 public static class ActivePoseMap
 {
-    /// Every currently-*selected* option's pose triggers across the whole discovered-mods list, keyed
-    /// by PoseIdentifier — only selected options in an *enabled* mod are actually "live" in Penumbra
-    /// (a disabled mod contributes no file redirects at all, and Penumbra keeps remembering its last
-    /// group selection even while it's off, so that stale selection must not count either), so those
-    /// are the only ones that can genuinely collide. With a large curated pack like GoonersLife, it's
-    /// easy to have e.g. two different groups (or two checked options in the same multi-select group)
-    /// both claim "GroundSit Pose 3": only one of their file redirects actually wins in Penumbra, so
-    /// playing either button may not produce what its own label promised.
+    /// Maps each pose to the selected options (in enabled mods only) that replace it. More than one
+    /// claimant means a conflict: only one redirect actually wins in Penumbra.
     public static Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> Build(List<PoseModInfo> mods)
     {
         var map = new Dictionary<PoseIdentifier, List<(PoseModInfo, PoseModOption)>>();

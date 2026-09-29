@@ -25,18 +25,15 @@ internal sealed unsafe class FreeCamInput : IDisposable
     public bool Active { get; private set; }
     public int QueryHits;
 
-    // Bypasses this instance's own block (which returns false for movement IDs) to read
-    // the actual physical key state, matching Cammy's Update() polling of isInputIDHeld.
+    // Reads the real key state, bypassing this instance's own block.
     public bool IsHeld(InputData* data, InputId id) => heldHook != null && heldHook.Original(data, id);
 
     public FreeCamInput()
     {
         try
         {
-            // Cammy's native movement-disable reference. The RIP-relative displacement
-            // resolves to the float the movss loads; the actual ForceDisableMovement
-            // counter is the int 4 bytes past that (verified against Cammy's own
-            // Hypostasis signature, which applies that +4 after the same resolution).
+            // The movss operand resolves to a float; the ForceDisableMovement counter is the
+            // int 4 bytes past it.
             var instruction = Plugin.SigScanner.ScanText("F3 0F 10 05 ?? ?? ?? ?? 0F 2E C7");
             movementCounter = (int*)((byte*)(instruction + 8 + *(int*)(instruction + 4)) + 4);
             if (*movementCounter < 0 || *movementCounter > 100)
@@ -51,15 +48,8 @@ internal sealed unsafe class FreeCamInput : IDisposable
             if (address == 0) throw new InvalidOperationException("Gameplay input support is unavailable.");
             statusHook = Plugin.GameInteropProvider.HookFromAddress<InputManager.Delegates.GetInputStatus>(address,
                 (manager, code) => !(Active && Blocks(code)) && statusHook!.Original(manager, code));
-            // Ported from Cammy's FreeCam.EnableInputBlockers (EmoteController.cancelEmote, same
-            // signature via Hypostasis's GameFunction<T>). This is the actual native check that
-            // decides whether to cancel the player's current emote/pose — freecam's camera
-            // detachment trips it for /doze specifically (see
-            // openspec/changes/preserve-emote-during-freecam; two other hypotheses about *why*
-            // were live-tested and falsified). Forcing it to always return "don't cancel" while
-            // freecam is active sidesteps the native cause entirely rather than trying to avoid
-            // triggering it. ScanText auto-resolves the leading E8 call to its target, matching
-            // NativeCameraView's loadView resolution elsewhere in this feature.
+            // EmoteController's cancel-emote check. Detaching the camera trips it (e.g. /doze),
+            // so it always answers "don't cancel" while freecam is active.
             var cancelEmoteAddress = Plugin.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 7B 08 45 33 C0");
             cancelEmoteHook = Plugin.GameInteropProvider.HookFromAddress<CancelEmoteDelegate>(cancelEmoteAddress, (_, _) => false);
         }
@@ -84,9 +74,7 @@ internal sealed unsafe class FreeCamInput : IDisposable
         return hook;
     }
 
-    // Character movement/actions only. Camera-look ranges (CAMERA_*, mouse-drag codes)
-    // must stay unblocked so the game's own right-click-drag keeps rotating the camera,
-    // matching Cammy's approach of blocking only its specific movement keybindings.
+    // Character movement only; camera-look inputs stay unblocked.
     private static bool Blocks(InputId id) => id is
         >= InputId.MOVE_FORE and <= InputId.MOVE_AND_STEER or
         >= InputId.JUMP and <= InputId.AUTORUN_PAD or

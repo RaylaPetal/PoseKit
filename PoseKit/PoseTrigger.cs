@@ -10,12 +10,9 @@ using PoseKit.Sync;
 namespace PoseKit;
 
 /// <summary>
-/// Triggers a saved or Penumbra-discovered pose so its offset can be applied once active.
-/// Sit/GroundSit/Doze use the stable PlayerState.SelectedPoses + "/cpose" cycling path, mirroring
-/// Synastry-main/EmoteLink/PoseService.cs and the ExecutePose/UpdatePoseCycling flow in
-/// Synastry-main/EmoteLink/Plugin.cs. Any other pose falls back to a literal "/emotename motion"
-/// chat command (per the design doc's stated fallback) — deliberately not porting Synastry's
-/// AOB-hooked AnywherePoseService/ActionTimelinePlayback, which bypass emote-unlock/server checks.
+/// Plays a pose and applies its offset once it's active. Sit/groundsit/doze set the selected pose
+/// and cycle "/cpose" until the right variant is reached; other emotes use their normal command,
+/// so emote unlocks and server checks still apply.
 /// </summary>
 public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
 {
@@ -25,38 +22,26 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     private int attempts;
     private long nextAttemptTime;
 
-    /// Live state for a partner-anchored offset — see PartnerTracking and TickPartnerTracking. Null
-    /// whenever the currently-applied offset (if any) isn't partner-anchored.
+    /// Null unless the applied offset is partner-anchored.
     private PartnerTracking? partnerTracking;
 
-    /// The bone-align correction (see SetBoneCorrection), always the outermost layer of the applied
-    /// offset: base + partner-anchor correction + this. Zero whenever nothing has been aligned.
+    /// The outermost layer of the applied offset: base + partner correction + this.
     private PoseOffset boneCorrection = PoseOffset.Zero;
 
-    /// The bone-align correction currently applied — BoneAlignService adds a fresh measurement to it,
-    /// since bones are measured on the drawn model, which already includes it.
     public PoseOffset BoneCorrection => boneCorrection;
 
-    /// Bumped whenever the applied offset is reset — a new trigger or ClearOffset — so a Bone Align
-    /// sampling in progress can tell its measurements no longer apply and cancel.
+    /// Bumped whenever the offset is reset, so an in-progress Bone Align knows to cancel.
     public int OffsetGeneration { get; private set; }
 
-    /// True whenever an offset is currently applied through *either* path (OffsetEngine's own hook or
-    /// the SimpleHeels bridge) — OffsetEngine.Active alone isn't enough to tell, since bridging
-    /// deliberately leaves it false to avoid double-applying the offset.
+    /// True when an offset is applied through either OffsetEngine or the SimpleHeels bridge.
     public bool HasAppliedOffset { get; private set; }
 
-    /// True while a sit/groundsit/doze variant is still being cycled into — the pose passes through
-    /// other variants on the way, which aren't new plays.
+    /// True while cycling into a sit/groundsit/doze variant.
     public bool IsCycling => cyclingTarget != null;
 
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
-    /// <param name="silent">Suppresses the chat notice ResolveOffset would otherwise print when the
-    /// anchor can't be resolved — used for an accepted/auto-accepted relayed couple-preset half,
-    /// where couple-preset-relay's spec calls for the pose/offset to still play with no error shown,
-    /// unlike a local preset's own anchor failing (where the notice is useful, established
-    /// feedback).</param>
+    /// <param name="silent">Suppresses the anchor-not-found notice, for a partner's relayed half.</param>
     public void Trigger(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor = null, bool silent = false) =>
         TriggerNow(pose, offset, anchor, silent);
 
@@ -79,16 +64,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         }
     }
 
-    /// Routes the offset through SimpleHeels' "/heels temp set" command (so Mare/Snowcloak/etc. sync
-    /// it to nearby players) when bridging is enabled and SimpleHeels is actually loaded, otherwise
-    /// falls back to PoseKit's own local-only OffsetEngine hook. Never both at once — see
-    /// SimpleHeelsBridge's class doc for why. The only entry point for setting an offset — the
-    /// live-offset editor (PresetButtonsPanel) calls this too rather than touching OffsetEngine
-    /// directly, so bridging isn't silently bypassed.
+    /// The only way to set an offset: through SimpleHeels when bridging, otherwise OffsetEngine.
     public void ApplyOffset(PoseOffset offset)
     {
-        // DesiredOffset is kept up to date regardless of routing — it's the single source of truth
-        // the live-offset editor reads back to display current values, bridging or not.
+        // Always kept current, since the live-offset editor reads it back.
         offsetEngine.DesiredOffset = offset;
 
         if (configuration.BridgeOffsetToSimpleHeels && simpleHeelsBridge.IsLoaded)
@@ -104,11 +83,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         HasAppliedOffset = true;
     }
 
-    /// The live-offset editor's entry point: same as ApplyOffset, except that while a partner-anchored
-    /// offset is being tracked, the edit is folded back into the tracked base offset (edited minus the
-    /// correction currently applied) — otherwise the next recompute would rebuild the offset from the
-    /// old base and silently discard the nudge. Composition is field-wise (see ComposeOffset), so this
-    /// subtraction is exact.
+    /// For the live-offset editor. While partner tracking, the edit is folded into the tracked base
+    /// offset so the next recompute doesn't discard it.
     public void ApplyManualOffset(PoseOffset edited)
     {
         if (partnerTracking is { } tracking)
@@ -116,10 +92,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ApplyOffset(edited);
     }
 
-    /// Replaces the bone-align correction layered on top of everything else (see BoneAlignService) and
-    /// re-applies — replacing rather than stacking, so pressing Align twice doesn't double it. Kept
-    /// separate so partner-anchor tracking and live edits don't erase it, and so saving never
-    /// includes it. Cleared by ClearOffset and any new trigger.
+    /// Replaces (never stacks) the bone-align correction. It's kept separate so it's never saved into
+    /// a preset.
     public void SetBoneCorrection(PoseOffset correction)
     {
         var withoutOld = Subtract(offsetEngine.DesiredOffset, boneCorrection);
@@ -127,22 +101,16 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ApplyOffset(ComposeOffset(withoutOld, correction));
     }
 
-    /// While true, partner-anchor tracking doesn't re-apply — BoneAlignService sets it for its short
-    /// sampling window so every sampled gap is measured against the same applied offset.
+    /// Pauses partner tracking so Bone Align samples against a fixed offset.
     public bool PartnerTrackingPaused { get; set; }
 
-    /// The offset a brand-new preset should store: what's applied, minus the bone-align correction
-    /// (body-specific, redone with one click). The partner-anchor correction stays in — a new partner
-    /// anchor is captured from actual positions, so the rendered placement needs it to reproduce.
+    /// The applied offset without the bone-align correction.
     public PoseOffset GetOffsetForNewPreset() => Subtract(offsetEngine.DesiredOffset, boneCorrection);
 
-    /// The offset "Update preset" should store back into the loaded preset: additionally without the
-    /// partner-anchor correction, which that preset's anchor recomputes on every replay.
+    /// Also without the partner correction, which the preset's anchor recomputes on replay.
     public PoseOffset GetOffsetForUpdate() =>
         partnerTracking is { } tracking ? Subtract(GetOffsetForNewPreset(), tracking.LastCorrection) : GetOffsetForNewPreset();
 
-    /// Clears whichever path is currently applying the offset. Safe to call unconditionally — both
-    /// OffsetEngine.Reset and SimpleHeelsBridge.Clear are no-ops if nothing was applied.
     public void ClearOffset(IPlayerCharacter? localPlayer)
     {
         offsetEngine.Reset(localPlayer);
@@ -153,9 +121,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         OffsetGeneration++;
     }
 
-    /// Directly issues a known slash-emote command (e.g. from a Penumbra option's explicit
-    /// "(/command)" naming hint) — no pose-cycling, no offset; the mod's own redirect handles the
-    /// visual.
+    /// Plays an emote command with no offset.
     public void TriggerCommand(string emoteCommand)
     {
         cyclingTarget = null;
@@ -165,14 +131,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute($"/{emoteCommand} motion");
     }
 
-    /// Re-enters the same sit/groundsit/doze variant after it unexpectedly ended for a reason other
-    /// than the player actually moving. Freecam's own EmoteController.cancelEmote hook (see
-    /// FreeCamInput.cs) is the primary defense against this now, so this should rarely fire in
-    /// practice — kept as a defensive fallback (see openspec/changes/preserve-emote-during-freecam).
-    /// Deliberately skips offset application, unlike EnterPoseCycle: nothing cleared the offset on
-    /// this path, so it doesn't need reapplying, and doing so would turn on PoseKit's own offset
-    /// tracking even for a player who never used it. Silently does nothing for any other emote —
-    /// this is specifically the sit/groundsit/doze recovery path, not a general re-trigger.
+    /// Re-enters a sit/groundsit/doze variant that ended without the player moving. Fallback for
+    /// freecam; the offset is left as it was.
     public void RestorePose(PoseIdentifier pose)
     {
         (EmoteController.PoseType PoseType, string Command)? target = pose.EmoteModeId switch
@@ -196,14 +156,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         if (alreadyInThatEmote)
         {
-            // Deliberately don't write SelectedPoses here — mirrors Synastry-main/EmoteLink's own
-            // ExecutePose, which notes doing so also changes CPoseState immediately, making the
-            // cycling check below believe the target's already reached before the animation has
-            // actually transitioned. Triggering a different option while already in the same
-            // pose loop needs a redraw instead: the currently-playing animation's resolved files
-            // are already loaded, and Penumbra won't re-check which file a redirect now points to
-            // without being told to — without this, switching options mid-pose can keep showing
-            // the previous animation.
+            // Writing SelectedPoses here would change CPoseState immediately and fool the cycling
+            // check. Redraw instead so a newly selected mod option is picked up mid-pose.
             ChatCommand.Execute("/penumbra redraw self");
         }
         else
@@ -219,16 +173,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     }
 
     private const int CposeAttemptDelayMs = 100;
-    // Widened from Synastry-main/EmoteLink's original 8 (~800ms after the initial settle, ~1.3s
-    // total) — live testing showed the pose-enter command sometimes not registering within that
-    // budget specifically when other plugins were doing heavy concurrent work in the same window
-    // (Penumbra resource loads/redraws, Mare building character data, etc., all visible in the same
-    // log slice as a failed attempt). 20 attempts (~2s after settle, ~2.5s total) gives real headroom
-    // under that kind of load without meaningfully changing the felt latency of a normal play.
+    // About 2 seconds, enough headroom when the game is busy loading.
     private const int MaxCposeAttempts = 20;
 
-    /// Called every framework tick from Plugin; steps "/cpose" until the target CPoseState is
-    /// reached, then hands the offset to OffsetEngine.
+    /// Steps "/cpose" until the target variant is reached, then applies the offset.
     public void Tick()
     {
         TickPartnerTracking();
@@ -255,16 +203,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
     }
 
-    /// Folds an anchor's correction into the base offset using the position/rotation at the moment
-    /// the offset is actually about to be applied — not whenever Trigger() was first called.
-    /// Sit/GroundSit/Doze poses can take several frames to actually settle into place (EnterPoseCycle
-    /// waits on CPoseState via Tick), and entering the pose
-    /// can itself change the character's facing (e.g. sitting snapping/settling rotation) before it's
-    /// fully active — an eagerly-computed correction would use stale rotation and land wrong. The
-    /// anchor correction dispatches to whichever of spot/furniture/partner the preset's PresetAnchor
-    /// actually carries (the three are structurally exclusive already); a partner anchor additionally
-    /// starts live tracking — see StartPartnerTracking.
-    ///
+    /// Adds the anchor correction. Computed when the offset is applied, not when triggered, since
+    /// entering a pose can change the character's facing. A partner anchor starts live tracking.
     private PoseOffset ResolveOffset(PoseOffset baseOffset, PresetAnchor? anchor, bool silent = false)
     {
         var offset = baseOffset;
@@ -299,40 +239,32 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         return live is { } furniture ? furnitureAnchor.TryComputeCorrection(localPlayer, furniture, baseRotationOffset, rotationOffsetApplies) : null;
     }
 
-    // Below these, a partner's (or this player's own) transform change is treated as network jitter
-    // rather than real movement — keeps a still partner from re-applying the offset every tick.
+    // Smaller changes are treated as network jitter.
     private const float PartnerTrackPositionThreshold = 0.02f;
     private const float PartnerTrackRotationThreshold = MathF.PI / 180f; // ~1°
 
-    // The SimpleHeels bridge applies offsets via a chat command (and a sync upload behind it), so a
-    // partner walking around mustn't turn into one "/heels temp set" per frame.
+    // Keeps a moving partner from sending a SimpleHeels command every frame.
     private const long BridgeReapplyIntervalMs = 250;
 
-    /// A partner-anchored offset's live state: the preset's own offset (BaseOffset — adjustable via
-    /// ApplyManualOffset) is kept separate from the partner correction folded on top of it, so the
-    /// correction can be recomputed as the partner (the root) moves without losing either one.
+    /// Keeps the preset's own offset separate from the partner correction, so the correction can be
+    /// recomputed as the partner moves.
     private sealed class PartnerTracking(PartnerAnchor anchor, PoseOffset baseOffset, bool silent)
     {
         public PartnerAnchor Anchor { get; } = anchor;
         public PoseOffset BaseOffset { get; set; } = baseOffset;
         public bool Silent { get; } = silent;
 
-        /// Zero whenever the anchor couldn't be resolved (partner not loaded yet, or out of range).
+        /// Zero when the partner isn't loaded or is out of range.
         public PoseOffset LastCorrection { get; set; } = PoseOffset.Zero;
 
-        /// The partner's and this player's own transforms the last correction was computed against —
-        /// null until the partner has been found at least once.
         public (Vector3 PartnerPosition, float PartnerRotation, Vector3 OwnPosition, float OwnRotation)? LastTransforms { get; set; }
 
-        /// At most one fallback notice per play, per partner-anchor's spec.
+        /// At most one fallback notice per play.
         public bool NoticeShown { get; set; }
         public long LastApplyTick { get; set; }
     }
 
-    /// Resolves a partner anchor for the first time and begins tracking it — tracking starts even if
-    /// the partner isn't found or is out of range right now, so the correction still lands if they
-    /// load in/come into range while the pose is held (e.g. the partner accepting the relay late and
-    /// sitting down). Returns the offset to apply now.
+    /// Starts tracking even if the partner isn't found yet, so the correction lands once they are.
     private PoseOffset StartPartnerTracking(PartnerAnchor anchor, PoseOffset baseOffset, bool silent)
     {
         var tracking = new PartnerTracking(anchor, baseOffset, silent);
@@ -351,9 +283,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         return ComposeOffset(tracking.BaseOffset, tracking.LastCorrection);
     }
 
-    /// Called every tick: re-applies the partner correction once either character's actual transform
-    /// has moved past the jitter thresholds. A partner who's unloaded just leaves the last applied
-    /// offset in place until they're back (or tracking ends).
+    /// Re-applies the partner correction when either character moves.
     private void TickPartnerTracking()
     {
         if (partnerTracking is not { } tracking || PartnerTrackingPaused) return;
@@ -376,8 +306,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         RecomputePartnerCorrection(tracking, localPlayer, partner);
         var offset = ComposeOffset(ComposeOffset(tracking.BaseOffset, tracking.LastCorrection), boneCorrection);
 
-        // Crossing the thresholds doesn't always change the result (e.g. still out of range, so the
-        // plain base offset stays applied) — skip the re-apply rather than re-issuing an identical one.
+        // Skip re-applying an unchanged result.
         var current = offsetEngine.DesiredOffset;
         if (Vector3.Distance(current.Position, offset.Position) <= 0.001f && MathF.Abs(current.Rotation - offset.Rotation) <= 0.0001f)
             return;
@@ -409,8 +338,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         Plugin.ChatGui.PrintError($"[PoseKit] {reason} Playing with just the offset.");
     }
 
-    /// Field-wise composition, the same way ResolveOffset folds spot/furniture corrections in — which
-    /// is what keeps ApplyManualOffset's inverse (edited minus correction) exact.
+    /// Field-wise, so Subtract is its exact inverse.
     private static PoseOffset ComposeOffset(PoseOffset baseOffset, PoseOffset correction) =>
         new() { Position = baseOffset.Position + correction.Position, Rotation = baseOffset.Rotation + correction.Rotation };
 

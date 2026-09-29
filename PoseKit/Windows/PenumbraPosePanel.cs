@@ -9,30 +9,16 @@ using PoseKit.Presets;
 namespace PoseKit.Windows;
 
 /// <summary>
-/// Replicates each Penumbra mod's own settings page (one collapsible section per mod, and — since a
-/// mod can easily have dozens of option groups (86 for a large curated collection) — each multi-select
-/// group gets its own collapsible sub-section too, rather than dumping every checkbox in a flat wall
-/// of text). Single-select groups stay a compact one-line combo, since a combo already summarizes to
-/// just the current selection.
+/// The Animations tab: each scanned mod's groups and options, like Penumbra's own settings page,
+/// with a Play button per detected trigger. Options without a trigger are still shown so they can be
+/// configured.
 ///
-/// A small Play button per detected trigger sits next to each group/option — some options bind more
-/// than one real emote at once (e.g. a two-person animation redirecting both /confirm's and /shiver's
-/// files), so there can be more than one button. Options with no detected trigger are still shown (so
-/// the mod can be configured through PoseKit) but have no Play button — some options genuinely aren't
-/// gestures themselves (e.g. a paired "which weapon prop" companion option next to the real animation
-/// option), same as picking it in Penumbra and playing it manually.
-///
-/// The mod list itself only ever contains mods explicitly picked in the Settings window and currently
-/// enabled — see PenumbraPoseScanner. Playing anything here records which mod/selections produced it
-/// (Plugin.LastPlayedPenumbraContext) so saving a preset from the Live Offset panel can carry that
-/// along and re-enable the same mod state on replay.
+/// Playing records the mod state (Plugin.LastPlayedPenumbraContext) so a saved preset can restore it.
 /// </summary>
 public static class PenumbraPosePanel
 {
     private static string animationSearch = "";
 
-    /// The Animations page's title row: title, mod count and a Rescan button on the left, search on
-    /// the right, then a one-line hint (or the active filter with a Clear button).
     public static void DrawToolbar(Plugin plugin)
     {
         ImGui.AlignTextToFramePadding();
@@ -101,15 +87,10 @@ public static class PenumbraPosePanel
             var expanded = ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags);
             PoseKitUi.DrawPickBadge(modPick);
 
-            // CollapsingHeader's clickable region spans the whole row, not just its label — without
-            // this, a widget placed after it via SameLine renders on top but the header underneath
-            // still eats the click, so the checkbox looked clickable but only ever toggled collapse.
+            // The header spans the whole row; without this it eats the checkbox's clicks.
             ImGui.SetItemAllowOverlap();
 
-            // Always visible regardless of collapse state — explicit control over enabling *and*
-            // disabling, since Play/selection actions elsewhere only ever turn a mod on, never off,
-            // which left no way to back out of a mod once it got implicitly enabled (a real source
-            // of the stale-selection conflicts fixed last time).
+            // Playing only ever enables a mod, so this is the way to turn one back off.
             ImGui.SameLine(0, 20);
             var modEnabled = mod.Enabled;
             if (ImGui.Checkbox($"Enabled##PoseKitModEnabled{mod.ModDirectory.GetHashCode()}", ref modEnabled))
@@ -140,9 +121,7 @@ public static class PenumbraPosePanel
 
         if (group.IsImplicit)
         {
-            // No real Penumbra group backs this — it's just the mod's always-active default files.
-            // Nothing to select (there's only ever the one implicit option), so skip straight to
-            // trigger buttons instead of a one-item combo that would falsely imply a choice exists.
+            // The mod's always-active files: nothing to select, just trigger buttons.
             ImGui.TextUnformatted(group.Name);
             foreach (var option in group.Options)
             {
@@ -212,10 +191,7 @@ public static class PenumbraPosePanel
 
                     DrawOptionPickMarker(plugin, mod, option);
 
-                    // Every option gets its own Play button here, not just whichever's already
-                    // selected — clicking one selects it first (if it isn't already) then plays
-                    // it, so picking and playing an option is one click instead of needing to
-                    // select it here, close the dropdown, then find its Play button outside.
+                    // Every option gets a Play button that selects it first.
                     DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
                         beforePlay: isSelected || collectionId is null
                             ? null
@@ -238,10 +214,7 @@ public static class PenumbraPosePanel
         ImGui.PopID();
     }
 
-    /// True once anything queued (own or partner's pick) belongs to this mod — drives auto-expanding
-    /// the mod's header and its pick badge, so the whole path down to the actual option is easy to
-    /// find rather than just the Play button at the bottom of it. "Both" (about to fire) outranks a
-    /// single-sided pick if the mod somehow has both at once (different options).
+    /// Whether a queued pick is in this mod, so its header can open and show a badge.
     private static PoseKitUi.PickState ModPickState(Plugin plugin, PoseModInfo mod)
     {
         var best = PoseKitUi.PickState.None;
@@ -255,8 +228,7 @@ public static class PenumbraPosePanel
         return best;
     }
 
-    /// True if ANY of the option's own triggers is queued — a checkbox/mod-header badge still wants
-    /// to light up regardless of which specific trigger button under it was the one actually picked.
+    /// Whether any of the option's triggers is queued.
     private static PoseKitUi.PickState OptionPickState(Plugin plugin, PoseModInfo mod, PoseModOption option)
     {
         var best = PoseKitUi.PickState.None;
@@ -269,26 +241,14 @@ public static class PenumbraPosePanel
         return best;
     }
 
-    /// Badge next to a specific option (checkbox/selectable/implicit-option label) when it's the one
-    /// queued — completes the "highlight the whole path" ask alongside the mod-level badge above and
-    /// the Play-button highlight in DrawTriggerButtons.
     private static void DrawOptionPickMarker(Plugin plugin, PoseModInfo mod, PoseModOption option) =>
         PoseKitUi.DrawPickBadge(OptionPickState(plugin, mod, option));
 
-    /// "ModName — OptionName" (or just "ModName" for an implicit/Default option) — this, not the
-    /// generic pose slot name ("Sit Pose 2", shared by every mod redirecting that same game slot), is
-    /// what identifies a specific animation *choice* for queueing/highlighting/syncing at the
-    /// option/checkbox level. Mirrors the "Animation: X" format the preset library already uses for a
-    /// saved preset's Penumbra link.
+    /// "ModName — OptionName", which identifies an animation choice (the pose slot name doesn't).
     private static string DescribePlayLabel(PoseModInfo mod, PoseModOption option) =>
         option.Name is "" or "Default" ? mod.ModName : $"{mod.ModName} — {option.Name}";
 
-    /// DescribePlayLabel, narrowed to one specific trigger *button* under that option. Identical to
-    /// DescribePlayLabel for the overwhelming majority of options (exactly one trigger), so queueing/
-    /// syncing/force-select keep working exactly as before for those. Only an option bound to more
-    /// than one trigger (e.g. a redirect spanning two emote slots at once, "Sit"+"Doze") gets a
-    /// per-trigger suffix — without it, queueing/highlighting one specific pose button lit up every
-    /// other trigger button under the same option too, since they all shared one identity.
+    /// DescribePlayLabel plus the trigger, when the option has more than one.
     private static string DescribeTriggerLabel(PoseModInfo mod, PoseModOption option, PoseTriggerHint trigger)
     {
         var optionLabel = DescribePlayLabel(mod, option);
@@ -297,19 +257,11 @@ public static class PenumbraPosePanel
         return $"{optionLabel} ({triggerText})";
     }
 
-    /// Null unless this option is currently one of two-or-more selected options claiming the same
-    /// gesture — reports the first such collision found, naming the other claimant. Checks both
-    /// PoseKit-tracked mods (activePoses, built from DiscoveredPoses) and every other enabled mod in
-    /// Penumbra that was never added to PoseKit at all (plugin.ExternalPoseClaims) — see
-    /// PenumbraPoseScanner.ScanExternalConflicts for why the latter exists.
+    /// Null unless another selected option (in any enabled mod) claims the same pose.
     ///
-    /// Also returns how to fix it, keeping this option as the one that plays: every conflicting
-    /// claimant that lives in a *different* mod (PoseKit-tracked or external) gets disabled, and every
-    /// other claimant option inside this *same* mod (e.g. two GoonersLife groups both on "GroundSit
-    /// Pose 3") gets deselected instead, since disabling its mod would disable this option too. A
-    /// same-mod claimant in a single-select group is switched to one of that group's options with no
-    /// pose triggers at all (a "None"/"Off" choice); if the group has none, it can't be cleared
-    /// automatically and is left out of the fix. Null Resolve when nothing at all can be fixed.
+    /// The fix keeps this option: other mods are disabled, and other options in this same mod are
+    /// deselected (a single-select group switches to an option without triggers, if it has one).
+    /// Resolve is null when nothing can be fixed.
     private static (string Tooltip, Action? Resolve)? DescribeConflict(Plugin plugin,
         Dictionary<PoseIdentifier, List<(PoseModInfo Mod, PoseModOption Option)>> activePoses,
         PoseModInfo mod, PoseModOption option, Guid? collectionId)
@@ -373,9 +325,8 @@ public static class PenumbraPosePanel
         });
     }
 
-    /// The group selections that clear <paramref name="others"/> (other options of this same mod)
-    /// while keeping everything else selected — see DescribeConflict. <paramref name="cleared"/> lists
-    /// the options that change actually clears.
+    /// The selections that clear <paramref name="others"/>; <paramref name="cleared"/> lists the
+    /// ones that can be cleared.
     private static Dictionary<PoseModGroup, HashSet<string>> SameModDeselection(PoseModInfo mod, List<PoseModOption> others,
         out List<PoseModOption> cleared)
     {
@@ -407,15 +358,11 @@ public static class PenumbraPosePanel
         return changes;
     }
 
-    /// A per-mod, per-option ImGui id for the conflict button — group names like "Default" repeat
-    /// across mods, so the enclosing PushID(group.Name) alone isn't unique.
+    /// Group names repeat across mods, so the id includes the mod.
     private static string ConflictId(PoseModInfo mod, PoseModOption option) =>
         $"PoseKitConflict{mod.ModDirectory.GetHashCode()}{option.Name.GetHashCode()}";
 
-    /// Turns off a conflicting mod that isn't in PoseKit's Animations list (so it has no PoseModInfo
-    /// to go through SetModEnabled with) — same temporary-settings route, preserving its own priority
-    /// and group selections, then drops its claims so the conflict marker clears immediately rather
-    /// than waiting for the next rescan.
+    /// Temporarily disables an unscanned mod and drops its claims so the marker clears right away.
     private static void DisableExternalMod(Plugin plugin, Guid collectionId, string modDirectory)
     {
         var (_, priority, selections) = plugin.PenumbraIpc.TryGetCurrentSettings(collectionId, modDirectory);
@@ -467,15 +414,12 @@ public static class PenumbraPosePanel
     private static bool Matches(string value, string filter)
         => value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    /// Penumbra's temporary-settings IPC replaces a mod's *entire* set of group selections in one
-    /// call, so every group's current selection has to be sent even though only one is changing.
-    /// Implicit groups (PenumbraPoseScanner's synthetic "Default" from default_mod.json) are skipped
-    /// — Penumbra has no group by that name, so including one would corrupt the payload.
     private static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,
         HashSet<string> newSelection, Guid collectionId) =>
         ApplyGroupChanges(plugin, mod, new Dictionary<PoseModGroup, HashSet<string>> { [changedGroup] = newSelection }, collectionId);
 
-    /// ApplyGroupChange for several groups of the same mod in one Penumbra call.
+    /// Sends every group's selection, since Penumbra replaces them all at once. The implicit group
+    /// isn't a real Penumbra group and is left out.
     private static bool ApplyGroupChanges(Plugin plugin, PoseModInfo mod, Dictionary<PoseModGroup, HashSet<string>> changes,
         Guid collectionId)
     {
@@ -496,19 +440,10 @@ public static class PenumbraPosePanel
         return true;
     }
 
-    /// Playing a pose from a mod that's currently disabled in Penumbra shouldn't require going there
-    /// first to flip it on — temporarily enable it here (same mechanism ApplyGroupChange already uses
-    /// for selection changes) with its current group selections, so the redirect is actually live by
-    /// the time the pose is triggered.
     private static void EnsureModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId)
         => SetModEnabled(plugin, mod, collectionId, true);
 
-    /// Explicit enable/disable, unlike EnsureModEnabled/ApplyGroupChange which only ever turn a mod
-    /// on — those left no way to back a mod back off once PoseKit had implicitly enabled it, which
-    /// was a real source of stale-selection conflicts (a disabled mod's remembered selection still
-    /// getting counted as active). Preserves the mod's current group selections either way, since
-    /// Penumbra's temporary-settings API sets any group left out of the map to its own default
-    /// rather than leaving it alone.
+    /// Keeps the current selections, since Penumbra resets any group left out.
     private static void SetModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId, bool enabled)
     {
         if (mod.Enabled == enabled || collectionId is not { } cid) return;
@@ -535,12 +470,8 @@ public static class PenumbraPosePanel
         return null;
     }
 
-    /// <param name="beforePlay">Runs before enabling/playing — e.g. selecting the option in its
-    /// group first, for a not-yet-selected option played directly from the combo dropdown, so
-    /// picking it and playing it is one click instead of two separate steps.</param>
-    /// <param name="compact">Small buttons for rows inside a combo's dropdown list, where every other
-    /// row is a single line of text; everywhere else the buttons are full height, matching the combo or
-    /// checkbox they sit beside.</param>
+    /// <param name="beforePlay">Runs first, e.g. to select the option.</param>
+    /// <param name="compact">Small buttons, for rows inside a combo dropdown.</param>
     private static void DrawTriggerButtons(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
         Guid? collectionId, string idPrefix, Action? beforePlay = null, bool compact = false)
     {
@@ -548,10 +479,6 @@ public static class PenumbraPosePanel
         for (var i = 0; i < triggers.Count; i++)
         {
             var trigger = triggers[i];
-            // Each trigger button gets its own queued identity (DescribeTriggerLabel), not just the
-            // option's — an option bound to more than one trigger (e.g. a redirect spanning two emote
-            // slots at once) would otherwise highlight every one of its buttons as picked whenever any
-            // one of them was actually queued/force-selected/synced.
             var triggerLabel = DescribeTriggerLabel(mod, option, trigger);
             var pick = PoseKitUi.GetPickState(plugin, triggerLabel);
             var buttonText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
@@ -564,20 +491,13 @@ public static class PenumbraPosePanel
                 {
                     void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
 
-                    // Solo play bypass: play immediately, exactly as if unpaired. Checked first so it
-                    // always wins regardless of mutual override or plain pairing state — see
-                    // couple-pairing's Solo Play Bypass requirement.
+                    // Solo play always plays immediately.
                     if (plugin.PairingState.SoloPlayEnabled)
                     {
                         Play();
                     }
-                    // While paired, nothing plays yet — this queues toward the partner and highlights
-                    // once they've picked something too, same as a preset click (PresetButtonsPanel).
-                    // Under mutual override, a second click (once this side already has its own
-                    // queued pick) forces triggerLabel onto the partner instead — also carrying this
-                    // pick's own mod-directory/group/option/trigger identity (mirroring
-                    // CapturePenumbraContext below) so the partner can resolve it by hash even if the
-                    // mod's been renamed since. See couple-pairing's Partner Pose Resolution.
+                    // Paired: queue. Under mutual override, a second click forces this pick on the
+                    // partner, with hashes so they can resolve it.
                     else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
                     {
                         var penumbraLink = new PenumbraLink
@@ -599,9 +519,6 @@ public static class PenumbraPosePanel
         }
     }
 
-    /// The actual "make this play" sequence — enable the mod if needed, capture its Penumbra context
-    /// for the next preset save, then trigger. Shared by the per-button click and TryPlayByLabel/
-    /// TryPlayByHash below.
     private static void PlayOptionTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
         PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
     {
@@ -613,13 +530,10 @@ public static class PenumbraPosePanel
             TriggerText(trigger), trigger.PoseIdentifier);
     }
 
-    /// A trigger's identity text: its slash command (without "/") or its pose's display name — shared
-    /// by pairing's trigger hash and alignment memory's key.
+    /// The slash command (without "/") or the pose's display name.
     public static string TriggerText(PoseTriggerHint trigger) =>
         trigger.SlashCommand is { } cmd ? cmd : trigger.PoseIdentifier!.Value.DisplayName;
 
-    /// Finds the mod/group/option/trigger whose DescribeTriggerLabel matches `label` exactly, or null
-    /// tuple if none currently matches — the receiving side may simply not have that mod.
     private static (PoseModInfo Mod, PoseModGroup Group, PoseModOption Option, PoseTriggerHint Trigger)? FindByTriggerLabel(
         Plugin plugin, string label)
     {
@@ -634,10 +548,6 @@ public static class PenumbraPosePanel
         return null;
     }
 
-    /// Resolves a DescribeTriggerLabel-format label against the currently discovered mods and plays
-    /// its exact matching trigger if found — used to act on a force-selected name received from a
-    /// pairing partner (see Plugin's ForceSelectionReceived wiring). Returns false (does nothing) if
-    /// no discovered trigger currently matches.
     public static bool TryPlayByLabel(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
@@ -649,13 +559,8 @@ public static class PenumbraPosePanel
         return true;
     }
 
-    /// Same idea as FindByTriggerLabel, but matching a received ForceSelectionHashes against each
-    /// mod/group/option/trigger's own hashed identity (ModDirectoryHash.Compute) instead of the
-    /// literal DescribeTriggerLabel text — survives the mod (or one of its options) having been
-    /// renamed locally since the partner made their pick. See couple-pairing's Partner Pose
-    /// Resolution requirement. A "0" group/option hash matches any implicit group (there's always
-    /// exactly one option in it — see PenumbraPoseScanner's "Default" synthetic group), mirroring
-    /// Plugin.ResolveGroupOption's own skip-when-no-hash convention.
+    /// Like FindByTriggerLabel but by hash, so it survives local renames. A "0" group hash matches
+    /// the implicit group.
     private static (PoseModInfo Mod, PoseModGroup Group, PoseModOption Option, PoseTriggerHint Trigger)? FindByHash(
         Plugin plugin, ForceSelectionHashes hashes)
     {
@@ -687,11 +592,6 @@ public static class PenumbraPosePanel
         return null;
     }
 
-    /// Resolves a received force-selection's hash triple/quad against the currently discovered mods
-    /// and plays its exact matching trigger if found — tried before the name-based TryPlayByLabel
-    /// fallback (see Plugin's ForceSelectionReceived wiring). Returns false (does nothing) if
-    /// <paramref name="hashes"/> carries no Penumbra data (a saved-preset force-select) or no
-    /// discovered trigger currently matches.
     public static bool TryPlayByHash(Plugin plugin, ForceSelectionHashes hashes)
     {
         if (!hashes.HasPenumbraData) return false;
@@ -704,21 +604,9 @@ public static class PenumbraPosePanel
         return true;
     }
 
-    /// Draws just the trigger buttons (and pick badge) for the mod+option owning the trigger matching
-    /// `label` — used by PairingPanel to offer "your half" of whatever a paired partner just picked
-    /// right next to the pairing controls, without the user having to scroll down through the full
-    /// Animations tab to find the matching gesture themselves. Returns false (draws nothing) if no
-    /// discovered trigger currently matches — the receiving side may simply not have that mod.
-    ///
-    /// When the matched option itself already has more than one trigger (a combo option redirecting
-    /// both participants' animation files at once — confirmed against real GoonersLife groups like
-    /// "Sitting Animation List* 160 - 175" and "404 Bounce Ride"), that option alone already offers
-    /// every role's button via DrawTriggerButtons, so only it is shown. Only when the matched option
-    /// has exactly one trigger — meaning the role split lives *across* sibling options instead, e.g.
-    /// "316 Heated Cuddles"'s "Hugger"/"Hugged" pair, or a large checkbox-per-role pack like "417" —
-    /// does every sibling option in the group get its own row too; showing every sibling of a
-    /// multi-trigger option instead buries its own correct buttons under every unrelated scene/toggle
-    /// also in that group.
+    /// Trigger buttons for the partner's pick, shown in the pairing panel. An option with several
+    /// triggers already covers both roles, so only it is shown; otherwise the roles are sibling
+    /// options and all of them are shown. False when the mod isn't found.
     public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
@@ -745,11 +633,7 @@ public static class PenumbraPosePanel
         return true;
     }
 
-    /// Unlike a real button click, nothing guarantees a label resolved from elsewhere (a forced/synced
-    /// selection, or this same lookup for the quick-pick panel above) has its option actually selected
-    /// in Penumbra yet — without this, EnsureModEnabled only ever turns the mod *on* (preserving
-    /// whatever group selection happens to already be active), so the animation played would be
-    /// whatever was last selected, not the intended one.
+    /// Selects the option before playing when it isn't selected yet.
     private static Action? SelectOptionBeforePlay(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid? collectionId)
     {
         var alreadySelected = group.IsImplicit || group.Selected.Contains(option.Name);

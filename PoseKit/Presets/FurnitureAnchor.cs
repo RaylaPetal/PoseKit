@@ -7,38 +7,22 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using PoseKit.Furniture;
 
 /// <summary>
-/// Optional per-preset snapshot of a furniture item the player was near when it was saved, stored as
-/// the player's own position/rotation relative to that item — not an absolute world point — so
-/// replaying it against the same furniture placed somewhere else (a different room, a different
-/// copy of the item) still folds a correct correction into the offset. Same "read-only,
-/// render-offset-only" boundary as LocationAnchor; never touches GameObject.Position/Rotation.
-///
-/// Works against NearbyFurniture snapshots rather than a live IGameObject: IGameObject wraps a
-/// pointer only valid for the current frame, and the furniture picked at save time (or matched at
-/// replay time) is read from a FurnitureScanner.ScanNearby() snapshot, not held across frames.
+/// Where the player was relative to a furniture item when the preset was saved, so it replays
+/// against any placed copy of that item. Corrects the render offset only.
 /// </summary>
 public class FurnitureAnchor
 {
-    /// The stable game-data identifier for the furniture item (NearbyFurniture.EntryId — a
-    /// HousingFurniture/HousingYardObject sheet row id, read via HousingObjectId on the housing
-    /// object array; see FurnitureScanner), not a per-session entity ID — entity IDs aren't stable
-    /// across sessions or rooms, but every placed copy of the same furniture item shares this.
+    /// The furniture's sheet row id, shared by every placed copy (unlike its entity id).
     public uint EntryId;
 
-    /// Display-only, resolved at save time purely so the preset library can show which furniture
-    /// this is anchored to without needing a live lookup.
     public string FurnitureName = "";
 
-    /// The player's position at save time, expressed relative to the furniture's own position and
-    /// rotation (i.e. in the furniture's local frame) — this is what lets the same relative offset
-    /// be re-applied against a differently-placed copy of the same item.
+    /// The player's position at save time, in the furniture's local frame.
     public Vector3 RelativePosition;
 
     /// The player's rotation at save time, relative to the furniture's rotation. Radians.
     public float RelativeRotation;
 
-    // Same render-only correction budget as LocationAnchor — beyond this the rendered model would
-    // visibly desync from the character's real hitbox/camera/nameplate.
     private const float MaxCorrectionDistance = 15f;
 
     public static FurnitureAnchor Capture(IPlayerCharacter localPlayer, NearbyFurniture furniture)
@@ -53,8 +37,7 @@ public class FurnitureAnchor
         };
     }
 
-    /// Picks the nearest currently-live furniture instance matching this anchor's EntryId, or null if
-    /// none is nearby — callers should fall back to the preset's plain saved offset and warn the user.
+    /// The nearest matching furniture, or null if none is nearby.
     public NearbyFurniture? TryFindLiveInstance(IEnumerable<NearbyFurniture> nearby, Vector3 nearPosition)
     {
         NearbyFurniture? nearest = null;
@@ -70,11 +53,8 @@ public class FurnitureAnchor
         return nearest;
     }
 
-    /// Null if the correction isn't meaningful right now (the computed target is implausibly far
-    /// away) — mirrors LocationAnchor.TryComputeCorrection's contract and math exactly, just against
-    /// a live-computed target instead of a frozen point. See that method's doc for why
-    /// baseRotationOffset is needed, and LocationAnchor.TryComputeCorrection's rotationOffsetApplies
-    /// doc for why that's gated on OffsetEngine.RotationHookResolved.
+    /// Null when the target is too far away. See LocationAnchor.TryComputeCorrection for the
+    /// parameters.
     public PoseOffset? TryComputeCorrection(IPlayerCharacter localPlayer, NearbyFurniture liveFurniture, float baseRotationOffset, bool rotationOffsetApplies)
     {
         var furnitureFacing = Quaternion.CreateFromYawPitchRoll(liveFurniture.Rotation, 0, 0);

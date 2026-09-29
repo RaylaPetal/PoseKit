@@ -9,19 +9,12 @@ using PoseKit.Sync;
 namespace PoseKit.Bones;
 
 /// <summary>
-/// The manual Bone Align action: lines up one of this player's body parts with one of their
-/// partner's, as both are drawn on this client, by folding the gap into this player's render-only
-/// offset (PoseTrigger.SetBoneCorrection) — never writing bones or actual positions.
+/// Lines up one of this player's body parts with the partner's by adjusting this player's render
+/// offset. Bones and real positions are never written.
 ///
-/// One press: guards → announce to the paired partner → resync nearby emote loops (so both
-/// characters' animations restart together here) → short settle → sample both bones for a window,
-/// keeping the moment they were closest → apply that gap once and leave it alone; a correctly
-/// authored animation carries the rest. Sampling rather than reading one frame matters for loops
-/// that start with the parts apart and bring them together partway through.
-///
-/// Single mover: if both paired sides press Align at overlapping times, the side whose own identity
-/// sorts first (ordinal) continues and the other cancels — both compute the same answer from state
-/// they already have, with no further messages.
+/// Resyncs both emotes, samples both parts over a short window and uses the closest moment, since
+/// many loops only bring the parts together partway through. If both sides align at once, the side
+/// whose "Name@World" sorts first wins.
 /// </summary>
 public sealed class BoneAlignService : IDisposable
 {
@@ -30,15 +23,13 @@ public sealed class BoneAlignService : IDisposable
     // Long enough for the emote-loop reset to take effect before measuring.
     private const long SettleMs = 300;
 
-    // Long enough to catch the contact moment of a typical short loop; pressing Align again
-    // re-samples and replaces the previous correction.
+    // Long enough to catch the contact moment of a typical short loop.
     private const long SampleMs = 1500;
 
     // How long after a partner's announcement their Align is still considered in progress.
     private const long PartnerAlignWindowMs = SettleMs + SampleMs + 500;
 
-    // Past this, the rendered model would visibly drift from the character's hitbox/nameplate —
-    // bigger gaps are for moving closer (or the partner anchor), not for a bone nudge.
+    // Past this the rendered model visibly drifts from the real character.
     public const float MaxAlignDistance = 1.0f;
 
     private readonly Configuration configuration;
@@ -60,11 +51,9 @@ public sealed class BoneAlignService : IDisposable
     private BodyPart selfPart => request.Self;
     private BodyPart partnerPart => request.Partner;
 
-    // Measuring the part directions and body outlines is only needed when the facing is worked out.
     private bool NeedsFacingSamples => request.Facing is AlignFacing.Auto or AlignFacing.PartDirection;
 
-    // Everything about the closest sampled moment: both parts' positions and facing directions, and
-    // this player's actual (server) position, which the facing turn pivots around.
+    // The closest sampled moment. The facing turn pivots around the real position.
     private bool sampled;
     private float bestDistance;
     private Vector3 bestMine;
@@ -73,23 +62,21 @@ public sealed class BoneAlignService : IDisposable
     private Vector3? bestMyDirection;
     private Vector3? bestTheirDirection;
 
-    // Both drawn models' own position and heading at that moment, for the shared-origin facing snap.
+    // Both drawn models at that moment, for the shared-origin facing.
     private bool bestModelsKnown;
     private Vector3 bestMyModel;
     private float bestMyModelYaw;
     private Vector3 bestTheirModel;
     private float bestTheirModelYaw;
 
-    // Both bodies' outlines (BodyParts.BodyOutline) on every sampled frame, for the 180-degree check.
+    // Both body outlines on every sampled frame, for the 180-degree check.
     private readonly List<(Vector3?[] Mine, Vector3?[] Theirs)> outlineFrames = [];
 
-    /// The outcome of the last Align (or what it's doing right now) — shown under the button.
     public string Status { get; private set; } = "";
 
     public bool IsAligning => phase != Phase.Idle;
 
-    /// Raised when an Align succeeds, with its request and the facing it actually settled on (never
-    /// Auto) — alignment memory records manual ones.
+    /// Carries the facing actually used (never Auto).
     public event Action<AlignRequest, AlignFacing>? Aligned;
 
     public BoneAlignService(Configuration configuration, PairingState pairingState, PairingListener pairingListener,
@@ -150,8 +137,7 @@ public sealed class BoneAlignService : IDisposable
                 YieldToPartner();
                 return;
             }
-            // Only a button press may send a tell (PairingSender's one-click-one-tell rule), so an
-            // auto-align from memory never announces itself.
+            // Only a button press may send a tell, so auto-align stays silent.
             if (request.Origin == AlignOrigin.Manual)
                 pairingListener.AnnounceBoneAlign();
         }
@@ -170,15 +156,12 @@ public sealed class BoneAlignService : IDisposable
         SetStatus($"Aligning {BodyParts.DisplayName(selfPart)} -> {BodyParts.DisplayName(partnerPart)}...");
     }
 
-    /// Status text, prefixed "From memory:" for an auto-align so the player can tell where it came from.
     private void SetStatus(string text) =>
         Status = request.Origin == AlignOrigin.Memory ? $"From memory: {text}" : text;
 
-    /// Who an Align would line up with right now (see ResolvePartner), or null.
     public IPlayerCharacter? FindPartner(IPlayerCharacter localPlayer) => ResolvePartner(localPlayer, out _);
 
-    /// The paired partner while pairing is active; otherwise the current target, if it's another
-    /// player character.
+    /// The paired partner, or else the targeted player.
     private IPlayerCharacter? ResolvePartner(IPlayerCharacter localPlayer, out string failure)
     {
         failure = "";
@@ -197,7 +180,6 @@ public sealed class BoneAlignService : IDisposable
         return null;
     }
 
-    /// Called every framework tick from Plugin.
     public void Tick()
     {
         if (phase == Phase.Idle) return;
@@ -255,9 +237,7 @@ public sealed class BoneAlignService : IDisposable
     // Turns smaller than this are left alone — measurement noise, not a wrong facing.
     private const float MinFacingTurn = 10f * MathF.PI / 180f;
 
-    // A part's direction must be at least this horizontal (as a fraction of its length — 0.5 is
-    // within about 60 degrees of level) to give a trustworthy heading; a mostly vertical part (an
-    // upright penis, a face looking at the ceiling) says nothing reliable about which way to turn.
+    // A mostly vertical part (within ~60 degrees of straight up/down) gives no reliable heading.
     private const float MinHorizontalFraction = 0.5f;
 
     private void Finish(IPlayerCharacter localPlayer, IPlayerCharacter partner)
@@ -293,8 +273,7 @@ public sealed class BoneAlignService : IDisposable
         var positionChange = Vector3.Transform(target - actual, Quaternion.Inverse(Yaw(facing + turn)))
                              - Vector3.Transform(bestMine - actual, Quaternion.Inverse(Yaw(facing)));
 
-        // Bones are measured on the drawn model, which already includes any previous bone correction,
-        // so the fresh change is added to it — pressing Align again refines instead of stacking.
+        // Bones were measured with the previous correction applied, so add to it.
         var previous = poseTrigger.BoneCorrection;
         poseTrigger.SetBoneCorrection(new PoseOffset
         {
@@ -307,10 +286,7 @@ public sealed class BoneAlignService : IDisposable
         Aligned?.Invoke(request, resolvedFacing);
     }
 
-    /// The turn for this Align, a note for the status line, and which facing that turn stands for.
-    /// Auto tries the shared-origin snap, then the part-direction turn with its 180-degree overlap
-    /// check. A remembered fixed facing (same way, facing, quarter turns) is applied straight from the
-    /// drawn models' headings; PartDirection recomputes from the current bodies; Unchanged turns nothing.
+    /// Auto tries the shared-origin facing, then the part-direction turn with the 180-degree check.
     private (float Turn, string Note, AlignFacing Resolved) ChooseFacing(bool rotationApplies, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         if (request.Facing == AlignFacing.Unchanged)
@@ -339,7 +315,6 @@ public sealed class BoneAlignService : IDisposable
     private static string TurnNote(float turn) =>
         MathF.Abs(turn) < MinFacingTurn ? "" : $", turned {turn * 180f / MathF.PI:0} deg";
 
-    /// The heading offset from the partner's drawn model for a fixed facing, or null for the others.
     private static float? FixedFacingAngle(AlignFacing facing) => facing switch
     {
         AlignFacing.SameWay => 0f,
@@ -349,7 +324,6 @@ public sealed class BoneAlignService : IDisposable
         _ => null,
     };
 
-    /// Short wording for a facing, for status lines and the Bone Align section.
     public static string FacingLabel(AlignFacing facing) => facing switch
     {
         AlignFacing.SameWay => "same way as partner",
@@ -361,9 +335,7 @@ public sealed class BoneAlignService : IDisposable
         _ => "auto facing",
     };
 
-    /// How far to turn this player so the two chosen parts face each other — this player's part's
-    /// horizontal direction onto the reverse of the partner's — plus a short note for the status line.
-    /// Zero (with the reason) whenever the turn can't be trusted or applied.
+    /// The turn that makes the two parts face each other, or zero with the reason.
     private (float Turn, string Note) FacingTurn(bool rotationApplies)
     {
         if (!rotationApplies)
@@ -380,21 +352,15 @@ public sealed class BoneAlignService : IDisposable
         return (turn, $", turned {turn * 180f / MathF.PI:0} deg");
     }
 
-    // Couple animations are authored with both characters standing on one spot, most often facing the
-    // same way, sometimes facing each other (quarter turns are rare but cost nothing to try).
+    // Couple animations are usually authored with both characters on one spot.
     private static readonly AlignFacing[] SharedOriginFacings =
         [AlignFacing.SameWay, AlignFacing.Facing, AlignFacing.QuarterLeft, AlignFacing.QuarterRight];
 
-    // How close the two drawn models have to land for the shared-origin reading to count — generous
-    // enough for different body proportions (height, race, body mods move the parts a little).
+    // Generous enough for different body proportions.
     private const float SharedOriginTolerance = 0.3f;
 
-    /// The turn that puts this player on the animation's intended facing, when the animation is a
-    /// couple animation authored in one shared scene: then the right facing is one of a few fixed
-    /// angles relative to the partner's drawn model, and it's the one where bringing the parts
-    /// together also lands this player's drawn model on the partner's spot. Null when no candidate
-    /// lands close enough — not a shared-origin animation (two unrelated emotes, a hand on a
-    /// shoulder), so the direction-based facing decides instead.
+    /// For a couple animation authored on one spot: the fixed facing whose alignment also puts both
+    /// drawn models on the same spot. Null when none does.
     private (float Turn, string Note, AlignFacing Resolved)? SharedOriginTurn(IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         if (!bestModelsKnown) return null;
@@ -417,21 +383,15 @@ public sealed class BoneAlignService : IDisposable
         return (found.Turn, $"{TurnNote(found.Turn)}, {FacingLabel(found.Facing)}", found.Facing);
     }
 
-    // Two outline bones closer than this count as bodies passing through each other. Well under the
-    // spacing of two torsos pressed together, so close-contact poses don't read as overlap.
+    // Outline bones closer than this count as bodies passing through each other.
     private const float OverlapDistance = 0.15f;
 
-    // The flip has to cut overlap by at least this much (summed per frame) and by at least this
-    // fraction before it wins — ties and near-ties keep the direction-based facing.
+    // The flip must clearly reduce overlap to win.
     private const float FlipMinGain = 0.1f;
     private const float FlipMaxRatio = 0.7f;
 
-    /// Couple animations are authored for one relative facing, often either "same way as the partner"
-    /// or "facing them", and the part directions alone can't always tell which (a mouth meeting a
-    /// vagina that points up says nothing about head-to-feet). So the chosen turn is compared with
-    /// the same turn plus 180 degrees, each with the parts brought together exactly as Finish will:
-    /// whichever leaves the two bodies less inside each other across the sampled loop is the
-    /// animation's intended facing.
+    /// Part directions can't always tell "same way" from "facing each other", so compare the turn
+    /// with the turn plus 180 degrees and keep whichever overlaps the bodies less.
     private bool ShouldFlip(float turn, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         if (outlineFrames.Count == 0) return false;
@@ -440,9 +400,7 @@ public sealed class BoneAlignService : IDisposable
         return flipped < kept - FlipMinGain && flipped < kept * FlipMaxRatio;
     }
 
-    /// Average, per sampled frame, of how far outline bone pairs sit inside OverlapDistance of each
-    /// other once this player is turned by `turn` around their actual position and shifted so the
-    /// chosen parts meet.
+    /// Average overlap per sampled frame after turning and shifting this player by the given turn.
     private float Overlap(float turn, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         var actual = bestActualPosition;
@@ -480,14 +438,10 @@ public sealed class BoneAlignService : IDisposable
 
     private static Quaternion Yaw(float angle) => Quaternion.CreateFromYawPitchRoll(angle, 0, 0);
 
-    // Below this the two parts are effectively touching, so there's no approach line to back off along.
     private const float TouchingDistance = 0.005f;
 
-    /// Where this player's part should end up: the configured gap short of the partner's part, so the
-    /// parts meet with a little room rather than fusing, which reads badly once the animation moves.
-    /// The gap is taken along the line the parts approach on (this player's part, after any facing
-    /// turn, → the partner's). If they're touching there's no such line, so it backs off horizontally,
-    /// straight away from the partner.
+    /// The target: the configured gap short of the partner's part, along the approach line. When the
+    /// parts already touch, backs off horizontally away from the partner.
     private Vector3 StopShort(Vector3 theirs, Vector3 mine, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         var room = request.Gap;
@@ -532,8 +486,7 @@ public sealed class BoneAlignService : IDisposable
             Plugin.ChatGui.Print("[PoseKit] Your partner is aligning instead.");
     }
 
-    /// The shared tie-break: whichever side's own "Name@World" sorts first (ordinal) keeps aligning.
-    /// Both sides compare the same two identities, so they always agree.
+    /// Both sides compare the same two names, so they always agree.
     private bool ThisSideGoesFirst()
     {
         var localPlayer = Plugin.ObjectTable.LocalPlayer;

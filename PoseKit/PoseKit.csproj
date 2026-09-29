@@ -12,50 +12,11 @@
     <Tags>pose;emote;offset;penumbra</Tags>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Reference-only material, never compiled into PoseKit itself. -->
-    <Compile Remove="SimpleHeels-master\**\*.cs" />
-    <Compile Remove="Synastry-main\**\*.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <!--
-      Built from source against the Penumbra.Api and Luna submodules (matching how Glamourer and
-      Penumbra.Api's other consumers build) rather than the published NuGet package — as of
-      Penumbra.Api 5.19.0, that package's compiled DLL references an assembly literally named "Luna",
-      but the separately-published "Luna" NuGet package's DLL identifies itself as "Luna.Core" (a
-      genuine assembly-name mismatch in the published packages, confirmed via disassembling both
-      DLLs' assembly references) — no reference short of building from source resolves it.
-    -->
+    <!-- Built from source: the published Penumbra.Api package references an assembly name the
+         published Luna package doesn't provide. -->
     <ProjectReference Include="..\Penumbra.Api\Penumbra.Api.csproj" />
     <ProjectReference Include="..\Luna\Luna\Luna.csproj" />
     <ProjectReference Include="..\Luna\Luna.Generators\Luna.Generators.csproj" OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="SimpleHeels-master\.github\workflows\build.yml" />
-    <Content Include="SimpleHeels-master\.gitignore" />
-    <Content Include="SimpleHeels-master\.gitmodules" />
-    <Content Include="SimpleHeels-master\modguide.md" />
-    <Content Include="SimpleHeels-master\packages.lock.json" />
-    <Content Include="SimpleHeels-master\readme.md" />
-    <Content Include="SimpleHeels-master\SimpleHeels.csproj" />
-    <Content Include="SimpleHeels-master\SimpleHeels.csproj.DotSettings" />
-    <Content Include="SimpleHeels-master\SimpleHeels.json" />
-    <Content Include="SimpleHeels-master\SimpleHeels.sln" />
-    <Content Include="Synastry-main\.gitignore" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\aethercast-cert-renew.service" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\aethercast-cert-renew.timer" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\emotelink-compat-repo.json" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\nginx-bootstrap.conf" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\nginx.conf" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\README.md" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\renew-certificate.sh" />
-    <Content Include="Synastry-main\deploy\aethercast-repo\repo.json" />
-    <Content Include="Synastry-main\EmoteLink.slnx" />
-    <Content Include="Synastry-main\images\icon.png" />
-    <Content Include="Synastry-main\README.md" />
-    <Content Include="Synastry-main\repo.json" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="SimpleHeels-master\LivePose\" />
   </ItemGroup>
 </Project>

@@ -3,11 +3,8 @@ namespace PoseKit.Presets;
 using System;
 
 /// <summary>
-/// A preset's anchor choice: none, a fixed world spot, a furniture item, or a paired partner —
-/// structurally at most one of them, rather than independent nullable fields on NamedPose that UI
-/// convention alone would have to keep from being set together. Plain data (no polymorphism) so it
-/// round-trips through Dalamud's plugin-config JSON serialization the same way every other preset
-/// field already does.
+/// A preset's anchor: a world spot, a furniture item, or a partner. At most one is set. Kept as
+/// plain data so it serializes with the plugin config.
 /// </summary>
 public sealed class PresetAnchor
 {
@@ -15,8 +12,7 @@ public sealed class PresetAnchor
     public FurnitureAnchor? Furniture { get; private set; }
     public PartnerAnchor? Partner { get; private set; }
 
-    /// Parameterless constructor kept for JSON deserialization only — use FromSpot/FromFurniture/
-    /// FromPartner to construct one with the exclusivity guarantee intact.
+    /// For JSON deserialization only; use the From* factories.
     public PresetAnchor() { }
 
     private PresetAnchor(LocationAnchor? spot, FurnitureAnchor? furniture, PartnerAnchor? partner)
@@ -30,8 +26,6 @@ public sealed class PresetAnchor
     public static PresetAnchor FromFurniture(FurnitureAnchor furniture) => new(null, furniture, null);
     public static PresetAnchor FromPartner(PartnerAnchor partner) => new(null, null, partner);
 
-    /// True when the values loaded (e.g. from JSON) actually leave this anchor meaningful — a
-    /// preset's Anchor field can be non-null with every kind null, which is equivalent to no anchor
-    /// at all.
+    /// A loaded anchor can have every kind null, which means no anchor.
     public bool IsSet => Spot != null || Furniture != null || Partner != null;
 }

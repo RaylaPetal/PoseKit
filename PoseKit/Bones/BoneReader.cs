@@ -9,19 +9,12 @@ using FFXIVClientStructs.Havok.Animation.Rig;
 namespace PoseKit.Bones;
 
 /// <summary>
-/// Read-only access to a drawn character's bones, by name, in world space — for any player character
-/// this client renders, not just the local player (same Human → Skeleton → PartialSkeletons walk
-/// EmoteSyncCommand already does to reset emote loops). Never writes a bone. Works outside gpose:
-/// gpose is only needed by posing tools to *edit* bones against the animation, not to read them.
-///
-/// World position = the skeleton's own transform (the drawn model's position/rotation/scale) applied
-/// to the bone's model-space translation from the current Havok pose.
+/// Read-only world-space bone positions for any drawn player character. Works outside gpose.
 /// </summary>
 public static unsafe class BoneReader
 {
-    /// The average world position of every bone in <paramref name="names"/> that exists on the
-    /// character (each counted once, from the first partial skeleton it appears in) — for a body part
-    /// with no single center bone, like the mouth. False when none of them exist.
+    /// The average world position of the named bones that exist, for body parts without a single
+    /// center bone. False when none exist.
     public static bool TryGetAverageBonePosition(IPlayerCharacter character, IReadOnlyList<string> names, out Vector3 world)
     {
         var wanted = new HashSet<string>(names, StringComparer.Ordinal);
@@ -37,9 +30,7 @@ public static unsafe class BoneReader
         return seen.Count > 0;
     }
 
-    /// Where the drawn model itself stands and which way it faces (the game's heading convention: yaw
-    /// r faces (sin r, 0, cos r)) — the skeleton's own transform, so it includes any render offset
-    /// the character's own plugins applied, unlike GameObject.Position/Rotation.
+    /// The drawn model's position and yaw, including any render offset (unlike GameObject.Position).
     public static bool TryGetModelTransform(IPlayerCharacter character, out Vector3 position, out float yaw)
     {
         position = default;
@@ -58,8 +49,7 @@ public static unsafe class BoneReader
         return true;
     }
 
-    /// The world position of each bone in <paramref name="names"/>, by index — null where the character
-    /// has no such bone. One skeleton walk for all of them.
+    /// World position of each named bone, by index; null where missing.
     public static Vector3?[] GetBonePositions(IPlayerCharacter character, IReadOnlyList<string> names)
     {
         var result = new Vector3?[names.Count];
@@ -73,9 +63,6 @@ public static unsafe class BoneReader
         return result;
     }
 
-    /// Calls <paramref name="visit"/> with every bone's name and world position, partial skeleton by
-    /// partial skeleton — used by TryGetAverageBonePosition and by the "/posekit bones" dump. The
-    /// partial skeleton index is passed too, for the dump's grouping.
     public static void ForEachBone(IPlayerCharacter character, Action<string, Vector3> visit) =>
         ForEachBone(character, (_, name, position) => visit(name, position));
 
@@ -90,8 +77,7 @@ public static unsafe class BoneReader
         var skeleton = characterBase->Skeleton;
         if (skeleton == null) return;
 
-        // Explicit System.Numerics copies — the transform's fields are ClientStructs' own vector types,
-        // which make mixed operators ambiguous.
+        // Copy to System.Numerics types; mixing vector types makes operators ambiguous.
         var transform = skeleton->Transform;
         var skeletonPosition = new Vector3(transform.Position.X, transform.Position.Y, transform.Position.Z);
         var skeletonRotation = new Quaternion(transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z, transform.Rotation.W);

@@ -4,12 +4,8 @@ using Lumina.Excel.Sheets;
 namespace PoseKit.Penumbra;
 
 /// <summary>
-/// Reverse-maps a redirected game animation path to the slash command that naturally plays it, by
-/// indexing Lumina's Emote sheet (Emote.TextCommand -> Emote.ActionTimeline[].Key). Confirmed against
-/// real game data: Emote "Confirm" (/confirm) -> ActionTimeline Key "emote/loop_emot20_loop"; "Shiver"
-/// (/shiver) -> "emote/loop_emot18_loop"; "High Five" (/highfive) -> "emote/act_emot22" — each Key's
-/// last path segment matches the .pap basename Penumbra mods redirect (e.g.
-/// ".../bt_common/emote/act_emot22.pap"), so this is safe to key on for a fast reverse lookup.
+/// Maps a redirected animation path back to the emote command that plays it, using the Emote
+/// sheet's ActionTimeline keys (e.g. "emote/act_emot22" -> /highfive).
 /// </summary>
 public static class EmoteAnimationIndex
 {

@@ -36,10 +36,8 @@ public sealed unsafe class FreeCamService : IDisposable
     public bool Enabled { get; private set; }
     public string Status { get; private set; } = "Freecam disabled.";
 
-    /// Whether a real movement key (not camera-look) is currently physically held, per the same
-    /// bypass StepMotion uses to read the real key state. Lets callers tell "the player actually
-    /// tried to move" apart from other reasons a pose might end while freecam is active — see
-    /// RestorePoseIfDropped in Plugin.cs.
+    /// Whether a movement key is physically held, to tell a real move apart from other reasons a
+    /// pose might end during freecam.
     public bool MovementKeyHeld { get; private set; }
 
     public FreeCamService()
@@ -162,10 +160,7 @@ public sealed unsafe class FreeCamService : IDisposable
         }
     }
 
-    // Polls the game's own input functions directly (bypassing this session's block via
-    // FreeCamInput.IsHeld) rather than ImGui key/mouse state, which does not reliably
-    // reflect gameplay input during native camera-drag capture. Direction comes from the
-    // camera's live rotation, which the game keeps updating via normal right-click-drag.
+    // Reads the game's input rather than ImGui's, which misses keys during camera drag.
     private void StepMotion(float seconds)
     {
         var framework = GameFramework.Instance();
@@ -186,13 +181,10 @@ public sealed unsafe class FreeCamService : IDisposable
             (input.IsHeld(data, InputId.MOVE_LEFT) || input.IsHeld(data, InputId.MOVE_STRIFE_L) ? 1 : 0),
             (input.IsHeld(data, InputId.JUMP) ? 1 : 0) - (input.IsHeld(data, InputId.MOVE_DESCENT) ? 1 : 0),
             (input.IsHeld(data, InputId.MOVE_FORE) ? 1 : 0) - (input.IsHeld(data, InputId.MOVE_BACK) ? 1 : 0));
-        // DirH increases opposite to our forward/right formula's convention; negate here
-        // rather than touch the native field, which stays under the game's own control.
+        // DirH runs opposite to FreeCamMotion's convention.
         motion.Step(move, -camera->DirH, camera->DirV, seconds);
     }
 
-    // Diagnostic breakdown, logged so an auto-disable can be traced to the specific
-    // condition that tripped it instead of guessing blind.
     private string? InvalidSessionReason()
     {
         var unsupported = UnsupportedReason();
@@ -206,9 +198,7 @@ public sealed unsafe class FreeCamService : IDisposable
         return null;
     }
 
-    // Snapshot comparison against the position at activation time, so this needs enough
-    // slack to tolerate per-frame recompute noise (below world-coordinate float precision)
-    // without missing an actual teleport/reposition, unlike the frame-to-frame stationary gate.
+    // Tolerates float noise without missing a real teleport.
     private const float ActorDriftEpsilonSquared = 0.0001f;
 
     private bool SessionValid() => InvalidSessionReason() == null;
@@ -222,9 +212,7 @@ public sealed unsafe class FreeCamService : IDisposable
             try
             {
                 if (!SessionValid()) { Disable(); return; }
-                // DirH/DirV are left alone: the game's normal right-click-drag still
-                // drives them, and StepMotion reads them live for movement direction.
-                // Freezing them here would fight native camera-look every frame.
+                // DirH/DirV stay under the game's control so mouse-look keeps working.
                 current->Distance = distance;
                 current->InterpDistance = interpDistance;
                 current->FoV = fov;
@@ -306,9 +294,6 @@ public sealed unsafe class FreeCamService : IDisposable
         }
     }
 
-    // Real physical key state (bypassing this session's own input block, same as StepMotion's
-    // IsHeld reads) — lets callers tell "the player actually tried to move" apart from any other
-    // reason a pose might end while freecam is active. See MovementKeyHeld's doc comment.
     private void UpdateMovementKeyHeld()
     {
         if (input == null) return;

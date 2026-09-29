@@ -10,17 +10,14 @@ using PoseKit.Presets;
 
 namespace PoseKit.Windows;
 
-/// <summary>Live-offset editor (drawn in MainWindow's right rail) and the Presets page: a collapsible
-/// save form above a searchable, filterable library grouped by pose. Pairing itself lives in
-/// PairingPanel — presets don't name a partner; see DrawPresetEntry.</summary>
+/// <summary>The live-offset editor and the Presets page (save form and library).</summary>
 public static class PresetButtonsPanel
 {
     private enum AnchorMode { None, Spot, Furniture }
 
     private enum TypeFilter { All, Solo, Couple }
 
-    /// Which anchor kind a preset carries — "None" is a real filter value (unanchored presets), not
-    /// "no filter"; that's Any.
+    /// "None" matches unanchored presets; "Any" is no filter.
     private enum AnchorFilter { Any, None, Spot, Furniture, Partner }
 
     private static readonly FurnitureScanner furnitureScanner = new();
@@ -30,7 +27,6 @@ public static class PresetButtonsPanel
     private static int selectedFurnitureIndex = -1;
     private static bool includePartner;
 
-    // Library search/filter state — session-only, like the save form's fields above.
     private static string presetSearch = "";
     private static TypeFilter typeFilter = TypeFilter.All;
     private static AnchorFilter anchorFilter = AnchorFilter.Any;
@@ -38,9 +34,6 @@ public static class PresetButtonsPanel
     private static bool IsFiltering =>
         presetSearch.Trim().Length > 0 || typeFilter != TypeFilter.All || anchorFilter != AnchorFilter.Any;
 
-    /// The Presets page's title row (title, saved count, right-aligned search) and filter row (type
-    /// and anchor combos, plus Clear while anything is active) — same shape as the Animations page's
-    /// toolbar so both pages read the same.
     public static void DrawToolbar(Plugin plugin)
     {
         ImGui.AlignTextToFramePadding();
@@ -96,9 +89,7 @@ public static class PresetButtonsPanel
         ImGui.EndCombo();
     }
 
-    /// Type, then anchor kind, then free text — cheapest checks first. The text match is
-    /// case-insensitive over everything a player might remember a preset by; the spot's zone name
-    /// (a game-data sheet lookup) is checked last, only when nothing cheaper matched.
+    /// Cheapest checks first; the zone name lookup comes last.
     private static bool Matches(NamedPose preset)
     {
         if (typeFilter == TypeFilter.Solo && preset.PartnerHalf != null) return false;
@@ -136,8 +127,7 @@ public static class PresetButtonsPanel
             var offset = plugin.OffsetEngine.DesiredOffset;
             var changed = false;
 
-            // Drawn in the narrow right rail, so the drag fields take whatever width is left after the
-            // widest label rather than a fixed width that would push labels off the edge.
+            // Fit the drag fields next to the widest label.
             var dragWidth = MathF.Max(60f, ImGui.GetContentRegionAvail().X - ImGui.CalcTextSize("Forward / Back").X
                                             - ImGui.GetStyle().ItemSpacing.X);
             changed |= PoseKitUi.AxisDragFloat("OffsetX", "Left / Right", ref offset.Position.X, width: dragWidth);
@@ -164,8 +154,7 @@ public static class PresetButtonsPanel
                 plugin.PoseTrigger.ApplyManualOffset(offset);
         }
 
-        // Always available, regardless of current pose — this is the manual escape hatch for a
-        // stuck offset, so it can't be hidden behind the very state that made it hard to fix.
+        // Always enabled, as the way out of a stuck offset.
         if (ImGui.Button("Reset##PoseKitOffsetReset"))
         {
             plugin.PoseTrigger.ClearOffset(localPlayer);
@@ -178,15 +167,11 @@ public static class PresetButtonsPanel
             ImGui.SameLine();
             if (ImGui.Button("Update preset##PoseKitUpdatePreset"))
             {
-                // The live offset can carry a partner-anchor correction (recomputed on every replay, so
-                // saving it back would double-apply it) and a bone-align correction (body-specific) —
-                // neither belongs in the stored offset. See partner-anchor's and bone-align's specs.
                 plugin.PresetManager.Update(loaded, plugin.PoseTrigger.GetOffsetForUpdate());
             }
         }
     }
 
-    /// The Presets page body below its toolbar: the collapsible save form, then the library.
     public static void DrawPresets(Plugin plugin)
     {
         if (ImGui.CollapsingHeader("Save current offset##PoseKitSaveSection", ImGuiTreeNodeFlags.DefaultOpen))
@@ -204,9 +189,7 @@ public static class PresetButtonsPanel
         if (currentPose is { } pose)
         {
             var localPlayer = Plugin.ObjectTable.LocalPlayer;
-            // A couple save is positioned relative to the partner instead of a spot/furniture — the
-            // partner is the root on replay, see PartnerAnchor — so the spot/furniture choice doesn't
-            // apply to it at all (and isn't offered below).
+            // A couple preset is anchored to the partner, so spot/furniture don't apply.
             var savingCouple = includePartner && plugin.PairingState.Active;
             var effectiveAnchorMode = savingCouple ? AnchorMode.None : anchorMode;
             var nearbyFurniture = effectiveAnchorMode == AnchorMode.Furniture ? furnitureScanner.ScanNearby(localPlayer) : null;
@@ -217,11 +200,7 @@ public static class PresetButtonsPanel
 
             var furnitureValid = effectiveAnchorMode != AnchorMode.Furniture ||
                                   (nearbyFurniture is { Count: > 0 } && selectedFurnitureIndex >= 0 && selectedFurnitureIndex < nearbyFurniture.Count);
-            // Being in a pose (currentPose above) is already the real precondition for "there's
-            // something to save" — gating on HasAppliedOffset too meant a legitimate all-zero offset
-            // (the default, or right after clicking Reset) made Save unavailable, which broke
-            // anchor-only presets: the whole point of those is the anchor correction with no extra
-            // nudge on top.
+            // A zero offset is fine to save (anchor-only presets).
             var canSave = newPresetName.Trim().Length > 0 && furnitureValid;
 
             using (ImRaii.Disabled(!canSave))
@@ -240,11 +219,7 @@ public static class PresetButtonsPanel
                     var name = newPresetName.Trim();
                     if (savingCouple)
                     {
-                        // Captured here, at click time, from both characters' actual transforms — the
-                        // same instant this side's own offset is captured — rather than when the
-                        // partner's reply arrives. No anchor hint goes to the partner (anchor stays
-                        // partner-kind, which the capture request encodes as "none"), so their half
-                        // is stored unanchored: they're the root.
+                        // Captured now, at the same moment as this side's offset.
                         if (plugin.PairingState.Peer is { } peer && localPlayer != null &&
                             PartnerAnchor.TryFindLive(peer) is { } partnerCharacter)
                         {
@@ -256,10 +231,7 @@ public static class PresetButtonsPanel
                                                       "this preset relative to them.");
                         }
 
-                        // Asynchronous: captures the partner's own current state over a /tell
-                        // request/reply and completes the save once it arrives (or times out) — see
-                        // CouplePresetCaptureService. LoadedPreset is picked up via its Saved event
-                        // rather than set here, since the save doesn't happen synchronously.
+                        // Saves once the partner replies; LoadedPreset is set by the Saved event.
                         plugin.CouplePresetCaptureService.RequestAndSave(name, pose, plugin.PoseTrigger.GetOffsetForNewPreset(),
                             plugin.LastPlayedPenumbraContext, anchor);
                     }
@@ -293,9 +265,7 @@ public static class PresetButtonsPanel
         }
     }
 
-    /// Presets matching the current search/filters, grouped by pose — groups ordered by pose name,
-    /// presets by their own name, each header showing how many it currently lists. While filtering,
-    /// every remaining group is forced open so matches are never hidden inside a collapsed header.
+    /// Presets grouped by pose. While filtering, every group is forced open.
     private static void DrawLibrary(Plugin plugin)
     {
         var all = plugin.PresetManager.Presets;
@@ -332,8 +302,6 @@ public static class PresetButtonsPanel
         }
     }
 
-    /// The solo save's spot/furniture anchor picker — not shown for a couple save, which is always
-    /// positioned relative to the partner instead (see DrawPresets).
     private static void DrawAnchorChoice(IPlayerCharacter? localPlayer, List<NearbyFurniture>? nearbyFurniture)
     {
         var mode = (int)anchorMode;
@@ -353,9 +321,7 @@ public static class PresetButtonsPanel
         {
             if (nearbyFurniture is { Count: > 0 } unsorted && localPlayer != null)
             {
-                // Nearest first — ScanNearby already limits to nearby items, this just orders
-                // them by distance so the closest (most likely "the one you're on") sorts to the
-                // top of the dropdown instead of object-array order.
+                // Nearest first.
                 var list = unsorted.OrderBy(f => Vector3.Distance(f.Position, localPlayer.Position)).ToList();
                 if (selectedFurnitureIndex < 0 || selectedFurnitureIndex >= list.Count) selectedFurnitureIndex = 0;
 
@@ -385,12 +351,7 @@ public static class PresetButtonsPanel
         }
     }
 
-    /// Public so PairingPanel can offer the exact same clickable entry (click dispatch, pick
-    /// highlighting, anchor/animation info) for whatever a paired partner just picked, without the
-    /// user having to scroll down to find it in the Preset Library themselves.
-    ///
-    /// One compact row: the name as the play button, then short tags (Couple, and the anchor kind with
-    /// its target), a right-aligned delete, and the linked animation as a muted second line.
+    /// One preset row. Also used by PairingPanel to show the partner's pick.
     public static void DrawPresetEntry(Plugin plugin, NamedPose namedPose)
     {
         var pick = PoseKitUi.GetPickState(plugin, namedPose.Name);
@@ -398,20 +359,13 @@ public static class PresetButtonsPanel
         {
             if (ImGui.Button($"{namedPose.Name}##PoseKitPreset{namedPose.GetHashCode()}"))
             {
-                // Solo play bypass: play this side's own half only, exactly as if unpaired — even for
-                // a couple preset, where that means calling PlayPreset (not PlayCouplePreset) so
-                // nothing is relayed either. Checked first so it always wins regardless of mutual
-                // override or plain pairing state. See couple-pairing's Solo Play Bypass requirement.
+                // Solo play: only this side's half, nothing relayed.
                 if (plugin.PairingState.SoloPlayEnabled)
                     plugin.PlayPreset(namedPose);
-                // A preset with a captured partner half plays and relays immediately rather than
-                // going through the queue-and-wait-for-a-matching-selection flow — see
-                // couple-preset-relay's spec and Plugin.PlayCouplePreset.
+                // Couple presets relay directly instead of queueing.
                 else if (namedPose.PartnerHalf != null)
                     plugin.PlayCouplePreset(namedPose);
-                // Under mutual override, a second click (once this side already has its own queued
-                // pick) forces this preset onto the partner instead of replacing this side's own —
-                // see CoupleQueueService.TryForceSelect.
+                // Under mutual override, a second click forces this preset on the partner.
                 else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
                     plugin.CoupleQueueService.TryForceSelect(namedPose.Name, () => plugin.PlayPreset(namedPose));
                 else if (plugin.PairingState.Active)
@@ -461,8 +415,7 @@ public static class PresetButtonsPanel
         : preset.Anchor?.Partner is { } partner ? $"Partner: {partner.Partner.Name}"
         : null;
 
-    /// A short tag continuing the entry's row, wrapping to the next line instead when it wouldn't
-    /// fit beside what's already there (with room left for the delete button).
+    /// Wraps to a new line when it wouldn't fit next to the delete button.
     private static void DrawEntryTag(string text, Vector4 color)
     {
         const float deleteReserve = 70f;

@@ -16,9 +16,7 @@ internal sealed class FreeCamMotion
         Position = position;
     }
 
-    // Direction comes from the camera's own live rotation (driven by the game's normal
-    // right-click-drag, which freecam no longer blocks) rather than a self-tracked
-    // yaw/pitch, so native camera-look keeps working while position is free-fly.
+    // Uses the camera's live rotation so the game's own mouse-look keeps working.
     public void Step(Vector3 input, float hRotation, float vRotation, float seconds)
     {
         if (input == Vector3.Zero || !IsFinite(input) || !float.IsFinite(hRotation) || !float.IsFinite(vRotation) || !float.IsFinite(seconds))

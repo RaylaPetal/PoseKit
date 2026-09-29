@@ -15,47 +15,33 @@ public class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 0;
 
-    /// Set once the welcome/tutorial window has been closed, so it never shows again after the first run.
     public bool HasSeenWelcome { get; set; }
 
-    /// Keyed by home world row ID then character name, mirroring SimpleHeels' WorldCharacterDictionary
-    /// identity pattern so alts don't collide.
+    /// Keyed by home world row ID, then character name.
     public Dictionary<uint, Dictionary<string, CharacterPoseConfig>> Characters { get; set; } = new();
 
-    /// Mod directory names to scan for poses (set in the Settings window) — scanning every installed
-    /// mod was slow and mostly irrelevant noise, so this is opt-in per mod rather than automatic.
+    /// Mod directories to scan for poses.
     public HashSet<string> SelectedPenumbraMods { get; set; } = new();
 
-    /// Restricts the Settings mod picker to mods filed under this Penumbra sort-folder path (e.g.
-    /// "Animations") — Penumbra's own UI-organized mod tree, not the on-disk directory. Empty means
-    /// no filter (every enabled mod is offered, same as before this existed).
+    /// Penumbra sort-folder the mod picker is limited to; empty means all mods.
     public string PenumbraFolderFilter { get; set; } = "";
 
-    /// When on and SimpleHeels is loaded, PoseKit drives SimpleHeels' own "/heels temp set" command
-    /// instead of applying its offset directly, so Mare/Snowcloak/etc. — which already sync SimpleHeels
-    /// offsets — pick it up automatically. See PoseKit.Sync.SimpleHeelsBridge.
+    /// Apply the offset through SimpleHeels instead of directly. See SimpleHeelsBridge.
     public bool BridgeOffsetToSimpleHeels { get; set; }
 
-    /// One-shot latch so BridgeOffsetToSimpleHeels only gets auto-enabled the first time SimpleHeels
-    /// is ever observed loaded — never again afterward, so a user who turns it back off stays off.
+    /// The bridge is auto-enabled only the first time SimpleHeels is seen, so turning it off sticks.
     public bool HasOfferedSimpleHeelsBridge { get; set; }
 
-    /// Bone Align's last-used body parts — this player's own, and the partner's to line it up with.
-    /// See PoseKit.Bones.BoneAlignService.
     public PoseKit.Bones.BodyPart BoneAlignSelf { get; set; } = PoseKit.Bones.BodyPart.Penis;
     public PoseKit.Bones.BodyPart BoneAlignPartner { get; set; } = PoseKit.Bones.BodyPart.Vagina;
 
-    /// How far short of contact Bone Align stops, in yalms — a little room so the parts meet rather
-    /// than fuse.
+    /// Distance short of contact Bone Align stops at, in yalms.
     public float BoneAlignGap { get; set; } = 0.02f;
 
-    /// When on, Bone Align also turns this player so the two chosen parts face each other (e.g. a
-    /// penis pointing into the vagina, a face toward a crotch) — horizontal turn only.
+    /// Also turn this player so the chosen parts face each other.
     public bool BoneAlignMatchFacing { get; set; } = true;
 
-    /// When on, playing an animation with a remembered alignment while paired aligns it automatically.
-    /// Off stops auto-aligning only — successful manual Aligns are still remembered. See
-    /// PoseKit.Bones.AlignmentMemory.
+    /// Auto-align remembered animations while paired. Manual aligns are remembered either way.
     public bool AutoAlignFromMemory { get; set; } = true;
 
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)
@@ -75,7 +61,6 @@ public class Configuration : IPluginConfiguration
         return config;
     }
 
-    // The below exists just to make saving less cumbersome
     public void Save()
     {
         Plugin.PluginInterface.SavePluginConfig(this);

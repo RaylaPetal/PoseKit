@@ -5,10 +5,6 @@ obj/
 bin/
 *.user
 
-# Reference-only material, not part of PoseKit itself.
-PoseKit/SimpleHeels-master/
-PoseKit/Synastry-main/
-
 # OpenSpec planning artifacts (proposals/specs/design/tasks) — local working docs, not shipped code.
 openspec/
 

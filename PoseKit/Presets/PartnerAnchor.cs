@@ -6,23 +6,17 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using PoseKit.Pairing;
 
 /// <summary>
-/// Optional per-preset snapshot of where the player stood relative to a paired partner when a couple
-/// preset was saved — the partner is the root on replay: they stay put, and only the side playing the
-/// preset folds a correction into its own render-only offset to land back in the same spot around
-/// them. Same math as FurnitureAnchor, with the partner's live transform standing in for the
-/// furniture's, and the same "read-only, render-offset-only" boundary — never touches
-/// GameObject.Position/Rotation. Captured and resolved against the partner's actual (server-side)
-/// transform, never their render offset, which this client can't see anyway.
+/// Where the player stood relative to their partner when the preset was saved. On replay the partner
+/// stays put and only this side corrects its render offset. Same math as FurnitureAnchor, using the
+/// partner's real (not rendered) transform.
 ///
-/// Carries its own PartnerIdentity rather than relying on NamedPose.PartnerHalf.Partner, so it still
-/// resolves when played unpaired/under solo play, or when the partner half capture timed out.
+/// Stores its own PartnerIdentity so it still works unpaired or without a partner half.
 /// </summary>
 public class PartnerAnchor
 {
     public PartnerIdentity Partner;
 
-    /// The player's position at save time, in the partner's local frame (same convention as
-    /// FurnitureAnchor.RelativePosition).
+    /// The player's position at save time, in the partner's local frame.
     public Vector3 RelativePosition;
 
     /// The player's rotation at save time, relative to the partner's rotation. Radians.
@@ -42,8 +36,7 @@ public class PartnerAnchor
         };
     }
 
-    /// The anchored partner's character if it's currently loaded nearby, matched by name + home world
-    /// (PartnerIdentity.Matches), or null.
+    /// The partner's character if loaded nearby, or null.
     public static IPlayerCharacter? TryFindLive(PartnerIdentity identity)
     {
         foreach (var gameObject in Plugin.ObjectTable)
@@ -55,10 +48,8 @@ public class PartnerAnchor
         return null;
     }
 
-    /// Null if the correction isn't meaningful right now (the computed target is implausibly far
-    /// away) — mirrors FurnitureAnchor.TryComputeCorrection's contract and math exactly, just against
-    /// the partner's live transform. See LocationAnchor.TryComputeCorrection's doc for why
-    /// baseRotationOffset and rotationOffsetApplies are needed.
+    /// Null when the target is too far away. See LocationAnchor.TryComputeCorrection for the
+    /// parameters.
     public PoseOffset? TryComputeCorrection(IPlayerCharacter localPlayer, IPlayerCharacter livePartner, float baseRotationOffset, bool rotationOffsetApplies)
     {
         var partnerFacing = Quaternion.CreateFromYawPitchRoll(livePartner.Rotation, 0, 0);

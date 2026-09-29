@@ -5,30 +5,21 @@ using PoseKit.Pairing;
 namespace PoseKit.Bones;
 
 /// <summary>
-/// Connects alignment memory to Bone Align. Records each successful manual Align against the
-/// animation playing (Plugin.CurrentPlayContext). When a remembered animation starts, it fills the Bone
-/// Align dropdowns with the entry's parts (always, so a manual Align uses them too), then starts one
-/// silent memory-origin Align once this player and their partner (the paired partner, or else the
-/// targeted player) are both posing.
+/// Records each successful manual Align, and when a remembered animation starts, runs one automatic
+/// Align once both characters are posing. Each play (PlayContext instance) is handled once.
 ///
-/// A play is one PlayContext instance, so each play is handled once: looping, Bone Align's own
-/// correction and the Reset button never count as a new play.
-///
-/// Sends nothing (PairingSender's one-click-one-tell rule). With offsets shared through the
-/// SimpleHeels bridge, both sides moving would double the correction, so only the side whose
-/// "Name@World" sorts first auto-aligns. With local offsets each side's correction is only on its own
-/// screen, so both may.
+/// When offsets are shared through SimpleHeels, only the side whose "Name@World" sorts first
+/// auto-aligns, so the correction isn't applied twice.
 /// </summary>
 public sealed class AutoAlignCoordinator : IDisposable
 {
-    // How long after a play starts to keep waiting for both animations (and a partner) before giving
-    // up — room for an intro, a mod redraw on each side, and the partner's emote arriving later.
+    // Room for an intro, a redraw on each side, and the partner starting later.
     private const long GiveUpMs = 15000;
 
     private readonly Plugin plugin;
     private readonly AnimationReadiness readiness = new();
 
-    /// What a pending auto-align is waiting for, or empty — shown in the Bone Align section.
+    /// What a pending auto-align is waiting for, or empty.
     public string Waiting { get; private set; } = "";
 
     private PlayContext? handled;
@@ -43,7 +34,6 @@ public sealed class AutoAlignCoordinator : IDisposable
 
     public void Dispose() => plugin.BoneAlign.Aligned -= OnAligned;
 
-    /// The remembered entry for the animation playing right now, if any — for the Bone Align section.
     public AlignmentEntry? CurrentEntry =>
         plugin.CurrentPlayContext is { } context ? plugin.AlignmentMemory.TryGet(context.Key) : null;
 
@@ -66,7 +56,6 @@ public sealed class AutoAlignCoordinator : IDisposable
         });
     }
 
-    /// Called every framework tick from Plugin.
     public void Tick()
     {
         var context = plugin.CurrentPlayContext;
@@ -149,7 +138,7 @@ public sealed class AutoAlignCoordinator : IDisposable
         configuration.Save();
     }
 
-    /// True when this player's offset reaches other players' screens (SimpleHeels bridge → Mare/Snowcloak).
+    /// True when this player's offset is shared with other players through SimpleHeels.
     private bool OffsetsShared => plugin.Configuration.BridgeOffsetToSimpleHeels && plugin.SimpleHeelsBridge.IsLoaded;
 
     private static bool SortsFirst(IPlayerCharacter localPlayer, IPlayerCharacter partner)

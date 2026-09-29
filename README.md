@@ -16,8 +16,6 @@ Find your pose mods, get into position perfectly, save it, and play it again any
 
 PoseKit takes the fiddly parts out of posing and animations. It finds the animation mods you already have, lets you nudge your character into exactly the right spot, and remembers it all so you only have to set up once.
 
-Great for screenshots, RP, and anyone who has ever spent ten minutes lining up a hug. 🤗
-
 ---
 
 ## 🌸 Features
@@ -91,6 +89,15 @@ Using SimpleHeels? PoseKit can hand its offsets to it too.
 ## ☕ Support PoseKit
 
 PoseKit is free and made with love. If it made your RP or screenshots a little easier, you can support development on **[Ko-fi](https://ko-fi.com/raylapetal)**. There's also a Donate button right in the plugin header. 💖
+
+---
+
+## 🙏 Credits
+
+PoseKit learned from and adapted techniques in these open-source plugins. Thank you to their authors:
+
+- [SimpleHeels](https://github.com/Caraxi/SimpleHeels): the render offset and pose identification
+- [Cammy](https://github.com/UnknownX7/Cammy): freecam input handling
 
 ---
 

@@ -2,10 +2,8 @@ namespace PoseKit.Pairing;
 
 using System.Text;
 
-/// <summary>Stable hash for a Penumbra mod directory path, used to shrink it on the wire (see
-/// PairingComposer.ComposeCapturedStateTail) instead of sending the literal path, which can be long
-/// for deeply-nested mod packs. Must be deterministic across processes — unlike string.GetHashCode(),
-/// which is randomized per process and would never match between two different game clients.</summary>
+/// <summary>Short FNV-1a hash of a mod directory for the pairing wire format. Must be stable across
+/// processes, so string.GetHashCode() can't be used.</summary>
 public static class ModDirectoryHash
 {
     public static string Compute(string modDirectory)

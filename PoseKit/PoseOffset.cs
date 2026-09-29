@@ -7,8 +7,7 @@ public struct PoseOffset
 {
     public Vector3 Position;
 
-    /// Yaw offset in radians. Experimental — see OffsetEngine for why this hooks a signature with no
-    /// FFXIVClientStructs-maintained equivalent to verify against ahead of time.
+    /// Yaw offset in radians.
     public float Rotation;
 
     public static PoseOffset Zero => new() { Position = Vector3.Zero, Rotation = 0f };

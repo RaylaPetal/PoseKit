@@ -8,38 +8,14 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using SheetHousingFurniture = Lumina.Excel.Sheets.HousingFurniture;
 using SheetHousingYardObject = Lumina.Excel.Sheets.HousingYardObject;
 
-/// <summary>A furniture item near the player at scan time — a snapshot, not a live pointer into game
-/// memory, since that's only guaranteed valid for the current frame. EntryId is the matching key — a
-/// real HousingFurniture/HousingYardObject sheet row id (already packed with its type, see
-/// FurnitureScanner.ResolveName), so it's opaque and self-sufficient for exact-equality matching.
-/// </summary>
+/// <summary>A snapshot of a furniture item near the player. EntryId is its sheet row id.</summary>
 public readonly record struct NearbyFurniture(uint EntryId, string Name, Vector3 Position, float Rotation);
 
 /// <summary>
-/// Discovers placed housing furniture near the player for the save-preset furniture picker.
+/// Finds placed housing furniture near the player for the furniture anchor picker.
 ///
-/// Placed furniture — indoor room items and outdoor/yard items alike — is NOT part of Dalamud's
-/// regular object table the way NPCs/players/doors are (confirmed live: filtering the object table
-/// for ObjectKind.HousingEventObject found nothing near real furniture). It also isn't reachable via
-/// FurnitureManager.FurnitureVector's runtime HousingFurniture records — those carry a differently
-/// -keyed id that never resolves against any sheet (also confirmed live).
-///
-/// The actual working path, found by decompiling ReMakePlacePlugin (an installed, working
-/// furniture-editing plugin) with ilspycmd rather than guessing further: FurnitureManager.ObjectManager
-/// .ObjectArray holds actual GameObject* pointers for every placed item in the current
-/// indoor/outdoor territory — a housing-specific object array Dalamud's own IObjectTable never
-/// walks. Casting each to FFXIVClientStructs' HousingEventObject exposes HousingObjectId (an EntryId
-/// plus a Furniture/YardObject Type) and Position/Rotation directly.
-///
-/// HousingObjectId.EntryId alone is NOT the sheet row id — it's the low 16 bits of it. Confirmed
-/// offline against the real game data (Lumina.GameData pointed at the installed sqpack, not a live
-/// guess): HousingFurniture's actual row ids run 196608-198402, i.e. 0x30000 + a 16-bit index, and
-/// 0x30000 == HousingObjectType.Furniture(3) &lt;&lt; 16 exactly. So the row id is
-/// `((uint)Type &lt;&lt; 16) | EntryId` — see ResolveName.
-///
-/// LastDiagnostic exists purely because none of this can be verified without a running game client —
-/// it surfaces exactly which stage came back empty directly in the UI, so a report of "still not
-/// found" can be narrowed down without guessing again.
+/// Furniture isn't in Dalamud's object table; it lives in the housing FurnitureManager's own object
+/// array, as HousingEventObjects. LastDiagnostic reports which step came back empty.
 /// </summary>
 public sealed unsafe class FurnitureScanner
 {
@@ -108,13 +84,7 @@ public sealed unsafe class FurnitureScanner
         return sampleReasons.Count > 0 ? $"{summary} | samples: {string.Join("; ", sampleReasons)}" : summary;
     }
 
-    /// HousingFurniture/HousingYardObject sheet row ids are packed as (Type &lt;&lt; 16) | EntryId —
-    /// confirmed offline against the actual game data files (Lumina.GameData pointed at the installed
-    /// sqpack), not guessed: HousingFurniture's real row ids run 196608-198402 (0x30000 + a 16-bit
-    /// index), and 0x30000 == HousingObjectType.Furniture(3) &lt;&lt; 16 exactly. Two earlier attempts
-    /// (EntryId as a direct row id; FurnitureVector's differently-packed Id, masked or not) were each
-    /// tested the same way and ruled out — this is the one that resolves to real rows with real names
-    /// (e.g. entryId 197 under Furniture -&gt; row 196805 -&gt; "Carbuncle Armchair").
+    /// Sheet row ids are (Type &lt;&lt; 16) | EntryId.
     private static (string? Name, uint RowId, string Reason) ResolveName(ushort entryId, HousingObjectType type)
     {
         var rowId = ((uint)type << 16) | entryId;

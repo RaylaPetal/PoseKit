@@ -3,19 +3,13 @@ namespace PoseKit.Pairing;
 using System;
 
 /// <summary>
-/// Holds a relayed couple-preset play awaiting this side's explicit accept/deny, unless mutual
-/// override is active for the current pairing — in which case it's applied immediately with no
-/// prompt at all (see AutoApply). Mirrors CoupleQueueService's Tick-driven timeout shape.
+/// Holds a relayed couple-preset play until this side accepts or denies it. Under mutual override
+/// it's applied immediately.
 ///
-/// Every relay gets exactly one answer back to its sender (see PairingListener.AnswerCoupleRelay):
-/// accept (clicked, or automatic under mutual override) or decline (clicked, timed out, or replaced by
-/// a newer relay). The sender waits on that answer to play its own half, so both halves start
-/// together — see CoupleRelayOutbox.
+/// Every relay gets exactly one answer, since the sender waits for it before playing its own half.
 /// </summary>
 public sealed class CoupleRelayInbox : IDisposable
 {
-    // Matches CoupleQueueService.QueueTimeoutMs — same "long enough to notice, short enough not to
-    // surprise-fire later" reasoning, just gating a prompt instead of an auto-play.
     private const long PromptTimeoutMs = 60_000;
 
     private readonly PairingState pairingState;
@@ -29,8 +23,7 @@ public sealed class CoupleRelayInbox : IDisposable
 
     public event Action? Changed;
 
-    /// Raised instead of setting a pending prompt when mutual override is active — the caller should
-    /// apply the captured state immediately.
+    /// Raised instead of prompting when mutual override is active.
     public event Action<CapturedPoseState>? AutoApply;
 
     public CoupleRelayInbox(PairingState pairingState, PairingListener pairingListener)
@@ -49,8 +42,7 @@ public sealed class CoupleRelayInbox : IDisposable
 
     private void OnReceived(PartnerIdentity sender, string presetName, CapturedPoseState captured)
     {
-        // A newer relay replaces an unanswered one — decline the old one so its sender isn't left
-        // waiting on an answer that will now never come.
+        // Decline a replaced relay so its sender isn't left waiting.
         if (PresetName is { } replaced)
             pairingListener.AnswerCoupleRelay(replaced, accepted: false);
 
@@ -69,8 +61,7 @@ public sealed class CoupleRelayInbox : IDisposable
         Changed?.Invoke();
     }
 
-    /// Clears the pending prompt and hands back the captured state to apply — null if there was
-    /// nothing pending.
+    /// Returns the captured state to apply, or null if nothing was pending.
     public CapturedPoseState? Accept()
     {
         var captured = Captured;
@@ -100,8 +91,7 @@ public sealed class CoupleRelayInbox : IDisposable
         Changed?.Invoke();
     }
 
-    /// Called every framework tick: dismisses an unanswered prompt once it's been open longer than
-    /// the timeout, treated the same as an explicit deny (including answering it as declined).
+    /// A timed-out prompt counts as a deny.
     public void Tick()
     {
         if (Captured == null) return;

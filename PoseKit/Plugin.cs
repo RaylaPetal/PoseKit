@@ -56,9 +56,7 @@ public sealed class Plugin : IDalamudPlugin
     public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
     public List<PoseModInfo> DiscoveredPoses { get; private set; } = new();
 
-    /// Conflict-only data for mods outside Configuration.SelectedPenumbraMods — see
-    /// PenumbraPoseScanner.ScanExternalConflicts. Never used for anything but the conflict marker;
-    /// these mods have no UI representation of their own in the Animations tab.
+    /// Poses claimed by unscanned mods, used only for conflict warnings.
     public Dictionary<PoseIdentifier, List<PenumbraPoseScanner.ExternalPoseClaim>> ExternalPoseClaims { get; private set; } = new();
 
     public PairingState PairingState { get; init; }
@@ -71,40 +69,26 @@ public sealed class Plugin : IDalamudPlugin
     public Bones.AlignmentMemory AlignmentMemory { get; init; }
     public Bones.AutoAlignCoordinator AutoAlign { get; init; }
 
-    /// The preset currently loaded into the live-offset editor, if any — lets the UI offer
-    /// "update this preset" instead of only ever "save as new".
+    /// The preset loaded into the live-offset editor, so it can be updated in place.
     public NamedPose? LoadedPreset { get; set; }
 
-    /// The Penumbra mod/group state a Play action in the Penumbra panel last put in place, if any —
-    /// attached to the next saved preset so replaying it can restore that mod state too, not just
-    /// the offset. Best-effort: goes stale if the user changes Penumbra settings some other way
-    /// afterward, same as any other snapshot.
+    /// The mod state the last Play set, saved into the next preset.
     public PenumbraLink? LastPlayedPenumbraContext { get; set; }
 
-    /// Which animation mod (down to the trigger) the current pose comes from, if known — alignment
-    /// memory's key source. See Bones.PlayContext and SetPlayContext.
     public Bones.PlayContext? CurrentPlayContext { get; private set; }
 
-    /// Records the animation a PoseKit play just triggered. Call right after triggering, so the
-    /// context carries the play's own OffsetGeneration.
+    /// Call right after triggering, so the context carries the play's OffsetGeneration.
     public void SetPlayContext(string modDirectory, string modName, string group, string option, string trigger,
         PoseIdentifier? pose, bool fromPartnerAnchoredPreset = false) =>
         CurrentPlayContext = new Bones.PlayContext(modDirectory, modName, group, option, trigger, pose,
             fromPartnerAnchoredPreset, PoseTrigger.OffsetGeneration, Environment.TickCount64);
 
-    /// One-shot latch for the Animations-tab scan, mirroring HasOfferedSimpleHeelsBridge below —
-    /// on a fresh full game launch, Penumbra (or the local player's collection specifically) may
-    /// not be resolvable yet at the exact moment this plugin's constructor runs, so the one eager
-    /// scan there can come back empty and never get retried without a manual "Rescan" click.
+    /// On game launch Penumbra may not be ready when the constructor scans, so retry once it is.
     private bool hasScannedPenumbraPoses;
 
-    /// Used only to resolve a capture-request's furniture-anchor hint against this side's own nearby
-    /// furniture (see TryCaptureOwnStateForPartnerRequest below) — PresetButtonsPanel and PoseTrigger
-    /// each keep their own instance for the same reason (a live furniture scan can't be cached).
     private readonly FurnitureScanner furnitureScanner = new();
 
-    /// Last-seen sit/groundsit/doze pose, tracked so a drop that isn't the player's own doing (see
-    /// RestorePoseIfDropped below) can be re-entered. Null whenever nothing needs recovering.
+    /// Last pose seen, so a pose dropped during freecam can be re-entered.
     private PoseIdentifier? lastKnownPoseForFreecamRestore;
     private int freecamRestoreAttempts;
     private long nextFreecamRestoreAttemptTime;
@@ -138,27 +122,14 @@ public sealed class Plugin : IDalamudPlugin
         AlignmentMemory = new Bones.AlignmentMemory(PluginInterface.GetPluginConfigDirectory());
         AutoAlign = new Bones.AutoAlignCoordinator(this);
 
-        // A capture request arrives here when the partner is saving an "include partner" preset:
-        // reply once with *this* side's own currently-playing pose/offset/Penumbra link — AND its own
-        // anchor (own current spot, or own position relative to a matching nearby furniture item) —
-        // never the requester's, since each side of a couple pose is typically already sitting/
-        // standing in its own different spot (own mod/option, own offset, own seat on the same sofa)
-        // by the time either one saves it as a preset. Silently sends nothing if this side isn't
-        // currently in a pose — there's nothing meaningful to capture, per couple-preset-relay's
-        // "silently omitted" requirement.
+        // Reply with this side's own pose state; send nothing when not in a pose.
         PairingListener.PartnerCaptureRequested += (sender, requestId, hint) =>
         {
             if (TryCaptureOwnStateForPartnerRequest(hint) is { } captured)
                 PairingListener.ReplyToCoupleCapture(sender, requestId, captured);
         };
 
-        // A force-selected name arrives here with no local queue bookkeeping to do — it's resolved
-        // against what's actually available on *this* side: a saved preset by name, then (for a
-        // Penumbra-discovered pose) by the mod/group/option/trigger hash quad it carries — resilient
-        // to the mod having been renamed locally since — falling back to matching its "ModName —
-        // OptionName" label only if the hash match fails too. Tells the player (rather than silently
-        // doing nothing) if none of these resolve — see couple-pairing's Partner Pose Not Found
-        // Notice requirement.
+        // Resolve a forced pick: preset by name, then mod pose by hash, then by label.
         PairingListener.ForceSelectionReceived += (_, name, hashes) =>
         {
             var preset = PresetManager.Presets.FirstOrDefault(p => p.Name == name);
@@ -168,12 +139,7 @@ public sealed class Plugin : IDalamudPlugin
             ChatGui.Print($"[PoseKit] Partner picked \"{name}\", but it wasn't found in your list.");
         };
 
-        // Announces this side's current override-toggle state once whenever pairing activates — the
-        // toggle itself already sends on every change, but a toggle set before pairing existed (or
-        // set during a prior pairing) would otherwise never reach a newly-paired partner. Only sent
-        // when the state is actually on: the overwhelmingly common default-off case has nothing worth
-        // announcing, and sending it anyway was pure unsolicited-message clutter on every pairing —
-        // see couple-pairing's Pairing Override State Announcement requirement (pairing-align-polish).
+        // Tell a new partner about an override that was already on before pairing.
         var wasPairingActive = false;
         PairingState.Changed += () =>
         {
@@ -237,15 +203,7 @@ public sealed class Plugin : IDalamudPlugin
         RestorePoseIfDropped(currentPose);
         UpdatePlayContext(currentPose);
 
-        // Auto-clear once the character leaves the pose/emote loop entirely — without this, a
-        // leftover offset keeps fighting the game's own draw-offset updates during normal
-        // movement (turning, walking) indefinitely, since the hook re-applies it on every write
-        // regardless of what's actually playing. Mirrors SimpleHeels clearing its temp offset on
-        // emote change (SimpleHeels-master/Plugin.cs). Checked via PoseTrigger.HasAppliedOffset,
-        // not OffsetEngine.Active alone — bridging to SimpleHeels deliberately leaves the latter
-        // false to avoid double-applying the offset. Also gated on lastKnownPoseForFreecamRestore
-        // being clear, so this doesn't drop the offset while a freecam restore attempt is still
-        // in flight above.
+        // Clear the offset once the character leaves the pose, unless a freecam restore is pending.
         if (PoseTrigger.HasAppliedOffset && currentPose == null && lastKnownPoseForFreecamRestore == null)
         {
             PoseTrigger.ClearOffset(localPlayer);
@@ -254,10 +212,7 @@ public sealed class Plugin : IDalamudPlugin
             CurrentPlayContext = null;
         }
 
-        // One-shot: the first time SimpleHeels is ever observed loaded (which may not be until well
-        // after PoseKit's own constructor runs — plugin load order isn't guaranteed), default the
-        // bridge on. HasOfferedSimpleHeelsBridge stops this from re-enabling it if the user turns it
-        // back off afterward.
+        // Turn the bridge on the first time SimpleHeels is seen; never again after that.
         if (!Configuration.HasOfferedSimpleHeelsBridge && SimpleHeelsBridge.IsLoaded)
         {
             Configuration.BridgeOffsetToSimpleHeels = true;
@@ -265,9 +220,6 @@ public sealed class Plugin : IDalamudPlugin
             Configuration.Save();
         }
 
-        // Same one-shot-retry idea for the Animations tab: keep checking every frame until the
-        // local player's Penumbra collection actually resolves (the constructor's own eager scan
-        // can miss this on a fresh full game launch), then scan exactly once and stop checking.
         if (!hasScannedPenumbraPoses && PenumbraIpc.TryGetLocalPlayerCollectionId() != null)
         {
             RefreshPenumbraPoses();
@@ -285,16 +237,13 @@ public sealed class Plugin : IDalamudPlugin
         AutoAlign.Tick();
     }
 
-    // A play context this fresh belongs to the play that set it, whatever the pose does meanwhile —
-    // cycling variants, or passing through no pose while one emote hands over to the next.
+    // A context this fresh is kept while the pose cycles or hands over between emotes.
     private const long FreshPlayContextMs = 8000;
 
     private PoseIdentifier? lastPoseForPlayContext;
 
-    /// Keeps CurrentPlayContext in step with poses PoseKit didn't start itself. Leaving the pose ends
-    /// the context (so playing the same animation again counts as a new play). Entering a pose that
-    /// isn't the current context's resolves a hand-typed emote from Penumbra's selected options: exactly
-    /// one selected option claiming that pose gives a context, anything else gives none.
+    /// Tracks poses PoseKit didn't start. A hand-typed emote gets a context only when exactly one
+    /// selected option claims its pose.
     private void UpdatePlayContext(PoseIdentifier? currentPose)
     {
         if (currentPose == lastPoseForPlayContext) return;
@@ -328,14 +277,8 @@ public sealed class Plugin : IDalamudPlugin
             PenumbraPosePanel.TriggerText(trigger), pose);
     }
 
-    /// Defensive fallback for a sit/groundsit/doze loop dropping back to Character->Mode Normal
-    /// with no PoseKit code involved and no real player movement — FreeCamInput's own
-    /// EmoteController.cancelEmote hook is the primary defense (see
-    /// openspec/changes/preserve-emote-during-freecam) and should mean this rarely fires. Re-enters
-    /// the same pose when it does happen, with a bounded retry budget in case something keeps
-    /// re-triggering the drop while the player keeps rotating the freecam. Does nothing outside
-    /// that specific situation — a real movement-triggered exit, or any exit while freecam is off,
-    /// is left alone.
+    /// Fallback for a pose dropped during freecam without the player moving: re-enters it, with a
+    /// few retries.
     private void RestorePoseIfDropped(PoseIdentifier? currentPose)
     {
         if (currentPose != null)
@@ -366,9 +309,7 @@ public sealed class Plugin : IDalamudPlugin
         nextFreecamRestoreAttemptTime = Environment.TickCount64 + FreecamRestoreAttemptDelayMs;
     }
 
-    /// Resets every temporary Penumbra setting PoseKit itself applied this session before
-    /// re-scanning, so browsing/re-discovering poses starts from Penumbra's own default state
-    /// instead of leaving behind whatever was last enabled/selected while clicking around.
+    /// Resets PoseKit's temporary Penumbra settings, then rescans.
     public void RefreshPenumbraPoses()
     {
         PenumbraIpc.ResetAllTemporarySettings();
@@ -376,20 +317,15 @@ public sealed class Plugin : IDalamudPlugin
         ExternalPoseClaims = PenumbraPoseScanner.ScanExternalConflicts();
     }
 
-    /// Replays a saved preset: if it's linked to a Penumbra mod, re-applies that mod's group
-    /// selections (enabling it if needed) and forces a redraw before triggering the pose, so the
-    /// right animation is actually active by the time the character enters it — not just the offset.
+    /// Re-applies the preset's mod selection, then triggers the pose.
     public void PlayPreset(NamedPose pose)
     {
         PlayPose(pose.Pose, pose.Offset, pose.Anchor, pose.Penumbra);
         LoadedPreset = pose;
     }
 
-    /// Plays a preset that carries a captured partner half (see NamedPose.PartnerHalf). Only while
-    /// paired with the exact partner it was captured from: relays their half for accept/deny (auto-accepted under mutual override), and plays this
-    /// side's own half only once they accept — both halves start together. See CoupleRelayOutbox.
-    /// Paired with someone else, or not paired at all, only this side's own half plays, immediately,
-    /// and nothing is relayed.
+    /// Paired with the partner it was captured from: relays their half and waits for the answer.
+    /// Otherwise only this side's half plays.
     public void PlayCouplePreset(NamedPose pose)
     {
         if (pose.PartnerHalf is { } half && PairingState.Active && PairingState.Peer is { } peer && peer.Equals(half.Partner))
@@ -401,9 +337,7 @@ public sealed class Plugin : IDalamudPlugin
         PlayPreset(pose);
     }
 
-    /// Applies a captured pose/offset/anchor/Penumbra state directly — the same best-effort pipeline
-    /// PlayPreset uses, just against loose fields instead of a saved NamedPose. Used for an accepted
-    /// (or mutual-override auto-accepted) relayed partner half, which isn't itself a saved preset.
+    /// Plays an accepted partner half.
     public void ApplyCapturedPartnerState(CapturedPoseState captured) =>
         PlayPose(captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra, silent: true);
 
@@ -411,9 +345,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (penumbra is { } link && !TryApplyPenumbraLink(link) && link.ModDirectory.StartsWith('#'))
         {
-            // Only a partner-originated link (hashed ModDirectory — see ResolveModDirectory) gets a
-            // not-found notice: a local preset's own linked mod going missing is a separate, existing
-            // situation this change doesn't touch. See couple-pairing's Partner Pose Not Found Notice.
+            // Only a partner's (hashed) link gets the notice.
             var modLabel = link.ModName.Length > 0 ? link.ModName : "a mod";
             ChatGui.Print($"[PoseKit] Partner's pose uses {modLabel}, which wasn't found in your list.");
         }
@@ -422,10 +354,7 @@ public sealed class Plugin : IDalamudPlugin
         SetPresetPlayContext(pose, anchor, penumbra);
     }
 
-    /// The play context for a preset (or accepted partner half): its Penumbra link names the mod and
-    /// option, and the trigger is that option's one trigger entering the preset's own pose. No link, a
-    /// mod or option that doesn't resolve here, or zero/several matching triggers all leave no
-    /// context — alignment memory then neither records nor auto-aligns this play.
+    /// Sets a context only when the link resolves to exactly one trigger for the pose.
     private void SetPresetPlayContext(PoseIdentifier pose, PresetAnchor? anchor, PenumbraLink? penumbra)
     {
         CurrentPlayContext = null;
@@ -460,10 +389,7 @@ public sealed class Plugin : IDalamudPlugin
             PenumbraPosePanel.TriggerText(t), pose, fromPartnerAnchoredPreset: anchor?.Partner != null);
     }
 
-    /// Applies a Penumbra link's mod/group/option selection, enabling the mod if needed — true only
-    /// once the redirect was actually applied. False covers every failure mode (mod not resolvable
-    /// locally, ambiguous hash, or Penumbra's own TrySetTemporarySettings call failing), so PlayPose
-    /// can tell a real failure from a successful apply.
+    /// Enables the linked mod and option. False on any failure.
     private bool TryApplyPenumbraLink(PenumbraLink link)
     {
         if (PenumbraIpc.TryGetLocalPlayerCollectionId() is not { } collectionId) return false;
@@ -476,9 +402,7 @@ public sealed class Plugin : IDalamudPlugin
         if (link.GroupName.StartsWith('#') && ResolveGroupOption(modDirectory, link.GroupName, link.OptionName) is { } resolved)
             selections[resolved.GroupName] = [resolved.OptionName];
 
-        // Preserve whatever priority the user already has set for this mod in Penumbra — the temporary-
-        // settings API takes priority as a required value with no "leave it alone" option, so it has to
-        // be read back and passed through explicitly or it gets silently reset to whatever's passed.
+        // Keep the user's priority; the API has no way to leave it unchanged.
         var (_, priority, _) = PenumbraIpc.TryGetCurrentSettings(collectionId, modDirectory);
         if (!PenumbraIpc.TrySetTemporarySettings(collectionId, modDirectory, true, priority, selections)) return false;
 
@@ -486,13 +410,8 @@ public sealed class Plugin : IDalamudPlugin
         return true;
     }
 
-    /// A partner half's ModDirectory travels over the wire as "#&lt;hash&gt;" (see
-    /// PairingComposer.ComposeCapturedStateTail / ModDirectoryHash) rather than its literal path,
-    /// since only the client whose own mod it names can resolve it — never the peer relaying it in
-    /// between. Anything without the "#" prefix is a preset's own half, captured locally and never
-    /// hashed, so it's used as-is. Resolves via a linear scan of this client's own installed mods;
-    /// no match, or more than one (an astronomically unlikely hash collision), is treated the same as
-    /// "mod no longer available" — best-effort per couple-preset-relay's spec.
+    /// Resolves a partner's "#&lt;hash&gt;" against local mods; plain names are returned as-is. No
+    /// match or an ambiguous one gives null.
     private string? ResolveModDirectory(string modDirectory)
     {
         if (!modDirectory.StartsWith('#')) return modDirectory;
@@ -510,15 +429,8 @@ public sealed class Plugin : IDalamudPlugin
         return match;
     }
 
-    /// A partner half's GroupName/OptionName travel over the wire as "#&lt;hash&gt;" too (see
-    /// PairingComposer.ComposeCapturedStateTail), resolved here against the already-resolved local
-    /// mod's own meta.json group/option list (PenumbraPoseScanner.TryReadGroups) — only meaningful
-    /// once ResolveModDirectory has already found which mod this is. Resolves the group first, then
-    /// the option within only that matched group (not the mod's other groups), so an option name
-    /// reused across two different groups of the same mod can't cross-match. No match, or more than
-    /// one, at either stage is treated as unresolved and simply skipped — same fail-closed policy as
-    /// ResolveModDirectory, and the same "no selection applied for this group" degrade as today's
-    /// existing implicit/no-group case.
+    /// Resolves hashed group and option names within an already-resolved mod. The option is only
+    /// matched inside its group. No match or an ambiguous one gives null.
     private (string GroupName, string OptionName)? ResolveGroupOption(string modDirectory, string groupNameToken, string optionNameToken)
     {
         var groupHash = groupNameToken[1..];
@@ -535,11 +447,7 @@ public sealed class Plugin : IDalamudPlugin
         return matchedOptions.Count == 1 ? (resolvedGroup.GroupName, matchedOptions[0]) : null;
     }
 
-    /// "/posekit bones": writes every bone name and world position of the local player and the current
-    /// target (if a player) to the Dalamud log (/xllog), grouped by partial skeleton — for confirming
-    /// the bone names Bone Align looks for (PoseKit.Bones.BodyParts), including when a
-    /// body mod renames them. Also logs the local player's actual position and applied render offset,
-    /// so it's visible whether bone positions follow the drawn (offset) model or the actual position.
+    /// "/posekit bones": logs every bone of the player and their target to /xllog.
     private void DumpBones()
     {
         var targets = new List<(string Label, IPlayerCharacter Character)>();
@@ -603,11 +511,7 @@ public sealed class Plugin : IDalamudPlugin
             ChatGui.PrintError($"[PoseKit] {error}");
     }
 
-    /// Builds this side's own reply to a partner's capture request: current pose/offset, own anchor
-    /// (per the request's anchor-kind hint), and own Penumbra mod/group/option — reduced to just the
-    /// one relevant group/option pair (not the mod's full GroupSelections), since that's all the
-    /// receiving side needs to re-enable the same selection. Null if this side isn't currently in a
-    /// pose — nothing meaningful to capture.
+    /// This side's pose state for a partner's capture request, or null when not in a pose.
     private CapturedPoseState? TryCaptureOwnStateForPartnerRequest(AnchorHint hint)
     {
         var localPlayer = ObjectTable.LocalPlayer;
@@ -634,9 +538,7 @@ public sealed class Plugin : IDalamudPlugin
         return new CapturedPoseState(pose, PoseTrigger.GetOffsetForNewPreset(), anchor, penumbra);
     }
 
-    /// Finds the nearest currently-live furniture instance matching the synced EntryId and captures
-    /// this side's own position/rotation relative to it — null if none is nearby (the receiving side
-    /// may simply not be standing near the same furniture yet).
+    /// Anchors to the nearest matching furniture, or null if none is nearby.
     private PresetAnchor? TryCaptureOwnFurnitureAnchor(IPlayerCharacter localPlayer, uint entryId)
     {
         var nearby = furnitureScanner.ScanNearby(localPlayer);

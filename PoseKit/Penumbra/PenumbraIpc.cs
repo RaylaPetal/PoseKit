@@ -6,18 +6,11 @@ using Penumbra.Api.IpcSubscribers;
 namespace PoseKit.Penumbra;
 
 /// <summary>
-/// Thin wrapper over the Penumbra.Api IPC subscribers needed for pose discovery and settings
-/// replication, referencing the published Penumbra.Api NuGet package (not the Penumbra.Api submodule
-/// checked into this repo, which is reference-only material and is never built — see PoseKit.csproj).
-/// Every call is guarded so Feature 3 degrades gracefully when Penumbra isn't installed/running,
-/// per the design doc's "hard dependency ... must degrade gracefully" note.
+/// Wrapper over the Penumbra IPC calls PoseKit uses. Every call is guarded so PoseKit keeps working
+/// without Penumbra.
 ///
-/// Writes go through the *temporary* settings IPC (SetTemporaryModSettings), not the permanent one
-/// (TrySetMod/TrySetModSetting) — mirroring Synastry-main/EmoteLink/PenumbraService.cs. Permanent
-/// writes are meant for Penumbra's own UI; a third-party plugin flipping a mod's saved config
-/// permanently every time someone clicks Play is both surprising and not what "temporarily preview
-/// a gesture" should do. Temporary overrides are scoped to PoseKit's own IPC session/source tag and
-/// don't require the same trust posture as permanent writes.
+/// Writes only use temporary mod settings, so playing an animation never changes the user's saved
+/// Penumbra configuration.
 /// </summary>
 public sealed class PenumbraIpc
 {
@@ -33,9 +26,7 @@ public sealed class PenumbraIpc
     private readonly RemoveTemporaryModSettings removeTemporaryModSettings = new(Plugin.PluginInterface);
     private readonly RedrawObject redrawObject = new(Plugin.PluginInterface);
 
-    /// Every mod directory PoseKit has applied a temporary setting to this session — tracked so
-    /// ResetAllTemporarySettings can undo exactly what PoseKit itself put in place, regardless of
-    /// which mods happen to be in the current Animations-tab filter.
+    /// Mods PoseKit has set temporary settings on, so they can all be undone.
     private readonly HashSet<string> touchedModDirectories = new();
 
     public bool IsAvailable
@@ -67,10 +58,7 @@ public sealed class PenumbraIpc
         catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetModDirectory IPC call failed: {ex}"); return null; }
     }
 
-    /// The mod's position in Penumbra's user-organized sort-folder tree (e.g.
-    /// "Animations/Idles/[JxT] Gyaru") — confirmed against a real Penumbra install
-    /// (~/.xlcore/pluginConfigs/Penumbra/sort_order.json.bak), distinct from its on-disk directory
-    /// name. Null if the mod isn't in the sort order or the call failed.
+    /// The mod's path in Penumbra's sort-folder tree (e.g. "Animations/Idles/Mod"), not its directory.
     public string? TryGetModPath(string modDirectory, string modName)
     {
         try
@@ -91,13 +79,8 @@ public sealed class PenumbraIpc
         catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCollectionForObject IPC call failed: {ex}"); return null; }
     }
 
-    /// Whether the mod is enabled in this collection, its current priority, and its current per-group
-    /// option selections (group name -> selected option names). Reflects the *effective* settings,
-    /// including any temporary override already active — permanent or temporary, this is the read side
-    /// either way. Priority must be round-tripped into any later TrySetTemporarySettings call for this
-    /// mod — Penumbra's temporary-settings API takes priority as a required explicit value with no
-    /// "leave it alone" sentinel, so passing anything other than what's read here silently overwrites
-    /// whatever priority the user configured in Penumbra.
+    /// The mod's effective settings. Pass the priority back into TrySetTemporarySettings, which has
+    /// no way to leave it unchanged.
     public (bool Enabled, int Priority, Dictionary<string, List<string>>? Selections) TryGetCurrentSettings(Guid collectionId, string modDirectory)
     {
         try
@@ -110,11 +93,7 @@ public sealed class PenumbraIpc
         catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetCurrentModSettings IPC call failed for {modDirectory}: {ex}"); return (false, 0, null); }
     }
 
-    /// Every mod's current effective (enabled, priority, selections) in one IPC call — used for the
-    /// broader, all-installed-mods conflict scan (PenumbraPoseScanner.ScanExternalConflicts), where a
-    /// per-mod GetCurrentModSettings call would mean one IPC round-trip per installed mod on a large
-    /// modlist. Null on IPC failure; a mod simply absent from the result (rather than null) means
-    /// Penumbra has no settings entry for it (never configured, so effectively default/disabled).
+    /// Every mod's effective settings in one call. A missing mod has never been configured.
     public Dictionary<string, (bool Enabled, int Priority, Dictionary<string, List<string>> Selections)>? TryGetAllSettings(Guid collectionId)
     {
         try
@@ -133,11 +112,7 @@ public sealed class PenumbraIpc
         catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetAllModSettings IPC call failed: {ex}"); return null; }
     }
 
-    /// Replaces this mod's *entire* set of group selections with a temporary override (Penumbra's
-    /// temporary-settings API is all-or-nothing per mod, not per-group) — callers must pass every
-    /// group's selection, not just the one that changed. <paramref name="priority"/> must be the mod's
-    /// own current priority (from TryGetCurrentSettings), not an arbitrary value — see that method's
-    /// doc for why.
+    /// Replaces every group's selection at once, so pass all of them. Use the mod's current priority.
     public bool TrySetTemporarySettings(Guid collectionId, string modDirectory, bool enabled, int priority,
         IReadOnlyDictionary<string, IReadOnlyList<string>> allGroupSelections)
     {
@@ -157,11 +132,7 @@ public sealed class PenumbraIpc
         catch { return false; }
     }
 
-    /// Undoes every temporary setting PoseKit has applied this session (every mod enable/option
-    /// selection made from the Animations tab), restoring Penumbra's own default/inherited state —
-    /// called before a Rescan so browsing poses doesn't leave a trail of "last thing I clicked" still
-    /// active in Penumbra. Best-effort per mod: a failed removal still gets dropped from tracking,
-    /// since re-attempting it forever on a mod that's since been uninstalled/renamed would only spin.
+    /// Undoes every temporary setting PoseKit applied this session. Best effort: failures aren't retried.
     public void ResetAllTemporarySettings()
     {
         if (touchedModDirectories.Count == 0) return;
@@ -174,9 +145,7 @@ public sealed class PenumbraIpc
         TryRedrawLocalPlayer();
     }
 
-    /// A mod-setting change doesn't necessarily re-resolve files on an already-drawn character —
-    /// forcing a redraw is what actually makes the new redirect visible if the character is already
-    /// mid-pose (mirrors Synastry-main/EmoteLink/Plugin.cs's "/penumbra redraw self" for the same reason).
+    /// A settings change isn't picked up by an already-drawn character until it's redrawn.
     public void TryRedrawLocalPlayer()
     {
         try { redrawObject.Invoke(0); }

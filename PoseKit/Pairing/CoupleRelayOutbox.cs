@@ -4,17 +4,12 @@ using System;
 using PoseKit.Presets;
 
 /// <summary>
-/// The clicking side of a couple-preset play: relays the partner's half for their accept/deny, and
-/// only plays this side's own half once they accept — the same moment they start theirs, so both halves begin together instead of this
-/// side jumping ahead the instant it clicked. The counterpart of CoupleRelayInbox, which answers
-/// every relay exactly once. Mirrors CoupleQueueService's Tick-driven timeout shape.
+/// Sending side of a couple-preset play: relays the partner's half and plays this side's half only
+/// once they accept, so both start together. See CoupleRelayInbox.
 /// </summary>
 public sealed class CoupleRelayOutbox : IDisposable
 {
-    // Slightly longer than CoupleRelayInbox.PromptTimeoutMs, so the partner's own timeout (which
-    // answers as declined) normally arrives first and this side can say so — this is only the backstop
-    // for an answer that never arrives at all (e.g. the partner is on an older PoseKit that doesn't
-    // answer).
+    // Longer than the partner's prompt timeout, so their decline normally arrives first.
     private const long AnswerTimeoutMs = 65_000;
 
     private readonly PairingState pairingState;
@@ -24,7 +19,6 @@ public sealed class CoupleRelayOutbox : IDisposable
     private NamedPose? pending;
     private long relaySentAt;
 
-    /// The couple preset waiting on the partner's answer, or null — UI-facing.
     public string? PendingPresetName => pending?.Name;
 
     public event Action? Changed;
@@ -44,8 +38,6 @@ public sealed class CoupleRelayOutbox : IDisposable
         pairingState.Changed -= OnPairingStateChanged;
     }
 
-    /// Starts (or replaces) a couple-preset play: relays the partner's half right away and waits for
-    /// their answer. Callers only reach this for a preset that carries a partner half.
     public void Start(NamedPose preset)
     {
         if (preset.PartnerHalf is not { } half) return;
@@ -83,7 +75,6 @@ public sealed class CoupleRelayOutbox : IDisposable
         Changed?.Invoke();
     }
 
-    /// Called every framework tick: gives up on an answer that never arrives.
     public void Tick()
     {
         if (pending == null) return;

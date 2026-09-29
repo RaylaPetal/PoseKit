@@ -3,8 +3,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 
 namespace PoseKit.Sync;
 
-/// <summary>Issues a slash command exactly as if the user typed it, via UIModule's chat entry
-/// pipeline. Shared by PoseTrigger (emotes/cpose) and SimpleHeelsBridge (temp offset).</summary>
+/// <summary>Issues a slash command exactly as if the user typed it.</summary>
 public static unsafe class ChatCommand
 {
     public static void Execute(string command)

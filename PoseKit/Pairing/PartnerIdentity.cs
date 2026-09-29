@@ -2,18 +2,14 @@ namespace PoseKit.Pairing;
 
 using System;
 
-/// <summary>A character name + home world, the addressing unit for pairing and couple presets — the
-/// same "Name Surname@World" shape a /tell target already needs.</summary>
+/// <summary>A character name and home world, in the "Name Surname@World" form /tell uses.</summary>
 public readonly record struct PartnerIdentity(string Name, string World)
 {
     public string TellAddress => $"{Name}@{World}";
 
     public override string ToString() => TellAddress;
 
-    /// Parses a user-typed "Name Surname@World" string. Cannot and does not check whether the
-    /// character actually exists — that information isn't available to the plugin — this only
-    /// catches structural mistakes (no '@', empty name/world) before they become a `/tell` the game
-    /// silently rejects with no plugin-visible feedback.
+    /// Checks the format only; whether the character exists can't be known.
     public static bool TryParse(string text, out PartnerIdentity identity, out string error)
     {
         var trimmed = text.Trim();

@@ -7,18 +7,11 @@ using Lumina.Excel.Sheets;
 namespace PoseKit.Bones;
 
 /// <summary>
-/// Tells when a character is actually playing its animation's loop, not still getting into it.
-/// Entering a pose or emote flips the game's pose state straight away, but the character first plays
-/// an intro (sitting down, kneeling) and may be redrawn when a mod's files are applied: by Penumbra
-/// on this side, by Mare/Snowcloak for the partner. Aligning during either measures the wrong body
-/// position.
+/// Tells when a character is playing its animation's loop rather than the intro, and hasn't just
+/// been redrawn. Measuring bones before that gives the wrong position.
 ///
-/// Reads the base slot of the character's animation timeline and names it through the ActionTimeline
-/// sheet (e.g. "emote/j_pose03_loop"). Ready means that timeline is not an intro or outro
-/// ("start"/"end" in its name), and neither it nor the drawn model has changed for a short while:
-/// longer for a timeline that isn't named as a loop, since an unfamiliar one might still be a
-/// transition. Penumbra replaces animation files, not timeline names, so this works for modded
-/// animations too.
+/// Ready means the base timeline isn't a start/end transition and neither it nor the draw object has
+/// changed for a short while (longer for timelines not named as loops).
 /// </summary>
 public sealed unsafe class AnimationReadiness
 {
@@ -61,8 +54,7 @@ public sealed unsafe class AnimationReadiness
     /// Forgets every character, so the next play starts measuring stability afresh.
     public void Reset() => seen.Clear();
 
-    /// Every non-empty timeline slot with its name, for diagnostics ("/posekit bones") — slot 0 is the
-    /// one IsReady reads.
+    /// Every non-empty timeline slot, for "/posekit bones".
     public static string DescribeTimelines(IPlayerCharacter character)
     {
         var native = (Character*)character.Address;

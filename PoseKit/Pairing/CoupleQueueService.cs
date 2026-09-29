@@ -5,20 +5,13 @@ using PoseKit;
 using PoseKit.Presets;
 
 /// <summary>
-/// Queues a selection toward the current pairing peer and auto-plays it once the partner has also
-/// queued something of their own — no cross-side matching, each side always plays whatever it
-/// queued. Pairing itself is a standing, dedicated session state (see PairingState) that exists
-/// independently of any preset — this only reacts to it, never initiates it.
-///
-/// Generalized over what "a selection" is (a display name + a callback to actually play it) rather
-/// than tied to NamedPose specifically, so both the Presets tab (saved presets) and the Animations
-/// tab (Penumbra-discovered poses, which aren't NamedPose at all) can queue through the same service.
+/// Queues a selection while paired and plays it once the partner has queued something too. Each side
+/// plays what it queued.
 /// </summary>
 public sealed class CoupleQueueService : IDisposable
 {
-    // Long enough that two people clicking a few seconds apart still connects, short enough that a
-    // click from minutes ago can't surprise-fire a pose later. Mirrors the bounded-retry shape
-    // PoseTrigger.Tick already uses for cpose cycling, just at a coarser, UI-facing timescale.
+    // Long enough for two people clicking a few seconds apart, short enough that an old click can't
+    // fire unexpectedly.
     private const long QueueTimeoutMs = 60_000;
 
     private readonly PairingState pairingState;
@@ -27,12 +20,8 @@ public sealed class CoupleQueueService : IDisposable
     private Action? queuedPlay;
     private long queuedAt;
 
-    /// Display name of this side's own queued selection, or null if nothing's queued — UI-facing, so
-    /// both the preset library and the Animations tab can highlight whichever button was clicked.
     public string? QueuedSelectionName { get; private set; }
 
-    /// Display name of whatever the partner queued, once their readiness tell has arrived — null
-    /// until then. Shown in the couple-pairing section so each side can see the other's pick.
     public string? PartnerSelectionName { get; private set; }
     private PartnerIdentity? partnerSelectionFrom;
 
@@ -55,16 +44,11 @@ public sealed class CoupleQueueService : IDisposable
         pairingListener.ForceSelectionReceived -= OnForceSelectionReceived;
     }
 
-    /// Clicking anything while paired (a preset, or a Penumbra-discovered pose's trigger button):
-    /// queues it toward whoever the current pairing peer is, deferring `play` until both sides have
-    /// queued something — nothing happens locally yet, same as the partner's side. Callers should
-    /// only reach this while PairingState.Active is true; play immediately instead when unpaired.
-    /// Never moves the character — `play` fires wherever each side already is.
+    /// Defers <paramref name="play"/> until both sides have queued. A new click replaces the old one.
     public void QueueSelection(string displayName, Action play)
     {
         if (!pairingState.Active || pairingState.Peer is not { } partner) return;
 
-        // Replaces rather than stacks — a fresh click always overwrites whatever was queued before.
         QueuedSelectionName = displayName;
         queuedPlay = play;
         queuedAt = Environment.TickCount64;
@@ -74,17 +58,8 @@ public sealed class CoupleQueueService : IDisposable
         TryPlayIfBothReady();
     }
 
-    /// Called instead of QueueSelection when mutual override is active and this side already has a
-    /// queued pick of its own — see PairingState.MutualOverrideActive. Forces `forcedDisplayName` on
-    /// the partner and plays this side's own already-queued pick immediately, without waiting on a
-    /// reply (this side already knows both halves by construction: its own first pick, and the
-    /// forced pick it just chose for the partner). Falls back to a normal QueueSelection if nothing
-    /// of this side's own was queued yet — there would be nothing to play immediately.
-    ///
-    /// <paramref name="penumbra"/>/<paramref name="triggerText"/> are passed straight through to
-    /// ComposeForceSelection when forcing a Penumbra-discovered pose (not a saved preset), so the
-    /// partner can resolve it by mod-directory hash instead of just the display name — see
-    /// couple-pairing's Partner Pose Resolution requirement.
+    /// Under mutual override with a pick already queued: forces this selection on the partner and
+    /// plays this side's queued pick now. Otherwise queues normally.
     public void TryForceSelect(string forcedDisplayName, Action fallbackPlay, PenumbraLink? penumbra = null, string? triggerText = null)
     {
         if (queuedPlay is not { } ownPlay || pairingState.Peer is not { } partner)
@@ -107,18 +82,11 @@ public sealed class CoupleQueueService : IDisposable
         TryPlayIfBothReady();
     }
 
-    /// A forced selection ends this round regardless of whether it resolved to anything playable on
-    /// this side — the sender already played and cleared its own queue, so a leftover
-    /// PartnerSelectionName here (from whatever they'd queued *before* forcing) would otherwise sit
-    /// stale, showing "they picked X" for a round that already concluded. Cleared unconditionally,
-    /// even if this side had nothing of its own queued (queuedPlay was already null) — Plugin's own
-    /// resolve-and-play for the forced name has already happened by the time this runs.
+    /// A forced selection always ends the round.
     private void OnForceSelectionReceived(PartnerIdentity sender, string name, ForceSelectionHashes hashes) => ClearQueue();
 
     private void OnPairingStateChanged()
     {
-        // A queued selection whose pairing changed peer (or dropped) underneath it is no longer
-        // meaningful — clear it rather than let a stale readiness fire against the wrong partner.
         if (!pairingState.Active)
             ClearQueue();
     }
@@ -141,7 +109,6 @@ public sealed class CoupleQueueService : IDisposable
         Changed?.Invoke();
     }
 
-    /// Called every framework tick: clears a queued selection that never heard back from the partner.
     public void Tick()
     {
         if (queuedPlay == null) return;

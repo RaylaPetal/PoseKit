@@ -6,9 +6,7 @@ using Lumina.Excel.Sheets;
 namespace PoseKit;
 
 /// <summary>
-/// Identifies "which pose/emote variant is currently playing" — mirrors SimpleHeels' EmoteIdentifier
-/// (SimpleHeels-master/EmoteIdentifier.cs), read from the character's animation/EmoteController state
-/// rather than guessed off a played .pap filename.
+/// Which pose/emote variant is playing, read from the character's emote state.
 /// </summary>
 public readonly unsafe record struct PoseIdentifier(uint EmoteModeId, byte CPoseState)
 {
@@ -37,9 +35,7 @@ public readonly unsafe record struct PoseIdentifier(uint EmoteModeId, byte CPose
 
     public string EmoteName => FetchNameAndCommand(EmoteModeId).Name;
 
-    /// The emote's actual slash command (e.g. "sweep"), distinct from its display name (e.g.
-    /// "Sweep Up") — using the display name to build a chat command is wrong for any emote whose
-    /// command text doesn't match its label.
+    /// The slash command (e.g. "sweep"), which can differ from the display name ("Sweep Up").
     public string? SlashCommand => FetchNameAndCommand(EmoteModeId).Command;
 
     /// GroundSit(1)/Sit(2)/Doze(3) are the pose-cycling emotes; every other EmoteModeId has a single variant.

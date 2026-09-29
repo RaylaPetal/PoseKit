@@ -10,33 +10,23 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using PoseKit.Presets;
 
-/// <summary>Which kind of anchor a "posekitcouplecapture" request is hinting the partner should
-/// capture for its own reply — see PairingComposer.ComposeCoupleCaptureRequest. AnchorKind: 0 = none,
-/// 1 = spot (the partner should capture its own current spot), 2 = furniture (the partner should
-/// capture its own position relative to the nearby furniture matching FurnitureEntryId, so both sides
-/// anchor to the same physical item).</summary>
+/// <summary>The anchor kind a capture request asks the partner to capture: 0 = none, 1 = spot,
+/// 2 = furniture (the item matching FurnitureEntryId).</summary>
 public readonly record struct AnchorHint(int AnchorKind, uint FurnitureEntryId, string FurnitureName);
 
-/// <summary>A fully decoded captured pose/offset/anchor/Penumbra state — the shared payload shape
-/// carried by both a "posekitcouplecapturereply" and a "posekitcoupleplay" relay. See
-/// PairingComposer's ComposeCapturedStateTail for the wire shape.</summary>
+/// <summary>A decoded pose state from a capture reply or couple relay.</summary>
 public readonly record struct CapturedPoseState(PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor, PenumbraLink? Penumbra);
 
-/// <summary>A decoded "posekitforcequeue" hash payload — see PairingComposer.ComposeForceSelection for
-/// the wire shape and why a trigger-level hash is needed alongside the mod/group/option ones.</summary>
+/// <summary>The hashes carried by a forced selection.</summary>
 public readonly record struct ForceSelectionHashes(string ModDirectoryHash, string GroupNameHash, string OptionNameHash, string TriggerHash)
 {
     public bool HasPenumbraData => ModDirectoryHash != "0";
 }
 
 /// <summary>
-/// Session-scoped, non-networked pairing handshake over /tell — no relay, no signing, no persistent
-/// trust store (see design.md's rationale for deliberately not reusing xiv-collar's relay-assisted
-/// PairingService: that solves persistent cross-session command authority, a much harder trust
-/// problem than a momentary, mutual, both-present couple-pose ready-check).
+/// The pairing protocol over /tell, for this session only. No server is involved.
 ///
-/// Watches every incoming tell for the "posekitpair"/"posekitqueue" keywords. Sender identity always
-/// comes from the message's own game-verified Sender field, never from text inside the message body.
+/// The sender is always taken from the game's own sender field, never from the message text.
 /// </summary>
 public sealed class PairingListener : IDisposable
 {
@@ -52,44 +42,24 @@ public sealed class PairingListener : IDisposable
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
     private const string BoneAlignKeyword = "posekitalign";
 
-    // Long enough that a partner briefly disconnecting or a lull in play doesn't drop the pairing,
-    // short enough that a pairing nobody remembered to end doesn't just sit "paired" for the rest of
-    // the session. See couple-pairing's Pairing Idle Timeout requirement.
+    // Long enough to survive a lull, short enough that a forgotten pairing ends.
     private const long StaleTimeoutMs = 2 * 60 * 60 * 1000;
 
     private readonly PairingState state;
 
-    /// Raised when a "posekitqueue" readiness tell arrives from the currently-paired peer, carrying
-    /// the display name of what they queued — CoupleQueueService reacts to this locally; nothing is
-    /// ever sent back in response to it.
     public event Action<PartnerIdentity, string>? QueueSignalReceived;
 
-    /// Raised when a "posekitcouplecapture" request arrives from the currently-paired peer — Plugin
-    /// wires this to reply once with this side's own current pose/offset/anchor/Penumbra state (see
-    /// ReplyToCoupleCapture), or to send nothing at all if there's nothing to capture.
     public event Action<PartnerIdentity, string, AnchorHint>? PartnerCaptureRequested;
 
-    /// Raised when a "posekitcouplecapturereply" tell arrives — carries the request id so the
-    /// requester can match it against its own in-flight save and discard anything stale/unmatched.
     public event Action<PartnerIdentity, string, CapturedPoseState>? CoupleCaptureReplyReceived;
 
-    /// Raised when a "posekitcoupleplay" relay arrives from the currently-paired peer, naming the
-    /// preset and carrying the captured partner-half state to (depending on mutual override) either
-    /// prompt for accept/deny or apply immediately. Answered exactly once via AnswerCoupleRelay.
+    /// Must be answered exactly once via AnswerCoupleRelay.
     public event Action<PartnerIdentity, string, CapturedPoseState>? CoupleRelayReceived;
 
-    /// Raised when a "posekitcoupleanswer" tell arrives from the currently-paired peer — their accept
-    /// (true) or decline (false) of a couple-preset relay this side sent, naming that preset. See
-    /// CoupleRelayOutbox.
     public event Action<PartnerIdentity, string, bool>? CoupleAnswerReceived;
 
-    /// Raised when the currently-paired peer announces they've started a Bone Align — see
-    /// PoseKit.Bones.BoneAlignService's single-mover tie-break. Nothing is sent back.
     public event Action<PartnerIdentity>? PartnerBoneAlignStarted;
 
-    /// Raised when a "posekitforcequeue" tell arrives from the currently-paired peer — Plugin wires
-    /// this to resolve the named item against this side's own presets/discovered animations and play
-    /// it if found. Nothing is ever sent back in response.
     public event Action<PartnerIdentity, string, ForceSelectionHashes>? ForceSelectionReceived;
 
     public PairingListener(PairingState state)
@@ -100,11 +70,7 @@ public sealed class PairingListener : IDisposable
 
     public void Dispose() => Plugin.ChatGui.ChatMessage -= OnChatMessage;
 
-    /// Called every framework tick: ends a pairing that's gone stale — 2 hours with no pairing-protocol
-    /// message sent or received with the current peer (see PairingState.Touch/TicksSinceActivity for
-    /// what counts). Clears locally only, with no unpair tell: both sides reset their clocks on the same
-    /// messages, so the partner's own timer ends their side at about the same moment anyway. No-op while
-    /// unpaired. See design.md (pairing-solo-play-idle-unpair) Decisions 4-5.
+    /// Ends an idle pairing locally. The partner's timer ends theirs at about the same time.
     public void Tick()
     {
         if (!state.Active) return;
@@ -112,8 +78,6 @@ public sealed class PairingListener : IDisposable
             state.Clear();
     }
 
-    /// Inviter side, one click: sends exactly one invite tell and records it so a later accept can be
-    /// matched against it, never activating pairing from an unsolicited claim.
     public void InitiatePairing(PartnerIdentity target)
     {
         var inviteId = Guid.NewGuid().ToString("N")[..8];
@@ -122,8 +86,6 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
-    /// Receiver side, one click: sends exactly one acknowledgement tell and activates the pairing on
-    /// this side immediately — this side doesn't wait for anything further from the inviter.
     public void AcceptPending()
     {
         if (state.PendingInvite is not { } pending) return;
@@ -131,9 +93,6 @@ public sealed class PairingListener : IDisposable
         state.Activate(pending.Sender);
     }
 
-    /// Sends a capture request to the current pairing peer, if any — no-op while unpaired. Called
-    /// from the save-preset flow when "include partner" is enabled; see
-    /// PairingComposer.ComposeCoupleCaptureRequest for what's (and isn't) sent.
     public void RequestPartnerCapture(string requestId, PresetAnchor? anchorHint)
     {
         if (state.Peer is not { } peer) return;
@@ -141,15 +100,12 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
-    /// Replies once to a capture request with this side's own captured state — never sent unprompted.
     public void ReplyToCoupleCapture(PartnerIdentity target, string requestId, CapturedPoseState captured)
     {
         PairingSender.Send(PairingComposer.ComposeCoupleCaptureReply(target, requestId, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
         state.Touch();
     }
 
-    /// Relays a captured partner half to the current pairing peer when playing a preset that carries
-    /// one — no-op while unpaired. See PairingComposer.ComposeCoupleRelay.
     public void RelayCouplePreset(string presetName, CapturedPoseState captured)
     {
         if (state.Peer is not { } peer) return;
@@ -157,9 +113,6 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
-    /// Answers a relayed couple preset (accepted or declined) back to the current pairing peer — no-op
-    /// while unpaired. See PairingComposer.ComposeCoupleAnswer.
-    /// Announces this side's Bone Align start to the current pairing peer — no-op while unpaired.
     public void AnnounceBoneAlign()
     {
         if (state.Peer is not { } peer) return;
@@ -174,8 +127,6 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
-    /// Sends this side's own override-toggle state to the current pairing peer, if any — no-op while
-    /// unpaired (there's nothing to announce it to yet; Plugin re-sends it once pairing activates).
     public void SendOverrideToggle(bool enabled)
     {
         if (state.Peer is not { } peer) return;
@@ -183,10 +134,7 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
-    /// One click: clears the pairing locally and best-effort notifies the peer so they aren't left
-    /// showing a stale "Paired with you" — the notice isn't required for this side's own state to be
-    /// correct (Clear() already happened), so a lost/unsent tell is not a correctness problem, just a
-    /// UX one for the other side.
+    /// Clears locally and tells the partner, best effort.
     public void Unpair()
     {
         if (state.Peer is { } peer)
@@ -241,7 +189,7 @@ public sealed class PairingListener : IDisposable
 
         if (text.StartsWith(CoupleCaptureReplyKeyword, StringComparison.OrdinalIgnoreCase))
         {
-            // Checked before CoupleCaptureKeyword below since it's a prefix of this longer keyword.
+            // Must come before CoupleCaptureKeyword, which is a prefix of this one.
             if (!state.Active || state.Peer is not { } replyPeer || !replyPeer.Equals(sender)) return;
             var (requestId, tail) = SplitFirstToken(text[CoupleCaptureReplyKeyword.Length..].Trim());
             if (requestId.Length > 0 && TryParseCapturedState(tail, compoundParts: 2, out var captured, out _))
@@ -301,11 +249,8 @@ public sealed class PairingListener : IDisposable
             if (!state.Active || state.Peer is not { } togglePeer || !togglePeer.Equals(sender)) return;
             state.Touch();
 
-            // Mirrors the partner's own checkbox onto this side's too — the toggle is meant to be
-            // one shared setting, not two independent ones a player has to remember to match by hand.
-            // Only ever sets local state here, never sends anything back: the partner's own toggle
-            // click already sent the one message this exchange needed (see PairingPanel's checkbox
-            // handler), and echoing a reply here would ping-pong the two sides' sends forever.
+            // The toggle is shared, so mirror it locally. Never reply, or the two sides would
+            // ping-pong forever.
             if (value.Equals("on", StringComparison.OrdinalIgnoreCase))
             {
                 state.SetPartnerOverrideEnabled(true);
@@ -331,9 +276,8 @@ public sealed class PairingListener : IDisposable
         }
     }
 
-    /// Mirrors PairingComposer.ComposeCoupleCaptureRequest's wire shape: "&lt;requestId&gt;
-    /// &lt;anchorKind&gt; &lt;entryId&gt; &lt;furnitureName&gt;". Fails closed: any malformed/
-    /// truncated field drops the whole tell.
+    /// "&lt;requestId&gt; &lt;anchorKind&gt; &lt;entryId&gt; &lt;furnitureName&gt;". Any bad field
+    /// drops the tell.
     private static bool TryParseAnchorHint(string body, out string requestId, out AnchorHint hint)
     {
         hint = default;
@@ -349,11 +293,9 @@ public sealed class PairingListener : IDisposable
         return true;
     }
 
-    /// Mirrors PairingComposer.ComposeCapturedStateTail's wire shape exactly — see that method's doc
-    /// for the field layout and free-text ordering. Fails closed: any malformed/truncated field drops
-    /// the whole tell rather than guessing at a partial capture. `compoundParts` is 2 for a capture
-    /// reply (furniture name, mod name) or 3 for a play relay (preset name also present, last); `extra`
-    /// carries that 3rd field (the preset name) when present, empty otherwise.
+    /// Parses PairingComposer.ComposeCapturedStateTail. Any bad field drops the tell.
+    /// <paramref name="compoundParts"/> is 3 when a preset name follows, returned in
+    /// <paramref name="extra"/>.
     private static bool TryParseCapturedState(string body, int compoundParts, out CapturedPoseState state, out string extra)
     {
         state = default;
@@ -400,15 +342,7 @@ public sealed class PairingListener : IDisposable
             _ => null,
         };
 
-        // ModDirectory/GroupName/OptionName all carry "#<hash>" rather than their literal text —
-        // resolved lazily against the applying side's own local mod (and that mod's own meta.json
-        // group/option list) at play time (see Plugin.PlayPose), since only that side can know which
-        // of its own installed mods, groups, and options the hashes refer to. "0" means "no real
-        // group" (the implicit/Default case — see PenumbraLink.GroupName), not a hash to resolve.
-        // GroupSelections is deliberately left empty here — it's populated once Plugin.PlayPose has
-        // resolved the real group/option names, not with placeholder hash text. ModName is carried as
-        // plain display text (never hashed, never used to resolve/replay) purely so a failed
-        // resolution can still name the mod in a not-found notice — see Plugin.PlayPose.
+        // Hashes are stored as "#<hash>" and resolved against local mods at play time.
         PenumbraLink? penumbra = hasPenumbra != 0
             ? new PenumbraLink
             {
@@ -430,9 +364,7 @@ public sealed class PairingListener : IDisposable
         return spaceIndex < 0 ? (trimmed, "") : (trimmed[..spaceIndex], trimmed[(spaceIndex + 1)..].Trim());
     }
 
-    /// Reads up to `count` leading whitespace-separated tokens, leaving everything after the last one
-    /// (including any further whitespace-separated words) as the untouched remainder — used ahead of
-    /// a trailing '|'-joined compound whose own fields may themselves contain spaces.
+    /// Reads up to <paramref name="count"/> leading tokens and returns the rest untouched.
     private static (string[] Tokens, string Remainder) SplitTokens(string text, int count)
     {
         var tokens = new List<string>(count);
@@ -447,9 +379,7 @@ public sealed class PairingListener : IDisposable
         return (tokens.ToArray(), remaining);
     }
 
-    /// Prefers a PlayerPayload when present (structured, unambiguous); falls back to parsing the
-    /// plain "Name Surname@World" text form, since not every chat type embeds a PlayerPayload for
-    /// the sender. Mirrors the same approach used elsewhere for verified-sender chat parsing.
+    /// Uses the PlayerPayload when present, else the "Name Surname@World" text.
     private static (string? Name, string? World) ExtractNameAndWorld(SeString sender)
     {
         var playerPayload = sender.Payloads.OfType<PlayerPayload>().FirstOrDefault();

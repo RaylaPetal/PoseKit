@@ -4,15 +4,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using PoseKit.Presets;
 
-/// <summary>Only ever builds text and returns it — no dependency on any chat-send API, so there is no
-/// code path here that could ever transmit anything. Sending is always a separate, deliberate step
-/// PairingSender takes with the string this class hands back.
+/// <summary>Builds pairing tells; sending is PairingSender's job.
 ///
-/// Every keyword that carries free-text puts it last, as a single '|'-joined compound token taking
-/// the rest of the message — names/mod/group/option text can contain spaces (and even '|', since the
-/// final piece of the compound absorbs everything left after splitting only the first few '|'s), and
-/// every other field is small and fixed-shape, so there's no need for further escaping as long as
-/// parsing only ever splits the fixed leading tokens and the fixed number of leading '|' separators.
+/// Free text always goes last, '|'-joined, so it can contain spaces without escaping. The parser only
+/// splits the fixed leading fields.
 /// </summary>
 public static class PairingComposer
 {
@@ -34,27 +29,15 @@ public static class PairingComposer
     public static string ComposeAccept(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {AcceptKeyword} {inviteId}";
 
-    /// Best-effort notice so the peer isn't left showing a stale "Paired with X" after this side
-    /// unpairs — mirrors the "Panic notifies the peer" pattern: ending a trust relationship doesn't
-    /// need the invite/accept id handshake establishing one did.
     public static string ComposeUnpair(PartnerIdentity target) =>
         $"/tell {target.TellAddress} {UnpairKeyword}";
 
-    /// Carries which selection was queued (its display name) so the partner's UI can show what you
-    /// picked before they've picked their own, and so the couple-pairing section can display it too.
     public static string ComposeQueueSignal(PartnerIdentity target, string name) =>
         $"/tell {target.TellAddress} {QueueKeyword} {name}";
 
-    /// Sent when saving a preset while paired with "include partner" enabled: asks the partner to
-    /// capture and reply with its own current pose/offset/anchor/Penumbra state. Only the anchor
-    /// *kind* (none/spot/furniture) and, for furniture, which item — not any position/rotation —
-    /// travel here, so the partner captures its OWN spot/furniture-relative position rather than
-    /// this side's; the request just hints which kind of anchor to capture and, for furniture, which
-    /// physical item (so both sides anchor to the same piece of furniture). See
-    /// couple-preset-relay's spec — the reply (ComposeCoupleCaptureReply) carries the actual captured
-    /// state back. A partner-kind anchor (PresetAnchor.Partner) deliberately encodes as kind 0: the
-    /// partner is the root of a partner-anchored couple preset, so its own half is captured unanchored
-    /// — see partner-anchor's spec.
+    /// Asks the partner to capture their own pose state. Only the anchor kind (and furniture item)
+    /// is sent, so the partner anchors its own position. A partner anchor is sent as kind 0, since
+    /// the partner is the root and is captured unanchored.
     public static string ComposeCoupleCaptureRequest(PartnerIdentity target, string requestId, PresetAnchor? anchorHint)
     {
         var anchorKind = anchorHint?.Spot != null ? 1 : anchorHint?.Furniture != null ? 2 : 0;
@@ -64,50 +47,29 @@ public static class PairingComposer
                $"{entryId.ToString(ic)} {anchorHint?.Furniture?.FurnitureName ?? ""}";
     }
 
-    /// Sent once in reply to a capture request, carrying this side's own captured pose/offset/anchor/
-    /// Penumbra state tagged with the request id so the requester can match it to the right in-flight
-    /// save (and discard anything stale/unmatched). Never sent unprompted.
+    /// The reply to a capture request, tagged with its request id.
     public static string ComposeCoupleCaptureReply(PartnerIdentity target, string requestId,
         PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
         $"/tell {target.TellAddress} {CoupleCaptureReplyKeyword} {requestId} " +
         $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName: null)}";
 
-    /// Sent when playing a preset that carries a captured partner half: relays that half (its
-    /// pose/offset/anchor/Penumbra state, exactly as captured at save time) plus the preset's name,
-    /// for the partner's accept/deny prompt (or immediate auto-accept under mutual override). The
-    /// sender doesn't play its own half yet — it waits for ComposeCoupleAnswer to come back, so both
-    /// halves start together.
+    /// Relays a couple preset's partner half. The sender waits for the answer before playing.
     public static string ComposeCoupleRelay(PartnerIdentity target, string presetName,
         PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
         $"/tell {target.TellAddress} {CoupleRelayKeyword} " +
         $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName)}";
 
-    /// Sent exactly once in answer to a "posekitcoupleplay" relay — accepted (by click, or
-    /// automatically under mutual override) or declined (by click, or by the prompt timing out). The
-    /// relay's sender plays its own half only on an accept, the same moment this side plays the
-    /// relayed half, so the two start together. Carries the relayed preset's name (free text, so last)
-    /// so the sender can match it against its own pending play.
-    /// Sent when this side starts a Bone Align, so a partner who starts one at the same time can apply
-    /// the shared tie-break and let exactly one side move. Carries nothing — it's only a signal. See
-    /// PoseKit.Bones.BoneAlignService.
+    /// Signals that this side started a Bone Align, so simultaneous aligns can tie-break.
     public static string ComposeBoneAlign(PartnerIdentity target) =>
         $"/tell {target.TellAddress} {BoneAlignKeyword}";
 
+    /// The one answer to a couple relay.
     public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, bool accepted) =>
         $"/tell {target.TellAddress} {CoupleAnswerKeyword} {(accepted ? 1 : 0)} {presetName}";
 
-    /// Shared wire shape for "a captured pose/offset/anchor/Penumbra state", used by both the capture
-    /// reply and the play relay (which also appends the preset's name as one more compound field).
-    /// Fixed-shape fields first (emote mode/cpose, offset, anchor kind/numeric fields, mod-directory/
-    /// group/option hashes), then every free-text field joined by '|' last, ordered least-to-most
-    /// likely to itself contain a literal '|' so only the true last field needs to safely absorb one
-    /// — furniture name first, then the mod's display name (still not used to replay — that goes
-    /// through ModDirectory/GroupSelections, resolved via the hashes below — but carried now so the
-    /// receiving side can name the mod in a not-found notice if it can't resolve those hashes; see
-    /// couple-pairing's Partner Pose Not Found Notice), with an optional preset name (the most
-    /// user-free-typed of all of them) absolute last. ModDirectory/GroupName/OptionName all travel as
-    /// stable hashes (see ModDirectoryHash) instead of their literal text, resolved back to real
-    /// strings only by the client that owns the mod, at apply time (see Plugin.PlayPose).
+    /// Wire format for a captured pose state: fixed fields first, then furniture name, mod name and
+    /// optional preset name joined by '|'. Mod, group and option travel as hashes; the mod name is
+    /// only for the not-found notice.
     private static string ComposeCapturedStateTail(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor,
         PenumbraLink? penumbra, string? presetName)
     {
@@ -121,9 +83,7 @@ public static class PairingComposer
                 : (0u, 0f, 0f, 0f, 0f, "");
         var modDirectoryHash = penumbra?.ModDirectory is { Length: > 0 } dir ? ModDirectoryHash.Compute(dir) : "0";
 
-        // GroupName is "" for an implicit/no-group mod (see PenumbraLink.GroupName) — a real, existing
-        // non-error state, not something to hash. "0" reuses modDirectoryHash's own placeholder
-        // convention above and can never collide with a real hash (always 8 hex characters).
+        // "0" means not applicable; real hashes are always 8 hex characters.
         var (groupNameHash, optionNameHash) = penumbra?.GroupName is { Length: > 0 } group
             ? (ModDirectoryHash.Compute(group), ModDirectoryHash.Compute(penumbra!.OptionName))
             : ("0", "0");
@@ -145,25 +105,12 @@ public static class PairingComposer
         return $"{tokens} {string.Join('|', compoundParts)}";
     }
 
-    /// Announces this side's own "override queue" checkbox state — sent whenever it's toggled, and
-    /// once more right after pairing activates, so the partner's MutualOverrideActive reading is
-    /// never stale.
     public static string ComposeOverrideToggle(PartnerIdentity target, bool enabled) =>
         $"/tell {target.TellAddress} {OverrideToggleKeyword} {(enabled ? "on" : "off")}";
 
-    /// Sent instead of the normal queue signal when the acting side already has its own queued pick
-    /// and mutual override is active — names the item the *partner* should play, not the sender's
-    /// own. No acknowledgement is expected or sent back; the sender plays its own already-queued pick
-    /// immediately rather than waiting for one.
-    ///
-    /// When <paramref name="penumbra"/> is set (the forced pick is a Penumbra-discovered pose, not a
-    /// saved preset), also carries the same mod-directory/group/option hash triple
-    /// ComposeCapturedStateTail sends, plus a hash of the specific trigger's own identity (needed
-    /// because a single option can bind more than one trigger — see DescribeTriggerLabel), so the
-    /// receiving side can resolve the exact pick even if the mod's been renamed since. "0" in any
-    /// hash field means "not applicable" (no Penumbra link, no real group, or nothing more specific
-    /// than the option's one trigger to disambiguate) — never a real hash, which is always 8 hex
-    /// characters. See couple-pairing's Partner Pose Resolution requirement.
+    /// Names what the partner should play under mutual override. For a mod pose it also carries the
+    /// mod, group, option and trigger hashes ("0" when not applicable), since one option can have
+    /// several triggers.
     public static string ComposeForceSelection(PartnerIdentity target, string name,
         PenumbraLink? penumbra = null, string? triggerText = null)
     {
