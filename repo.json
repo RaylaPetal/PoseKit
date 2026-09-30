@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.0/PoseKit-2.2.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.0/PoseKit-2.2.0.0.zip",
-    "Changelog": "- /posekit help now lists each command on its own line.\n- Internal code cleanup; no behavior changes.",
+    "Changelog": "- The welcome screen's animation folder filter is now a dropdown of your Penumbra folders, matching Settings.",
     "LastUpdate": "1790793126"
   }
 ]

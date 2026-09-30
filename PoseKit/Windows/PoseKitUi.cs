@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
@@ -122,6 +123,41 @@ internal static class PoseKitUi
         ImGui.PushStyleColor(ImGuiCol.Text, Muted);
         ImGui.TextWrapped(text);
         ImGui.PopStyleColor();
+    }
+
+    /// Adds every parent folder of a Penumbra sort path, since the filter matches nested paths.
+    public static void AddSortFolders(string? sortPath, ISet<string> folders)
+    {
+        if (string.IsNullOrEmpty(sortPath)) return;
+        var segments = sortPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 1; i < segments.Length; i++)
+            folders.Add(string.Join('/', segments[..i]));
+    }
+
+    /// Penumbra sort-folder picker bound to Configuration.PenumbraFolderFilter.
+    public static void DrawFolderFilterCombo(string label, Configuration configuration, IEnumerable<string>? folders)
+    {
+        var folderFilter = configuration.PenumbraFolderFilter;
+        var folderLabel = folderFilter.Length == 0 ? "(All mods)" : folderFilter;
+        ImGui.SetNextItemWidth(-1);
+        if (!ImGui.BeginCombo(label, folderLabel)) return;
+
+        if (ImGui.Selectable("(All mods)", folderFilter.Length == 0))
+            SetFolderFilter(configuration, "");
+
+        foreach (var folder in folders ?? [])
+        {
+            if (ImGui.Selectable(folder, folder == folderFilter))
+                SetFolderFilter(configuration, folder);
+        }
+
+        ImGui.EndCombo();
+    }
+
+    private static void SetFolderFilter(Configuration configuration, string folder)
+    {
+        configuration.PenumbraFolderFilter = folder;
+        configuration.Save();
     }
 
     /// A button that runs <paramref name="resolve"/>, or plain "(conflict)" text when it's null.

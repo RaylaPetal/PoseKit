@@ -74,21 +74,7 @@ public class ConfigWindow : Window, IDisposable
                 RefreshAllMods();
 
             var folderFilter = configuration.PenumbraFolderFilter;
-            var folderLabel = folderFilter.Length == 0 ? "(All mods)" : folderFilter;
-            ImGui.SetNextItemWidth(-1);
-            if (ImGui.BeginCombo("Sort folder##PoseKitFolderFilter", folderLabel))
-            {
-                if (ImGui.Selectable("(All mods)", folderFilter.Length == 0))
-                    SetFolderFilter("");
-
-                foreach (var folder in availableFoldersCache ?? [])
-                {
-                    if (ImGui.Selectable(folder, folder == folderFilter))
-                        SetFolderFilter(folder);
-                }
-
-                ImGui.EndCombo();
-            }
+            PoseKitUi.DrawFolderFilterCombo("Sort folder##PoseKitFolderFilter", configuration, availableFoldersCache);
             PoseKitUi.TextWrappedDisabled("Filters by Penumbra's own mod-organization folder (Mods tab), not the disk folder.");
 
             if (ImGui.Button("Refresh mods##PoseKitRefreshMods"))
@@ -179,13 +165,6 @@ public class ConfigWindow : Window, IDisposable
         ImGui.EndChild();
     }
 
-    private void SetFolderFilter(string folder)
-    {
-        configuration.PenumbraFolderFilter = folder;
-        configuration.Save();
-    }
-
-    /// Also collects every parent folder, since the filter matches nested paths.
     private void RefreshAllMods()
     {
         var modList = plugin.PenumbraIpc.TryGetModList();
@@ -203,12 +182,7 @@ public class ConfigWindow : Window, IDisposable
         foreach (var (directory, name) in modList)
         {
             var sortPath = plugin.PenumbraIpc.TryGetModPath(directory, name);
-            if (!string.IsNullOrEmpty(sortPath))
-            {
-                var segments = sortPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                for (var i = 1; i < segments.Length; i++)
-                    folders.Add(string.Join('/', segments[..i]));
-            }
+            PoseKitUi.AddSortFolders(sortPath, folders);
 
             var (enabled, _, _) = plugin.PenumbraIpc.TryGetCurrentSettings(cid, directory);
             mods.Add((directory, name, sortPath, enabled));

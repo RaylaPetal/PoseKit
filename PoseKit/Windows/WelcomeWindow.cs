@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
@@ -12,6 +13,7 @@ public class WelcomeWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private readonly Configuration configuration;
+    private List<string>? availableFoldersCache;
 
     public WelcomeWindow(Plugin plugin) : base("Welcome to PoseKit###PoseKitWelcome")
     {
@@ -29,6 +31,8 @@ public class WelcomeWindow : Window, IDisposable
     }
 
     public void Dispose() { }
+
+    public override void OnOpen() => availableFoldersCache = null;
 
     public override void Draw()
     {
@@ -49,13 +53,9 @@ public class WelcomeWindow : Window, IDisposable
         ImGui.TextWrapped("3. Use Live Offset to drag your character into position, then save it as a named preset under Presets.");
 
         PoseKitUi.SectionHeader("Animation Mod Folder Filter");
-        var folderFilter = configuration.PenumbraFolderFilter;
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputTextWithHint("##PoseKitWelcomeFolderFilter", "e.g. Animations (blank = all mods)", ref folderFilter, 128))
-        {
-            configuration.PenumbraFolderFilter = folderFilter;
-            configuration.Save();
-        }
+        if (availableFoldersCache == null)
+            RefreshFolders();
+        PoseKitUi.DrawFolderFilterCombo("##PoseKitWelcomeFolderFilter", configuration, availableFoldersCache);
         PoseKitUi.TextWrappedDisabled("Restricts the mod picker to this Penumbra sort-folder — you can " +
                                        "change this anytime in Settings, along with which specific mods to scan.");
 
@@ -67,5 +67,17 @@ public class WelcomeWindow : Window, IDisposable
             configuration.Save();
             IsOpen = false;
         }
+    }
+
+    /// Stays null while Penumbra is unavailable, so the next frame retries.
+    private void RefreshFolders()
+    {
+        if (plugin.PenumbraIpc.TryGetModList() is not { } modList) return;
+
+        var folders = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (directory, name) in modList)
+            PoseKitUi.AddSortFolders(plugin.PenumbraIpc.TryGetModPath(directory, name), folders);
+
+        availableFoldersCache = [.. folders];
     }
 }
