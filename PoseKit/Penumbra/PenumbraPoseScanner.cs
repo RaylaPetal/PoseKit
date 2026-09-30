@@ -166,7 +166,9 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 groups.Add(new PoseModGroup
                 {
                     Name = dto.Name,
-                    MultiSelect = string.Equals(dto.Type, "Multi", StringComparison.OrdinalIgnoreCase),
+                    // Combining groups toggle each option independently, like Multi.
+                    MultiSelect = string.Equals(dto.Type, "Multi", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(dto.Type, "Combining", StringComparison.OrdinalIgnoreCase),
                     Options = options,
                     Selected = selected,
                 });

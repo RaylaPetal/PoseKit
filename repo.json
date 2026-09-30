@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.2/PoseKit-2.2.0.2.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.2/PoseKit-2.2.0.2.zip",
-    "Changelog": "- Fixed option dropdowns changing the wrong mod when two expanded mods have a group with the same name (e.g. \"Options\").",
+    "Changelog": "- Penumbra \"Combining\" option groups now show as checkboxes, so options like SFX can be turned off again.",
     "LastUpdate": "1790796253"
   }
 ]
