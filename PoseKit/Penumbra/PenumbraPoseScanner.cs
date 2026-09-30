@@ -53,9 +53,41 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
 
     private sealed record DefaultDataDto(Dictionary<string, string>? Files);
 
-    private sealed record GroupFileDto(string Type, string Name, List<OptionFileDto> Options);
+    private sealed record GroupFileDto(string Type, string Name, List<OptionFileDto> Options, List<ContainerDto>? Containers);
 
     private sealed record OptionFileDto(string Name, Dictionary<string, string>? Files);
+
+    /// One per option combination in a Combining group; bit i of the index means option i is on.
+    private sealed record ContainerDto(Dictionary<string, string>? Files);
+
+    /// An option's game paths. Combining groups keep files in containers instead of on options,
+    /// so an option gets every container its bit is set in.
+    private static IEnumerable<string> OptionFileKeys(GroupFileDto group, int optionIndex)
+    {
+        if (group.Containers is not { } containers)
+            return group.Options[optionIndex].Files?.Keys ?? Enumerable.Empty<string>();
+
+        return containers
+            .Where((_, index) => (index & (1 << optionIndex)) != 0)
+            .SelectMany(container => container.Files?.Keys ?? Enumerable.Empty<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// The game paths active for these selected options.
+    private static IEnumerable<string> SelectedFileKeys(GroupFileDto group, IReadOnlyCollection<string> selected)
+    {
+        if (group.Containers is not { } containers)
+        {
+            return group.Options
+                .Where(opt => selected.Contains(opt.Name))
+                .SelectMany(opt => opt.Files?.Keys ?? Enumerable.Empty<string>());
+        }
+
+        var mask = 0;
+        for (var i = 0; i < group.Options.Count; i++)
+            if (selected.Contains(group.Options[i].Name)) mask |= 1 << i;
+        return mask < containers.Count ? containers[mask].Files?.Keys ?? Enumerable.Empty<string>() : [];
+    }
 
     public readonly record struct ModGroupInfo(string GroupName, List<string> OptionNames);
 
@@ -152,10 +184,10 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 if (dto.Options == null) continue;
 
                 var options = new List<PoseModOption>();
-                foreach (var opt in dto.Options)
+                for (var i = 0; i < dto.Options.Count; i++)
                 {
-                    var fileKeys = (IEnumerable<string>?)opt.Files?.Keys ?? Array.Empty<string>();
-                    var triggers = PoseNameHeuristics.Detect(dto.Name, opt.Name, fileKeys);
+                    var opt = dto.Options[i];
+                    var triggers = PoseNameHeuristics.Detect(dto.Name, opt.Name, OptionFileKeys(dto, i));
                     options.Add(new PoseModOption { Name = opt.Name, Triggers = triggers });
                 }
 
@@ -245,11 +277,14 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 if (dto.Options == null) continue;
                 if (!settings.Selections.TryGetValue(dto.Name, out var selectedOptions)) continue;
 
-                foreach (var opt in dto.Options)
+                // Limited to the active files, since a Combining option spans containers that
+                // aren't all in use.
+                var activeKeys = new HashSet<string>(SelectedFileKeys(dto, selectedOptions), StringComparer.OrdinalIgnoreCase);
+                for (var i = 0; i < dto.Options.Count; i++)
                 {
+                    var opt = dto.Options[i];
                     if (!selectedOptions.Contains(opt.Name)) continue;
-                    var fileKeys = (IEnumerable<string>?)opt.Files?.Keys ?? Array.Empty<string>();
-                    RecordClaim(modDirectory, modName, dto.Name, opt.Name, fileKeys);
+                    RecordClaim(modDirectory, modName, dto.Name, opt.Name, OptionFileKeys(dto, i).Where(activeKeys.Contains));
                 }
             }
         }

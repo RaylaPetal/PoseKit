@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.3/PoseKit-2.2.0.3.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.3/PoseKit-2.2.0.3.zip",
-    "Changelog": "- Penumbra \"Combining\" option groups now show as checkboxes, so options like SFX can be turned off again.",
+    "Changelog": "- Animations inside Penumbra \"Combining\" option groups are now detected and get Play buttons.",
     "LastUpdate": "1790796743"
   }
 ]
