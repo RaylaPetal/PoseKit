@@ -156,6 +156,18 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(MainWindow);
         WindowSystem.AddWindow(WelcomeWindow);
 
+        // Keep the scan selection in step with Penumbra. Penumbra doesn't say which thread it raises
+        // these on, and the rescan touches game state.
+        PenumbraIpc.ModDeleted += modDirectory => Framework.RunOnFrameworkThread(() =>
+            UpdateSelectedMods(selected => selected.Remove(modDirectory)));
+        PenumbraIpc.ModMoved += (oldDirectory, newDirectory) => Framework.RunOnFrameworkThread(() =>
+            UpdateSelectedMods(selected =>
+            {
+                if (!selected.Remove(oldDirectory)) return false;
+                selected.Add(newDirectory);
+                return true;
+            }));
+
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Toggle the PoseKit window.\n" +
@@ -174,6 +186,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        PenumbraIpc.Dispose();
         FreeCam.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
@@ -309,6 +322,15 @@ public sealed class Plugin : IDalamudPlugin
         PoseTrigger.RestorePose(droppedPose);
         freecamRestoreAttempts++;
         nextFreecamRestoreAttemptTime = Environment.TickCount64 + FreecamRestoreAttemptDelayMs;
+    }
+
+    /// Applies an edit to the scan selection; saves and rescans only if it changed something.
+    private void UpdateSelectedMods(Func<HashSet<string>, bool> edit)
+    {
+        if (!edit(Configuration.SelectedPenumbraMods)) return;
+        Configuration.Save();
+        ConfigWindow.InvalidateModCache();
+        RefreshPenumbraPoses();
     }
 
     /// Resets PoseKit's temporary Penumbra settings, then rescans.

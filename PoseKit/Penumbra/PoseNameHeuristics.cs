@@ -12,7 +12,7 @@ public readonly record struct PoseTriggerHint(string? SlashCommand, PoseIdentifi
 ///
 /// Sources, in order:
 /// 1. A "(/command)" hint in the option or group name.
-/// 2. Sit/groundsit/doze file patterns (j_pose/s_pose/l_pose, and jmn.pap for the groundsit base pose).
+/// 2. Sit/groundsit/doze file patterns (j_pose/s_pose/l_pose, plus jmn/sit/bed_liedown_loop for pose 0).
 /// 3. A reverse lookup of the emote sheet for plain emotes.
 /// </summary>
 public static class PoseNameHeuristics
@@ -24,6 +24,14 @@ public static class PoseNameHeuristics
         (1, new Regex(@"j_pose(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled)), // GroundSit
         (2, new Regex(@"s_pose(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled)), // Sit
         (3, new Regex(@"l_pose(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled)), // Doze
+    ];
+
+    /// Pose 0 of each pose-cycling emote isn't a numbered file; the game uses these instead.
+    private static readonly (string Suffix, PoseIdentifier Pose)[] BasePoseFiles =
+    [
+        ("/emote/jmn.pap", new PoseIdentifier(1, 0)),              // GroundSit
+        ("/emote/sit.pap", new PoseIdentifier(2, 0)),              // Sit
+        ("/emote/bed_liedown_loop.pap", new PoseIdentifier(3, 0)), // Doze
     ];
 
     /// <param name="groupName">Also checked for the "(/command)" hint.</param>
@@ -59,13 +67,17 @@ public static class PoseNameHeuristics
                     AddPose(new PoseIdentifier(emoteModeId, index));
             }
 
-            // jmn.pap is groundsit pose 0. Skip the emote lookup for it, which would add a duplicate
-            // "/groundsit" button.
-            var isGroundSitBasePose = normalized.EndsWith("/jmn.pap", System.StringComparison.OrdinalIgnoreCase);
-            if (isGroundSitBasePose)
-                AddPose(new PoseIdentifier(1, 0));
+            // Pose 0 files skip the emote lookup, which would add a generic "/groundsit" or "/lounge"
+            // button that plays whichever pose the character last used.
+            var isBasePose = false;
+            foreach (var (suffix, pose) in BasePoseFiles)
+            {
+                if (!normalized.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase)) continue;
+                AddPose(pose);
+                isBasePose = true;
+            }
 
-            if (!isGroundSitBasePose && normalized.EndsWith(".pap", System.StringComparison.OrdinalIgnoreCase))
+            if (!isBasePose && normalized.EndsWith(".pap", System.StringComparison.OrdinalIgnoreCase))
             {
                 var withoutExtension = normalized[..^4];
                 if (EmoteAnimationIndex.LookupCommand(withoutExtension) is { } command)

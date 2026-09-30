@@ -37,7 +37,10 @@ public class ConfigWindow : Window, IDisposable
     public void Dispose() { }
 
     /// Penumbra may not be ready right after login, so rebuild the cache on every open.
-    public override void OnOpen()
+    public override void OnOpen() => InvalidateModCache();
+
+    /// Rebuilds the mod list on the next draw, e.g. after Penumbra deleted or moved a mod.
+    public void InvalidateModCache()
     {
         allModsCache = null;
         availableFoldersCache = null;
@@ -145,6 +148,8 @@ public class ConfigWindow : Window, IDisposable
                 }
                 ImGui.EndChild();
 
+                changed |= DrawMissingMods();
+
                 if (changed)
                 {
                     configuration.Save();
@@ -163,6 +168,40 @@ public class ConfigWindow : Window, IDisposable
             PoseKitUi.TextWrappedDisabled("Questions and bug reports are welcome.");
         }
         ImGui.EndChild();
+    }
+
+    /// Selected mods Penumbra no longer has. The picker can't show them, so they get their own list
+    /// to remove them from. Only called with the mod list loaded, so nothing is flagged while
+    /// Penumbra is unavailable. Returns whether the selection changed.
+    private bool DrawMissingMods()
+    {
+        var known = new HashSet<string>(allModsCache!.Select(mod => mod.Directory));
+        var missing = configuration.SelectedPenumbraMods
+            .Where(directory => !known.Contains(directory))
+            .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (missing.Count == 0) return false;
+
+        if (!ImGui.CollapsingHeader($"Missing mods ({missing.Count})###PoseKitMissingMods")) return false;
+        PoseKitUi.TextWrappedDisabled("Selected, but no longer in Penumbra (deleted or renamed).");
+
+        var changed = false;
+        if (ImGui.SmallButton("Remove all missing##PoseKitRemoveAllMissing"))
+        {
+            foreach (var directory in missing)
+                changed |= configuration.SelectedPenumbraMods.Remove(directory);
+            return changed;
+        }
+
+        foreach (var directory in missing)
+        {
+            if (ImGui.SmallButton($"Remove##PoseKitRemoveMissing{directory.GetHashCode()}"))
+                changed |= configuration.SelectedPenumbraMods.Remove(directory);
+            ImGui.SameLine();
+            ImGui.TextColored(PoseKitUi.Bad, directory);
+        }
+
+        return changed;
     }
 
     private void RefreshAllMods()

@@ -12,9 +12,32 @@ namespace PoseKit.Penumbra;
 /// Writes only use temporary mod settings, so playing an animation never changes the user's saved
 /// Penumbra configuration.
 /// </summary>
-public sealed class PenumbraIpc
+public sealed class PenumbraIpc : IDisposable
 {
     private const string Source = "PoseKit";
+
+    /// A mod was deleted in Penumbra (its directory).
+    public event Action<string>? ModDeleted;
+
+    /// A mod's directory was renamed or moved in Penumbra (old, new).
+    public event Action<string, string>? ModMoved;
+
+    private readonly IDisposable modDeletedSubscriber;
+    private readonly IDisposable modMovedSubscriber;
+
+    public PenumbraIpc()
+    {
+        modDeletedSubscriber = global::Penumbra.Api.IpcSubscribers.ModDeleted.Subscriber(Plugin.PluginInterface,
+            modDirectory => ModDeleted?.Invoke(modDirectory));
+        modMovedSubscriber = global::Penumbra.Api.IpcSubscribers.ModMoved.Subscriber(Plugin.PluginInterface,
+            (oldDirectory, newDirectory) => ModMoved?.Invoke(oldDirectory, newDirectory));
+    }
+
+    public void Dispose()
+    {
+        modDeletedSubscriber.Dispose();
+        modMovedSubscriber.Dispose();
+    }
 
     private readonly GetModList getModList = new(Plugin.PluginInterface);
     private readonly GetModPath getModPath = new(Plugin.PluginInterface);
