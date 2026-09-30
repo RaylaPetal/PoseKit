@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "2.2.0.2",
+    "AssemblyVersion": "2.2.0.3",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.2/PoseKit-2.2.0.2.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.2/PoseKit-2.2.0.2.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.3/PoseKit-2.2.0.3.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.3/PoseKit-2.2.0.3.zip",
     "Changelog": "- Penumbra \"Combining\" option groups now show as checkboxes, so options like SFX can be turned off again.",
-    "LastUpdate": "1790796253"
+    "LastUpdate": "1790796743"
   }
 ]
