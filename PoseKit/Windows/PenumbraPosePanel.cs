@@ -99,6 +99,8 @@ public static class PenumbraPosePanel
             if (!expanded)
                 continue;
 
+            // Group names like "Options" repeat across mods; without this their combos share an id.
+            ImGui.PushID(mod.ModDirectory);
             ImGui.Indent();
             if (!mod.Enabled)
                 PoseKitUi.TextWrappedDisabled("Disabled in Penumbra — playing anything below enables it temporarily, or use the checkbox above.");
@@ -108,6 +110,7 @@ public static class PenumbraPosePanel
                     DrawGroup(plugin, mod, group, collectionId, animationSearch, activePoses);
             }
             ImGui.Unindent();
+            ImGui.PopID();
         }
 
         if (!anyVisible)

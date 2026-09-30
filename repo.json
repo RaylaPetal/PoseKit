@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.1/PoseKit-2.2.0.1.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.1/PoseKit-2.2.0.1.zip",
-    "Changelog": "- The welcome screen's animation folder filter is now a dropdown of your Penumbra folders, matching Settings.",
+    "Changelog": "- Fixed option dropdowns changing the wrong mod when two expanded mods have a group with the same name (e.g. \"Options\").",
     "LastUpdate": "1790795809"
   }
 ]
