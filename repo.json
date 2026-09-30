@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "2.2.0.4",
+    "AssemblyVersion": "2.2.0.5",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.4/PoseKit-2.2.0.4.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.4/PoseKit-2.2.0.4.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.5/PoseKit-2.2.0.5.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.5/PoseKit-2.2.0.5.zip",
     "Changelog": "- Sit Pose 0 and Doze (bed) Pose 0 animations are now detected and get Play buttons.\n- Settings now lists selected mods that are no longer in Penumbra, so you can remove them.\n- Mods deleted or renamed in Penumbra are removed from or kept in your scan selection automatically.",
-    "LastUpdate": "1790796853"
+    "LastUpdate": "1790805622"
   }
 ]
