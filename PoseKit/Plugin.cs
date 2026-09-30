@@ -158,7 +158,9 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Toggle the PoseKit window. '/posekit tfc' toggles freecam. '/posekit sync [delay <seconds>]' resyncs nearby rendered player emotes. '/posekit bones' logs your and your target's bone names to /xllog."
+            HelpMessage = "Toggle the PoseKit window.\n" +
+                          "/posekit tfc → Toggle freecam.\n" +
+                          "/posekit sync [delay <seconds>] → Resync nearby players' emotes."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;

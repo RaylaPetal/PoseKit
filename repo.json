@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.3.0/PoseKit-2.1.3.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.1.3.0/PoseKit-2.1.3.0.zip",
-    "Changelog": "- New Donate button in the header (next to Settings) that opens PoseKit's Ko-fi page, if you'd like to support development.",
+    "Changelog": "- /posekit help now lists each command on its own line.\n- Internal code cleanup; no behavior changes.",
     "LastUpdate": "1790619459"
   }
 ]
