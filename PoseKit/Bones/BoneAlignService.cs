@@ -69,6 +69,10 @@ public sealed class BoneAlignService : IDisposable
     private Vector3 bestTheirModel;
     private float bestTheirModelYaw;
 
+    // Both body outlines at that moment, to tell a shared origin from bodies drawn inside each other.
+    private Vector3?[] bestMyOutline = [];
+    private Vector3?[] bestTheirOutline = [];
+
     // Both body outlines on every sampled frame, for the 180-degree check.
     private readonly List<(Vector3?[] Mine, Vector3?[] Theirs)> outlineFrames = [];
 
@@ -148,6 +152,8 @@ public sealed class BoneAlignService : IDisposable
         sampled = false;
         bestDistance = float.MaxValue;
         outlineFrames.Clear();
+        bestMyOutline = [];
+        bestTheirOutline = [];
 
         emoteSync.Sync();
         poseTrigger.PartnerTrackingPaused = true;
@@ -222,6 +228,11 @@ public sealed class BoneAlignService : IDisposable
                 bestTheirDirection = BodyParts.TryGetDirection(partner, partnerPart, out var theirDirection) ? theirDirection : null;
                 bestModelsKnown = BoneReader.TryGetModelTransform(localPlayer, out bestMyModel, out bestMyModelYaw) &
                                   BoneReader.TryGetModelTransform(partner, out bestTheirModel, out bestTheirModelYaw);
+                if (NeedsFacingSamples)
+                {
+                    bestMyOutline = BoneReader.GetBonePositions(localPlayer, BodyParts.BodyOutline);
+                    bestTheirOutline = BoneReader.GetBonePositions(partner, BodyParts.BodyOutline);
+                }
                 sampled = true;
             }
         }
@@ -237,8 +248,9 @@ public sealed class BoneAlignService : IDisposable
     // Turns smaller than this are left alone — measurement noise, not a wrong facing.
     private const float MinFacingTurn = 10f * MathF.PI / 180f;
 
-    // A mostly vertical part (within ~60 degrees of straight up/down) gives no reliable heading.
-    private const float MinHorizontalFraction = 0.5f;
+    // A part tilted more than ~45 degrees from level gives no reliable heading: its short horizontal
+    // component swings with small tilts.
+    private const float MinHorizontalFraction = 0.7f;
 
     private void Finish(IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
@@ -286,7 +298,8 @@ public sealed class BoneAlignService : IDisposable
         Aligned?.Invoke(request, resolvedFacing);
     }
 
-    /// Auto tries the shared-origin facing, then the part-direction turn with the 180-degree check.
+    /// Auto tries the shared-origin facing, then the part-direction turn. Either only turns when
+    /// confident; otherwise the facing is kept, since no turn beats a wrong one.
     private (float Turn, string Note, AlignFacing Resolved) ChooseFacing(bool rotationApplies, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         if (request.Facing == AlignFacing.Unchanged)
@@ -300,17 +313,37 @@ public sealed class BoneAlignService : IDisposable
             return (fixedTurn, TurnNote(fixedTurn) + $", {FacingLabel(request.Facing)}", request.Facing);
         }
 
-        if (request.Facing == AlignFacing.Auto && rotationApplies && SharedOriginTurn(localPlayer, partner) is { } snapped)
-            return snapped;
-
-        var (turn, note) = FacingTurn(rotationApplies);
-        if (rotationApplies && ShouldFlip(turn, localPlayer, partner))
+        var sharedLog = "shared-origin skipped";
+        if (request.Facing == AlignFacing.Auto && rotationApplies)
         {
-            turn = MathF.IEEERemainder(turn + MathF.PI, MathF.Tau);
-            note = $", flipped to {turn * 180f / MathF.PI:0} deg — the bodies overlapped the other way";
+            var snapped = SharedOriginTurn(localPlayer, partner, out sharedLog);
+            if (snapped is { } found)
+            {
+                LogFacing(sharedLog);
+                return found;
+            }
         }
+
+        var (turn, note) = FacingTurn(rotationApplies, out var directionLog);
+        var overlapLog = "";
+        if (turn != 0f && outlineFrames.Count > 0)
+        {
+            // Overlap is biased against close-contact poses, so it may only veto a turn, never choose one.
+            var kept = Overlap(turn, localPlayer, partner);
+            var flipped = Overlap(turn + MathF.PI, localPlayer, partner);
+            var veto = ClearlyLess(flipped, kept);
+            overlapLog = $", overlap kept={kept:0.00} flipped={flipped:0.00}{(veto ? " -> veto" : "")}";
+            if (veto)
+            {
+                turn = 0f;
+                note = ", facing unchanged: part directions and body overlap disagreed";
+            }
+        }
+        LogFacing($"{sharedLog}; part-direction {directionLog}{overlapLog} -> turn {turn * 180f / MathF.PI:0} deg");
         return (turn, note, AlignFacing.PartDirection);
     }
+
+    private static void LogFacing(string text) => Plugin.Log.Debug($"Bone Align facing: {text}");
 
     private static string TurnNote(float turn) =>
         MathF.Abs(turn) < MinFacingTurn ? "" : $", turned {turn * 180f / MathF.PI:0} deg";
@@ -336,16 +369,24 @@ public sealed class BoneAlignService : IDisposable
     };
 
     /// The turn that makes the two parts face each other, or zero with the reason.
-    private (float Turn, string Note) FacingTurn(bool rotationApplies)
+    private (float Turn, string Note) FacingTurn(bool rotationApplies, out string log)
     {
+        log = "skipped";
         if (!rotationApplies)
             return (0f, ", facing unchanged: rotation offset unavailable");
         if (bestMyDirection is not { } mine || bestTheirDirection is not { } theirs)
+        {
+            log = "directions unreadable";
             return (0f, ", facing unchanged: couldn't read which way the parts face");
-        if (!IsMostlyHorizontal(mine) || !IsMostlyHorizontal(theirs))
-            return (0f, ", facing unchanged: a part is too vertical to judge");
+        }
 
         var turn = MathF.IEEERemainder(Heading(-theirs) - Heading(mine), MathF.Tau);
+        log = $"mine {Heading(mine) * 180f / MathF.PI:0} deg level={HorizontalFraction(mine):0.00}, " +
+              $"theirs {Heading(theirs) * 180f / MathF.PI:0} deg level={HorizontalFraction(theirs):0.00}, " +
+              $"raw turn {turn * 180f / MathF.PI:0} deg";
+
+        if (HorizontalFraction(mine) < MinHorizontalFraction || HorizontalFraction(theirs) < MinHorizontalFraction)
+            return (0f, ", facing unchanged: a part is too vertical to judge");
         if (MathF.Abs(turn) < MinFacingTurn)
             return (0f, "");
 
@@ -356,17 +397,33 @@ public sealed class BoneAlignService : IDisposable
     private static readonly AlignFacing[] SharedOriginFacings =
         [AlignFacing.SameWay, AlignFacing.Facing, AlignFacing.QuarterLeft, AlignFacing.QuarterRight];
 
-    // Generous enough for different body proportions.
-    private const float SharedOriginTolerance = 0.3f;
+    // A facing authored on one spot lands close to 0; poses authored apart missed by 0.2y and more.
+    private const float SharedOriginTolerance = 0.15f;
+
+    // The best must also miss by at most this fraction of the runner-up. A facing that only fits by
+    // coincidence misses by about as much as the others.
+    private const float SharedOriginClearRatio = 0.6f;
+
+    // Matching outline bones closer than this on average (horizontally) mean the bodies are drawn
+    // inside each other. Two emotes that each reach the part forward (a kiss) line up their whole
+    // bodies under "same way", which fits the origins perfectly but is never the authored pose.
+    private const float StackedSpread = 0.1f;
+
+    // Fewer readable matching bones than this can't tell stacked bodies apart.
+    private const int MinStackBones = 6;
 
     /// For a couple animation authored on one spot: the fixed facing whose alignment also puts both
-    /// drawn models on the same spot. Null when none does.
-    private (float Turn, string Note, AlignFacing Resolved)? SharedOriginTurn(IPlayerCharacter localPlayer, IPlayerCharacter partner)
+    /// drawn models on the same spot without stacking the bodies. Null unless one facing clearly does.
+    private (float Turn, string Note, AlignFacing Resolved)? SharedOriginTurn(IPlayerCharacter localPlayer, IPlayerCharacter partner, out string log)
     {
-        if (!bestModelsKnown) return null;
+        if (!bestModelsKnown)
+        {
+            log = "shared-origin skipped: models unknown";
+            return null;
+        }
 
         var actual = bestActualPosition;
-        (float Turn, AlignFacing Facing, float Miss)? best = null;
+        var candidates = new List<(float Turn, AlignFacing Facing, float Miss, float? Spread)>();
         foreach (var facing in SharedOriginFacings)
         {
             var turn = MathF.IEEERemainder(bestTheirModelYaw + FixedFacingAngle(facing)!.Value - bestMyModelYaw, MathF.Tau);
@@ -375,30 +432,57 @@ public sealed class BoneAlignService : IDisposable
             var shift = StopShort(bestTheirs, mineAfterTurn, localPlayer, partner) - mineAfterTurn;
             var modelAfter = actual + Vector3.Transform(bestMyModel - actual, yaw) + shift;
             var miss = new Vector2(modelAfter.X - bestTheirModel.X, modelAfter.Z - bestTheirModel.Z).Length();
-            if (best is not { } b || miss < b.Miss)
-                best = (turn, facing, miss);
+            candidates.Add((turn, facing, miss, OutlineSpread(yaw, shift)));
         }
+        candidates.Sort((a, b) => a.Miss.CompareTo(b.Miss));
 
-        if (best is not { } found || found.Miss > SharedOriginTolerance) return null;
-        return (found.Turn, $"{TurnNote(found.Turn)}, {FacingLabel(found.Facing)}", found.Facing);
+        var (best, second) = (candidates[0], candidates[1]);
+        var stacked = best.Spread is not { } spread || spread < StackedSpread;
+        var confident = best.Miss <= SharedOriginTolerance && best.Miss <= SharedOriginClearRatio * second.Miss && !stacked;
+        var verdict = confident ? $"confident {best.Facing}"
+            : best.Miss > SharedOriginTolerance ? "best miss too large"
+            : best.Miss > SharedOriginClearRatio * second.Miss ? $"not clearly better than {second.Facing}"
+            : best.Spread is null ? "couldn't read the bodies"
+            : $"{best.Facing} stacks the bodies";
+
+        var listed = new List<string>();
+        foreach (var c in candidates)
+            listed.Add(c.Spread is { } s ? $"{c.Facing} miss={c.Miss:0.00} spread={s:0.00}" : $"{c.Facing} miss={c.Miss:0.00}");
+        log = $"shared-origin {string.Join(" | ", listed)} -> {verdict}";
+
+        if (!confident) return null;
+        return (best.Turn, $"{TurnNote(best.Turn)}, {FacingLabel(best.Facing)}", best.Facing);
+    }
+
+    /// Average horizontal distance between same-named outline bones after turning this player by
+    /// <paramref name="yaw"/> and shifting by <paramref name="shift"/>, at the sampled moment.
+    /// Null when too few bones were read on both bodies.
+    private float? OutlineSpread(Quaternion yaw, Vector3 shift)
+    {
+        var actual = bestActualPosition;
+        var total = 0f;
+        var count = 0;
+        for (var i = 0; i < bestMyOutline.Length && i < bestTheirOutline.Length; i++)
+        {
+            if (bestMyOutline[i] is not { } m || bestTheirOutline[i] is not { } t) continue;
+            var moved = actual + Vector3.Transform(m - actual, yaw) + shift;
+            total += new Vector2(moved.X - t.X, moved.Z - t.Z).Length();
+            count++;
+        }
+        return count < MinStackBones ? null : total / count;
     }
 
     // Outline bones closer than this count as bodies passing through each other.
     private const float OverlapDistance = 0.15f;
 
-    // The flip must clearly reduce overlap to win.
+    // An alternative turn must clearly reduce overlap to win.
     private const float FlipMinGain = 0.1f;
     private const float FlipMaxRatio = 0.7f;
 
-    /// Part directions can't always tell "same way" from "facing each other", so compare the turn
-    /// with the turn plus 180 degrees and keep whichever overlaps the bodies less.
-    private bool ShouldFlip(float turn, IPlayerCharacter localPlayer, IPlayerCharacter partner)
-    {
-        if (outlineFrames.Count == 0) return false;
-        var kept = Overlap(turn, localPlayer, partner);
-        var flipped = Overlap(turn + MathF.PI, localPlayer, partner);
-        return flipped < kept - FlipMinGain && flipped < kept * FlipMaxRatio;
-    }
+    /// Part directions can't always tell "same way" from "facing each other", so the turn is compared
+    /// with the turn plus 180 degrees, keeping the flip only when it clearly overlaps less.
+    private static bool ClearlyLess(float overlap, float other) =>
+        overlap < other - FlipMinGain && overlap < other * FlipMaxRatio;
 
     /// Average overlap per sampled frame after turning and shifting this player by the given turn.
     private float Overlap(float turn, IPlayerCharacter localPlayer, IPlayerCharacter partner)
@@ -426,11 +510,12 @@ public sealed class BoneAlignService : IDisposable
         return total / outlineFrames.Count;
     }
 
-    private static bool IsMostlyHorizontal(Vector3 direction)
+    /// How level a direction is: 1 when level, 0 when straight up or down.
+    private static float HorizontalFraction(Vector3 direction)
     {
         var length = direction.Length();
-        if (length < 1e-4f) return false;
-        return new Vector2(direction.X, direction.Z).Length() / length >= MinHorizontalFraction;
+        if (length < 1e-4f) return 0f;
+        return new Vector2(direction.X, direction.Z).Length() / length;
     }
 
     /// The game's facing convention: a character with rotation r faces (sin r, 0, cos r).

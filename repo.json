@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.5/PoseKit-2.2.0.5.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.5/PoseKit-2.2.0.5.zip",
-    "Changelog": "- Sit Pose 0 and Doze (bed) Pose 0 animations are now detected and get Play buttons.\n- Settings now lists selected mods that are no longer in Penumbra, so you can remove them.\n- Mods deleted or renamed in Penumbra are removed from or kept in your scan selection automatically.",
+    "Changelog": "- Bone Align's Match facing now only turns you when it's confident, and otherwise keeps your current facing and just moves you into position.\n- Fixed Match facing turning you 180 degrees on poses like doggy (hand to anus) and on kisses between two separate emotes.\n- If an animation was remembered with the wrong facing, click Forget and align again.",
     "LastUpdate": "1790805622"
   }
 ]
