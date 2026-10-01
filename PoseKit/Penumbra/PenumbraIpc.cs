@@ -155,6 +155,18 @@ public sealed class PenumbraIpc : IDisposable
         catch { return false; }
     }
 
+    /// Whether PoseKit has temporary settings on this mod since the last reset.
+    public bool HasTemporarySettings(string modDirectory) => touchedModDirectories.Contains(modDirectory);
+
+    /// Undoes PoseKit's temporary settings for one mod. Separate from TryRemoveTemporarySettings,
+    /// which ResetAllTemporarySettings calls while iterating the tracked set.
+    public bool TryResetTemporarySettings(Guid collectionId, string modDirectory)
+    {
+        if (!TryRemoveTemporarySettings(collectionId, modDirectory)) return false;
+        touchedModDirectories.Remove(modDirectory);
+        return true;
+    }
+
     /// Undoes every temporary setting PoseKit applied this session. Best effort: failures aren't retried.
     public void ResetAllTemporarySettings()
     {

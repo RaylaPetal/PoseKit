@@ -96,6 +96,15 @@ public static class PenumbraPosePanel
             if (ImGui.Checkbox($"Enabled##PoseKitModEnabled{mod.ModDirectory.GetHashCode()}", ref modEnabled))
                 SetModEnabled(plugin, mod, collectionId, modEnabled);
 
+            if (collectionId is { } resetCid && plugin.PenumbraIpc.HasTemporarySettings(mod.ModDirectory))
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Reset##PoseKitModReset{mod.ModDirectory.GetHashCode()}"))
+                    ResetMod(plugin, mod, resetCid);
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Undo PoseKit's changes to this mod and go back to your Penumbra settings.");
+            }
+
             if (!expanded)
                 continue;
 
@@ -184,6 +193,17 @@ public static class PenumbraPosePanel
             ImGui.SetNextItemWidth(Math.Min(260f, ImGui.GetContentRegionAvail().X));
             if (ImGui.BeginCombo("##PoseKitGroupCombo", currentLabel))
             {
+                // Turns just this group back off. Skipped when the mod has its own "Disabled" option.
+                if (!group.Options.Exists(o => o.Name.Equals("Disabled", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var isOff = selectedOption == null || selectedOption.Triggers.Count == 0;
+                    if (ImGui.Selectable("Disabled##PoseKitGroupDisabled", isOff) && collectionId is { } offCid)
+                    {
+                        HashSet<string> offSelection = FindOffOption(group) is { } off ? [off.Name] : [];
+                        ApplyGroupChange(plugin, mod, group, offSelection, offCid, enabled: mod.Enabled);
+                    }
+                }
+
                 foreach (var option in visibleOptions)
                 {
                     var isSelected = group.Selected.Contains(option.Name);
@@ -346,7 +366,7 @@ public static class PenumbraPosePanel
             {
                 selection.Remove(other.Name);
             }
-            else if (group.Options.FirstOrDefault(o => o.Triggers.Count == 0) is { } none)
+            else if (FindOffOption(group) is { } none)
             {
                 selection = [none.Name];
             }
@@ -360,6 +380,17 @@ public static class PenumbraPosePanel
         }
         return changes;
     }
+
+    /// A single-select group's "off" option: a trigger-less None/Off/Disabled, else any trigger-less
+    /// option. Null when every option has a trigger.
+    private static PoseModOption? FindOffOption(PoseModGroup group) =>
+        group.Options.FirstOrDefault(o => o.Triggers.Count == 0 && IsOffName(o.Name))
+        ?? group.Options.FirstOrDefault(o => o.Triggers.Count == 0);
+
+    private static bool IsOffName(string name) =>
+        name.Equals("None", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Off", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Disabled", StringComparison.OrdinalIgnoreCase);
 
     /// Group names repeat across mods, so the id includes the mod.
     private static string ConflictId(PoseModInfo mod, PoseModOption option) =>
@@ -418,13 +449,13 @@ public static class PenumbraPosePanel
         => value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,
-        HashSet<string> newSelection, Guid collectionId) =>
-        ApplyGroupChanges(plugin, mod, new Dictionary<PoseModGroup, HashSet<string>> { [changedGroup] = newSelection }, collectionId);
+        HashSet<string> newSelection, Guid collectionId, bool enabled = true) =>
+        ApplyGroupChanges(plugin, mod, new Dictionary<PoseModGroup, HashSet<string>> { [changedGroup] = newSelection }, collectionId, enabled);
 
     /// Sends every group's selection, since Penumbra replaces them all at once. The implicit group
     /// isn't a real Penumbra group and is left out.
     private static bool ApplyGroupChanges(Plugin plugin, PoseModInfo mod, Dictionary<PoseModGroup, HashSet<string>> changes,
-        Guid collectionId)
+        Guid collectionId, bool enabled = true)
     {
         var allSelections = new Dictionary<string, IReadOnlyList<string>>();
         foreach (var g in mod.Groups)
@@ -433,14 +464,22 @@ public static class PenumbraPosePanel
             allSelections[g.Name] = changes.TryGetValue(g, out var changed) ? [.. changed] : [.. g.Selected];
         }
 
-        if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, true, mod.Priority, allSelections))
+        if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, enabled, mod.Priority, allSelections))
             return false;
 
         foreach (var (group, selection) in changes)
             group.Selected = selection;
-        mod.Enabled = true;
+        mod.Enabled = enabled;
         plugin.PenumbraIpc.TryRedrawLocalPlayer();
         return true;
+    }
+
+    /// Drops PoseKit's temporary settings for this mod only and shows Penumbra's own settings again.
+    private static void ResetMod(Plugin plugin, PoseModInfo mod, Guid collectionId)
+    {
+        if (!plugin.PenumbraIpc.TryResetTemporarySettings(collectionId, mod.ModDirectory)) return;
+        plugin.PenumbraPoseScanner.RefreshSettings(mod);
+        plugin.PenumbraIpc.TryRedrawLocalPlayer();
     }
 
     private static void EnsureModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId)

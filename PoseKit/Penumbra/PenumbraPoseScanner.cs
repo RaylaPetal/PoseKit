@@ -191,10 +191,6 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                     options.Add(new PoseModOption { Name = opt.Name, Triggers = triggers });
                 }
 
-                var selected = currentSelections != null && currentSelections.TryGetValue(dto.Name, out var sel)
-                    ? new HashSet<string>(sel)
-                    : new HashSet<string>();
-
                 groups.Add(new PoseModGroup
                 {
                     Name = dto.Name,
@@ -202,7 +198,7 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                     MultiSelect = string.Equals(dto.Type, "Multi", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(dto.Type, "Combining", StringComparison.OrdinalIgnoreCase),
                     Options = options,
-                    Selected = selected,
+                    Selected = SelectionFor(currentSelections, dto.Name),
                 });
             }
 
@@ -223,6 +219,25 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
         }
 
         return results;
+    }
+
+    /// A group's selection from Penumbra's settings; a group Penumbra didn't report has none.
+    private static HashSet<string> SelectionFor(Dictionary<string, List<string>>? selections, string groupName) =>
+        selections != null && selections.TryGetValue(groupName, out var selected) ? new HashSet<string>(selected) : [];
+
+    /// Re-reads one scanned mod's current Penumbra settings into it, without re-reading its files.
+    public void RefreshSettings(PoseModInfo mod)
+    {
+        if (ipc.TryGetLocalPlayerCollectionId() is not { } cid) return;
+
+        var (enabled, priority, selections) = ipc.TryGetCurrentSettings(cid, mod.ModDirectory);
+        mod.Enabled = enabled;
+        mod.Priority = priority;
+        foreach (var group in mod.Groups)
+        {
+            if (!group.IsImplicit)
+                group.Selected = SelectionFor(selections, group.Name);
+        }
     }
 
     /// Checks the selected options of every other enabled mod for poses that conflict with the
