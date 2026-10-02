@@ -5,8 +5,9 @@ using PoseKit.Pairing;
 namespace PoseKit.Bones;
 
 /// <summary>
-/// Records each successful manual Align, and when a remembered animation starts, runs one automatic
-/// Align once both characters are posing. Each play (PlayContext instance) is handled once.
+/// Records each successful manual Align or Remember, and when a remembered animation starts, runs
+/// one automatic Align once both characters are posing. Each play (PlayContext instance) is handled
+/// once.
 ///
 /// When offsets are shared through SimpleHeels, only the side whose "Name@World" sorts first
 /// auto-aligns, so the correction isn't applied twice.
@@ -29,15 +30,16 @@ public sealed class AutoAlignCoordinator : IDisposable
     public AutoAlignCoordinator(Plugin plugin)
     {
         this.plugin = plugin;
-        plugin.BoneAlign.Aligned += OnAligned;
+        plugin.BoneAlign.Succeeded += OnSucceeded;
     }
 
-    public void Dispose() => plugin.BoneAlign.Aligned -= OnAligned;
+    public void Dispose() => plugin.BoneAlign.Succeeded -= OnSucceeded;
 
     public AlignmentEntry? CurrentEntry =>
         plugin.CurrentPlayContext is { } context ? plugin.AlignmentMemory.TryGet(context.Key) : null;
 
-    private void OnAligned(AlignRequest request, AlignFacing resolvedFacing)
+    /// Records manual Aligns and Remember/Update memory; an auto-align leaves its entry alone.
+    private void OnSucceeded(AlignRequest request, AlignResult result)
     {
         if (request.Origin != AlignOrigin.Manual || plugin.CurrentPlayContext is not { } context) return;
         plugin.AlignmentMemory.Record(new AlignmentEntry
@@ -51,7 +53,8 @@ public sealed class AutoAlignCoordinator : IDisposable
             Self = request.Self,
             Partner = request.Partner,
             Gap = request.Gap,
-            Facing = resolvedFacing,
+            RelativeYaw = result.RelativeYaw,
+            ContactOffset = StoredVector.From(result.ContactOffset),
             Updated = DateTime.UtcNow,
         });
     }

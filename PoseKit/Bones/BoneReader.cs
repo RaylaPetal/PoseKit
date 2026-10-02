@@ -49,20 +49,6 @@ public static unsafe class BoneReader
         return true;
     }
 
-    /// World position of each named bone, by index; null where missing.
-    public static Vector3?[] GetBonePositions(IPlayerCharacter character, IReadOnlyList<string> names)
-    {
-        var result = new Vector3?[names.Count];
-        var index = new Dictionary<string, int>(names.Count, StringComparer.Ordinal);
-        for (var i = 0; i < names.Count; i++) index[names[i]] = i;
-        ForEachBone(character, (boneName, bonePosition) =>
-        {
-            if (index.TryGetValue(boneName, out var i) && result[i] == null)
-                result[i] = bonePosition;
-        });
-        return result;
-    }
-
     public static void ForEachBone(IPlayerCharacter character, Action<string, Vector3> visit) =>
         ForEachBone(character, (_, name, position) => visit(name, position));
 

@@ -1,40 +1,38 @@
+using System.Numerics;
+
 namespace PoseKit.Bones;
 
-/// <summary>Where a Bone Align came from: the Align button, or alignment memory's auto-align.</summary>
+/// <summary>Where a Bone Align came from: the Align or Remember button, or alignment memory's auto-align.</summary>
 public enum AlignOrigin { Manual, Memory }
 
+/// <summary>Align moves this player; Measure only reads the current alignment, for Remember.</summary>
+public enum AlignMode { Align, Measure }
+
 /// <summary>The parameters of one Bone Align.</summary>
-public sealed record AlignRequest(BodyPart Self, BodyPart Partner, float Gap, AlignFacing Facing, AlignOrigin Origin)
+/// <param name="RelativeYaw">This player's drawn heading minus the partner's, to turn to before
+/// sampling; null keeps the current facing.</param>
+/// <param name="ContactOffset">Where to put the Self part relative to the Partner part, in the
+/// partner's drawn frame; null stops <paramref name="Gap"/> short along the approach line.</param>
+public sealed record AlignRequest(
+    BodyPart Self,
+    BodyPart Partner,
+    float Gap,
+    float? RelativeYaw,
+    Vector3? ContactOffset,
+    AlignOrigin Origin,
+    AlignMode Mode = AlignMode.Align)
 {
     public static AlignRequest FromConfiguration(Configuration configuration) => new(
-        configuration.BoneAlignSelf, configuration.BoneAlignPartner, configuration.BoneAlignGap,
-        configuration.BoneAlignMatchFacing ? AlignFacing.Auto : AlignFacing.Unchanged, AlignOrigin.Manual);
+        configuration.BoneAlignSelf, configuration.BoneAlignPartner, configuration.BoneAlignGap, null, null, AlignOrigin.Manual);
 
-    public static AlignRequest FromMemory(AlignmentEntry entry) =>
-        new(entry.Self, entry.Partner, entry.Gap, entry.Facing, AlignOrigin.Memory);
+    public static AlignRequest ForMeasure(Configuration configuration) =>
+        FromConfiguration(configuration) with { Mode = AlignMode.Measure };
+
+    public static AlignRequest FromMemory(AlignmentEntry entry) => new(
+        entry.Self, entry.Partner, entry.Gap, entry.RelativeYaw, entry.ContactOffset?.ToVector3(), AlignOrigin.Memory);
 }
 
-/// <summary>How Bone Align picks this player's facing. Stored by name, so don't rename members.</summary>
-public enum AlignFacing
-{
-    /// Let Bone Align decide. Never stored as a result.
-    Auto,
-
-    /// Same heading as the partner's drawn model.
-    SameWay,
-
-    /// Opposite heading to the partner's drawn model.
-    Facing,
-
-    /// A quarter turn from the partner's heading, to their left.
-    QuarterLeft,
-
-    /// A quarter turn from the partner's heading, to their right.
-    QuarterRight,
-
-    /// The two parts' directions turned to face each other, recomputed from the current bodies.
-    PartDirection,
-
-    /// No turn.
-    Unchanged,
-}
+/// <summary>What a successful Align or Measure ended with, relative to the partner.</summary>
+/// <param name="RelativeYaw">This player's drawn heading minus the partner's, in radians.</param>
+/// <param name="ContactOffset">The Self part minus the Partner part, in the partner's drawn frame.</param>
+public sealed record AlignResult(float RelativeYaw, Vector3 ContactOffset);

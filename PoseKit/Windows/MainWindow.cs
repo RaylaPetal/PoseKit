@@ -211,19 +211,6 @@ public class MainWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("How much room to leave between the two parts, so they meet instead of fusing.");
 
-        var matchFacing = configuration.BoneAlignMatchFacing;
-        if (ImGui.Checkbox("Match facing##PoseKitBoneAlignFacing", ref matchFacing))
-        {
-            configuration.BoneAlignMatchFacing = matchFacing;
-            configuration.Save();
-        }
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Also turns you to the animation's intended facing. For couple animations made to be played\n" +
-                             "standing on the same spot, it snaps to the facing that puts you both on that spot.\n" +
-                             "Otherwise it turns you so the two parts face each other (e.g. penis into vagina, face toward crotch).\n" +
-                             "Turn only, no tilt. Also flips you 180 degrees when the other way round would put\n" +
-                             "your bodies inside each other, e.g. an animation made for facing the opposite way.");
-
         var autoAlign = configuration.AutoAlignFromMemory;
         if (ImGui.Checkbox("Auto-align from memory##PoseKitAutoAlign", ref autoAlign))
         {
@@ -231,21 +218,69 @@ public class MainWindow : Window, IDisposable
             configuration.Save();
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Each successful Align is remembered for the animation you're playing. Next time you play it\n" +
-                             "near your partner (or a targeted player), PoseKit aligns you by itself with the same parts.\n" +
+            ImGui.SetTooltip("Each successful Align is remembered for the animation you're playing: your facing relative to\n" +
+                             "your partner and where the parts meet. Next time you play it near your partner (or a targeted\n" +
+                             "player), PoseKit turns and aligns you by itself.\n" +
                              "Turning this off stops auto-aligning; Aligns are still remembered.");
 
         var align = plugin.BoneAlign;
+        DrawQuickTurns(align);
+
         using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(align.IsAligning))
         {
             if (PoseKitUi.WideButton(align.IsAligning ? "Aligning...##PoseKitBoneAlign" : "Align##PoseKitBoneAlign"))
                 align.Start(Bones.AlignRequest.FromConfiguration(configuration));
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Resyncs emotes, watches both parts for a moment, then moves you so they meet.");
+            ImGui.SetTooltip("Resyncs emotes, watches both parts for a moment, then moves you so they meet.\n" +
+                             "Keeps your facing: turn first with the buttons above or the live offset.");
+
+        var hasKey = plugin.CurrentPlayContext != null;
+        var rememberLabel = plugin.AutoAlign.CurrentEntry != null ? "Update memory##PoseKitBoneAlignRemember" : "Remember##PoseKitBoneAlignRemember";
+        using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(align.IsAligning || !hasKey))
+        {
+            if (PoseKitUi.WideButton(rememberLabel))
+                align.Start(Bones.AlignRequest.ForMeasure(configuration));
+        }
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(hasKey
+                ? "Saves how you're placed right now, without moving you: your facing relative to your partner and\n" +
+                  "where the parts meet. Use it after nudging the live offset by hand."
+                : "Play an animation from the Animations page (or one PoseKit can identify) to remember it.");
 
         if (align.Status.Length > 0)
             PoseKitUi.TextWrappedDisabled(align.Status);
+    }
+
+    private static readonly float[] QuickTurnDegrees = [-90f, 180f, 90f];
+
+    /// -90 / 180 / +90 turns around the Self part, added to the bone-align correction.
+    private void DrawQuickTurns(Bones.BoneAlignService align)
+    {
+        var posing = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer) != null;
+        var rotationAvailable = plugin.OffsetEngine.RotationHookResolved;
+        var why = !rotationAvailable ? "Rotation offset unavailable — hook didn't resolve this game version."
+            : !posing ? "Start a pose or emote first."
+            : align.IsAligning ? "Wait for the current alignment to finish."
+            : "";
+
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var buttonWidth = (ImGui.GetContentRegionAvail().X - spacing * (QuickTurnDegrees.Length - 1)) / QuickTurnDegrees.Length;
+        using (Dalamud.Interface.Utility.Raii.ImRaii.Disabled(why.Length > 0))
+        {
+            for (var i = 0; i < QuickTurnDegrees.Length; i++)
+            {
+                if (i > 0) ImGui.SameLine();
+                var degrees = QuickTurnDegrees[i];
+                var label = MathF.Abs(degrees) >= 180f ? $"{MathF.Abs(degrees):0}°" : $"{degrees:+0;-0}°";
+                if (ImGui.Button($"{label}##PoseKitQuickTurn{i}", new Vector2(buttonWidth, 0)))
+                    align.QuickTurn(degrees);
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    ImGui.SetTooltip(why.Length > 0 ? why : $"Turn {MathF.Abs(degrees):0} degrees around your {Bones.BodyParts.DisplayName(plugin.Configuration.BoneAlignSelf).ToLowerInvariant()}.");
+            }
+        }
+        if (!rotationAvailable)
+            PoseKitUi.TextWrappedDisabled(why);
     }
 
     /// The remembered alignment for the playing animation, with a Forget button.
@@ -269,7 +304,7 @@ public class MainWindow : Window, IDisposable
         ImGui.SameLine(0, 5);
         ImGui.TextColored(PoseKitUi.Good, "Known animation");
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip($"{known.ModName} — {known.Option} ({known.Trigger})\nRemembered from your last successful Align on this animation.");
+            ImGui.SetTooltip($"{known.ModName} — {known.Option} ({known.Trigger})\nRemembered from your last successful Align or Remember on this animation.");
 
         const string forgetLabel = "Forget##PoseKitBoneAlignForget";
         var forgetWidth = ImGui.CalcTextSize("Forget").X + ImGui.GetStyle().FramePadding.X * 2;
@@ -277,7 +312,7 @@ public class MainWindow : Window, IDisposable
         if (ImGui.SmallButton(forgetLabel))
             plugin.AlignmentMemory.Forget(known.Key);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Stop auto-aligning this animation until you align it manually again.");
+            ImGui.SetTooltip("Stop auto-aligning this animation until you align or remember it again.");
 
         ImGui.TextUnformatted(Bones.BodyParts.DisplayName(known.Self));
         ImGui.SameLine(0, 6);
@@ -285,8 +320,9 @@ public class MainWindow : Window, IDisposable
         ImGui.SameLine(0, 6);
         ImGui.TextUnformatted(Bones.BodyParts.DisplayName(known.Partner));
 
-        var facing = Bones.BoneAlignService.FacingLabel(known.Facing);
-        PoseKitUi.TextWrappedDisabled($"{char.ToUpperInvariant(facing[0])}{facing[1..]} · {known.Gap:0.00}y gap");
+        var facing = known.RelativeYaw is { } yaw ? $"Facing {Bones.BoneAlignService.FacingText(yaw)}" : "Facing not saved";
+        var contact = known.ContactOffset is { } offset ? $"{offset.ToVector3().Length():0.00}y contact" : $"{known.Gap:0.00}y gap";
+        PoseKitUi.TextWrappedDisabled($"{facing} · {contact}");
         if (plugin.AutoAlign.Waiting.Length > 0)
             PoseKitUi.TextWrappedDisabled(plugin.AutoAlign.Waiting);
 

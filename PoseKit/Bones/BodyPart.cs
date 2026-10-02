@@ -79,14 +79,6 @@ public static class BodyParts
     private static readonly string[] RightToeTips =
         ["iv_asi_oya_b_r", "iv_asi_hito_b_r", "iv_asi_naka_b_r", "iv_asi_kusu_b_r", "iv_asi_ko_b_r"];
 
-    /// Vanilla bones outlining the body, used to check whether two bodies overlap.
-    public static readonly string[] BodyOutline =
-    [
-        "j_kosi", "j_sebo_a", "j_sebo_b", "j_sebo_c", "j_kubi", "j_kao",
-        "j_ude_a_l", "j_ude_a_r", "j_ude_b_l", "j_ude_b_r",
-        "j_asi_a_l", "j_asi_a_r", "j_asi_b_l", "j_asi_b_r", "j_asi_c_l", "j_asi_c_r", "j_asi_d_l", "j_asi_d_r",
-    ];
-
     public static bool TryLocate(IPlayerCharacter character, BodyPart part, out Vector3 world) =>
         TryLocateGroups(character, BoneGroups(part), out world);
 
@@ -99,41 +91,5 @@ public static class BodyParts
         }
         world = default;
         return false;
-    }
-
-    // Back and front of the pelvis, for a mostly horizontal front/back axis.
-    private static readonly string[][] PelvisBack = [["iv_shiri_l", "iv_shiri_r"], ["j_kosi"]];
-    private static readonly string[][] PelvisFront = [["iv_omanko"], ["iv_ochinko_a"]];
-
-    /// Which way a part faces, as a from/to pair of bone groups. Bone rotations aren't used because
-    /// their axes differ between body mods.
-    private static (IReadOnlyList<string[]> From, IReadOnlyList<string[]> To) DirectionGroups(BodyPart part) => part switch
-    {
-        BodyPart.Penis => ([["iv_ochinko_a"]], [["iv_ochinko_f"], ["iv_ochinko_e"]]),
-        BodyPart.Vagina => (PelvisBack, PelvisFront),
-        BodyPart.Anus => (PelvisFront, PelvisBack),
-        BodyPart.LeftButtock => (PelvisFront, [["iv_shiri_l"], ["j_shiri_l"]]),
-        BodyPart.RightButtock => (PelvisFront, [["iv_shiri_r"], ["j_shiri_r"]]),
-        BodyPart.Mouth => ([["j_kao"]], BoneGroups(BodyPart.Mouth)),
-        BodyPart.LeftHand => ([["j_te_l"]], [["j_naka_a_l"]]),
-        BodyPart.RightHand => ([["j_te_r"]], [["j_naka_a_r"]]),
-        BodyPart.LeftFingers => ([["j_hito_a_l", "j_naka_a_l"]], BoneGroups(BodyPart.LeftFingers)),
-        BodyPart.RightFingers => ([["j_hito_a_r", "j_naka_a_r"]], BoneGroups(BodyPart.RightFingers)),
-        BodyPart.LeftFoot => ([["j_asi_d_l"]], [["j_asi_e_l"]]),
-        BodyPart.RightFoot => ([["j_asi_d_r"]], [["j_asi_e_r"]]),
-        BodyPart.LeftToes => ([["j_asi_d_l"]], BoneGroups(BodyPart.LeftToes)),
-        BodyPart.RightToes => ([["j_asi_d_r"]], BoneGroups(BodyPart.RightToes)),
-        _ => ([], []),
-    };
-
-    /// Unnormalized world direction.
-    public static bool TryGetDirection(IPlayerCharacter character, BodyPart part, out Vector3 direction)
-    {
-        direction = default;
-        var (from, to) = DirectionGroups(part);
-        if (!TryLocateGroups(character, from, out var start) || !TryLocateGroups(character, to, out var end))
-            return false;
-        direction = end - start;
-        return true;
     }
 }

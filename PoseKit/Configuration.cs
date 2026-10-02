@@ -38,9 +38,6 @@ public class Configuration : IPluginConfiguration
     /// Distance short of contact Bone Align stops at, in yalms.
     public float BoneAlignGap { get; set; } = 0.02f;
 
-    /// Also turn this player so the chosen parts face each other.
-    public bool BoneAlignMatchFacing { get; set; } = true;
-
     /// Auto-align remembered animations while paired. Manual aligns are remembered either way.
     public bool AutoAlignFromMemory { get; set; } = true;
 
