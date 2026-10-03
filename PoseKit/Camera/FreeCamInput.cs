@@ -15,7 +15,20 @@ internal sealed unsafe class FreeCamInput : IDisposable
     private delegate int AxisQuery(InputData* data, uint axis);
     [return: MarshalAs(UnmanagedType.U1)]
     private delegate bool CancelEmoteDelegate(EmoteController* emoteController, nint unknown);
+    private delegate void DeviceUpdate(nint manager, nint a2, nint controller, nint mouse, KeyboardDeviceData* keyboard);
+
+    // Raw keyboard state the game fills each frame before hotbars read it (layout as used by Ktisis).
+    [StructLayout(LayoutKind.Explicit)]
+    private struct KeyboardDeviceData
+    {
+        internal const int KeyCount = 160;
+        [FieldOffset(4)] public fixed uint KeyMap[KeyCount];
+    }
+
+    private const int KeyE = 0x45;
+    private const int KeyQ = 0x51;
     private readonly List<Hook<InputQuery>> queries = new();
+    private Hook<DeviceUpdate>? deviceHook;
     private Hook<AxisQuery>? axisHook;
     private Hook<InputManager.Delegates.GetInputStatus>? statusHook;
     private Hook<CancelEmoteDelegate>? cancelEmoteHook;
@@ -24,6 +37,13 @@ internal sealed unsafe class FreeCamInput : IDisposable
     private bool ownsMovement;
     public bool Active { get; private set; }
     public int QueryHits;
+
+    /// Set each tick by the service; while true, raw keys are neither read nor cleared.
+    public bool NavigationPaused { get; set; } = true;
+
+    /// E/Q state from the raw keyboard, captured before the keys are hidden from the hotbars.
+    public bool RawUp { get; private set; }
+    public bool RawDown { get; private set; }
 
     // Reads the real key state, bypassing this instance's own block.
     public bool IsHeld(InputData* data, InputId id) => heldHook != null && heldHook.Original(data, id);
@@ -52,12 +72,29 @@ internal sealed unsafe class FreeCamInput : IDisposable
             // so it always answers "don't cancel" while freecam is active.
             var cancelEmoteAddress = Plugin.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 7B 08 45 33 C0");
             cancelEmoteHook = Plugin.GameInteropProvider.HookFromAddress<CancelEmoteDelegate>(cancelEmoteAddress, (_, _) => false);
+            deviceHook = Plugin.GameInteropProvider.HookFromSignature<DeviceUpdate>("E8 ?? ?? ?? ?? 83 7B 58 00", DeviceUpdateDetour);
         }
         catch
         {
             Dispose();
             throw;
         }
+    }
+
+    // Reads E/Q for vertical freecam movement, then clears them so hotbar slots on those keys
+    // never fire. Untouched while paused so chat typing and normal play are unaffected.
+    private void DeviceUpdateDetour(nint manager, nint a2, nint controller, nint mouse, KeyboardDeviceData* keyboard)
+    {
+        deviceHook!.Original(manager, a2, controller, mouse, keyboard);
+        if (!Active || NavigationPaused || keyboard == null)
+        {
+            RawUp = RawDown = false;
+            return;
+        }
+        RawUp = keyboard->KeyMap[KeyE] != 0;
+        RawDown = keyboard->KeyMap[KeyQ] != 0;
+        keyboard->KeyMap[KeyE] = 0;
+        keyboard->KeyMap[KeyQ] = 0;
     }
 
     private Hook<InputQuery> AddQuery(nint address)
@@ -97,6 +134,7 @@ internal sealed unsafe class FreeCamInput : IDisposable
             axisHook!.Enable();
             statusHook!.Enable();
             cancelEmoteHook!.Enable();
+            deviceHook!.Enable();
         }
         catch
         {
@@ -118,6 +156,8 @@ internal sealed unsafe class FreeCamInput : IDisposable
         if (axisHook != null) TryCleanup(axisHook.Disable);
         if (statusHook != null) TryCleanup(statusHook.Disable);
         if (cancelEmoteHook != null) TryCleanup(cancelEmoteHook.Disable);
+        if (deviceHook != null) TryCleanup(deviceHook.Disable);
+        RawUp = RawDown = false;
     }
 
     public void Dispose()
@@ -128,9 +168,11 @@ internal sealed unsafe class FreeCamInput : IDisposable
         if (axisHook != null) TryCleanup(axisHook.Dispose);
         if (statusHook != null) TryCleanup(statusHook.Dispose);
         if (cancelEmoteHook != null) TryCleanup(cancelEmoteHook.Dispose);
+        if (deviceHook != null) TryCleanup(deviceHook.Dispose);
         axisHook = null;
         statusHook = null;
         cancelEmoteHook = null;
+        deviceHook = null;
         heldHook = null;
         movementCounter = null;
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Dalamud.Bindings.ImGui;
@@ -30,7 +31,14 @@ public sealed unsafe class FreeCamService : IDisposable
     private float stationarySeconds;
     private uint territory;
     private bool disposed;
-    private float debugTimer;
+    // Sampled on the Framework tick; applied at render time so motion and drawing share one clock.
+    private Vector3 moveInput;
+    private readonly Stopwatch frameClock = new();
+    // Running average of render intervals; raw intervals vary with CPU timing while frames are
+    // displayed at a steady rate, which shows up as uneven per-frame travel (judder).
+    private float frameSeconds;
+    private const float FrameAverageWeight = 0.1f;
+    private const float MaxFrameSeconds = 0.05f;
     private float dirH, dirV, distance, interpDistance, fov;
     private Vector3 scenePosition, sceneLookAt;
     public bool Enabled { get; private set; }
@@ -95,7 +103,9 @@ public sealed unsafe class FreeCamService : IDisposable
             actor = Plugin.ObjectTable.LocalPlayer!.Address;
             actorPosition = Plugin.ObjectTable.LocalPlayer.Position;
             territory = Plugin.ClientState.TerritoryType;
-            debugTimer = 0f;
+            moveInput = Vector3.Zero;
+            frameSeconds = 0f;
+            frameClock.Restart();
             input.Enable();
             updateHook.Enable();
             viewHook.Enable();
@@ -151,7 +161,7 @@ public sealed unsafe class FreeCamService : IDisposable
                 Status = "Freecam ended because the world or character state changed.";
                 return;
             }
-            StepMotion(seconds);
+            SampleInput();
         }
         catch (Exception ex)
         {
@@ -160,29 +170,31 @@ public sealed unsafe class FreeCamService : IDisposable
         }
     }
 
-    // Reads the game's input rather than ImGui's, which misses keys during camera drag.
-    private void StepMotion(float seconds)
+    // Navigation pauses during text entry, plugin UI interaction, or lost window focus.
+    private static bool NavigationPaused()
     {
         var framework = GameFramework.Instance();
         var atk = RaptureAtkModule.Instance();
         var io = ImGui.GetIO();
-        var blocked = framework == null || !framework->CursorInputs.IsGameWindowFocused || atk == null ||
+        return framework == null || !framework->CursorInputs.IsGameWindowFocused || atk == null ||
             atk->IsTextInputActive() || io.WantTextInput || io.WantCaptureKeyboard || io.WantCaptureMouse;
-        debugTimer += seconds;
-        if (debugTimer >= 1f)
-        {
-            debugTimer = 0f;
-            Plugin.Log.Warning($"[PoseKit] Freecam tick: blocked={blocked} pos={motion.Position} dirH={camera->DirH} dirV={camera->DirV}");
-        }
-        if (blocked || framework == null || input == null) return;
+    }
+
+    // Reads the game's input rather than ImGui's, which misses keys during camera drag.
+    private void SampleInput()
+    {
+        moveInput = Vector3.Zero;
+        var paused = NavigationPaused();
+        if (input != null) input.NavigationPaused = paused;
+        var framework = GameFramework.Instance();
+        if (paused || framework == null || input == null) return;
         var data = (InputData*)framework->UIModule->GetUIInputData();
-        var move = new Vector3(
+        moveInput = new Vector3(
             (input.IsHeld(data, InputId.MOVE_RIGHT) || input.IsHeld(data, InputId.MOVE_STRIFE_R) ? 1 : 0) -
             (input.IsHeld(data, InputId.MOVE_LEFT) || input.IsHeld(data, InputId.MOVE_STRIFE_L) ? 1 : 0),
-            (input.IsHeld(data, InputId.JUMP) ? 1 : 0) - (input.IsHeld(data, InputId.MOVE_DESCENT) ? 1 : 0),
+            (input.RawUp || input.IsHeld(data, InputId.JUMP) ? 1 : 0) -
+            (input.RawDown || input.IsHeld(data, InputId.MOVE_DESCENT) ? 1 : 0),
             (input.IsHeld(data, InputId.MOVE_FORE) ? 1 : 0) - (input.IsHeld(data, InputId.MOVE_BACK) ? 1 : 0));
-        // DirH runs opposite to FreeCamMotion's convention.
-        motion.Step(move, -camera->DirH, camera->DirV, seconds);
     }
 
     private string? InvalidSessionReason()
@@ -236,10 +248,19 @@ public sealed unsafe class FreeCamService : IDisposable
             // calculation does. A managed Matrix4x4 local can be only 8-byte aligned.
             var matrix = (Matrix4x4*)&current->ViewMatrix;
             NativeCameraView.Validate((nint)current->RenderCamera, matrix);
+            // Advance by the time since the last render, not the Framework tick, so each drawn
+            // frame moves by exactly its own duration. Step and Ease clamp long hitches.
+            var raw = Math.Clamp((float)frameClock.Elapsed.TotalSeconds, 0f, MaxFrameSeconds);
+            frameClock.Restart();
+            frameSeconds = frameSeconds <= 0f ? raw : frameSeconds + (raw - frameSeconds) * FrameAverageWeight;
+            // DirH runs opposite to FreeCamMotion's convention.
+            motion.Step(moveInput, -camera->DirH, camera->DirV, frameSeconds);
+            motion.Ease(frameSeconds);
+            var position = motion.RenderPosition;
             var forward = FreeCamMotion.Forward(-camera->DirH, camera->DirV);
-            current->Position = motion.Position;
-            current->LookAtVector = motion.Position + forward;
-            *matrix = Matrix4x4.CreateLookAt(motion.Position, motion.Position + forward, Vector3.UnitY);
+            current->Position = position;
+            current->LookAtVector = position + forward;
+            *matrix = Matrix4x4.CreateLookAt(position, position + forward, Vector3.UnitY);
             // Update derived render state through the game's own matrix loader.
             NativeCameraView.Load(loadView!, (nint)current->RenderCamera, matrix);
         }
@@ -264,6 +285,9 @@ public sealed unsafe class FreeCamService : IDisposable
     public void Disable()
     {
         Enabled = false;
+        moveInput = Vector3.Zero;
+        frameClock.Reset();
+        frameSeconds = 0f;
         try
         {
             if (camera != null && UnsupportedReason() == null && Plugin.ClientState.TerritoryType == territory &&

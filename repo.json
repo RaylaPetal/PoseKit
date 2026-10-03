@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.8/PoseKit-2.2.0.8.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.8/PoseKit-2.2.0.8.zip",
-    "Changelog": "- Bone Align no longer guesses which way you should face: the Match facing option is gone, and Align only moves you into position, keeping your facing.\n- New -90 / 180 / +90 turn buttons in Bone Align turn you around your chosen body part, so you can fix your facing in one click.\n- Alignment memory now remembers your facing relative to your partner and exactly where the parts meet, so a remembered animation replays the way you set it, even if you turned yourself by hand.\n- New Remember / Update memory button saves how you're placed right now without moving you, so tweaks you make after Align are kept.",
+    "Changelog": "- Freecam now glides smoothly instead of moving in small jumps.\n- Freecam up/down now works with E (up) and Q (down), whatever those keys are bound to. While the camera is moving they won't fire your hotbar skills, and they type normally in chat. Your Jump and Descend keys still work too.\n- Freecam up/down movement is slower, so it's easier to line up a shot.",
     "LastUpdate": "1790978301"
   }
 ]

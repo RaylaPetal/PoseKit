@@ -72,5 +72,6 @@ PoseKit learned from and adapted techniques in these open-source plugins. Thank 
 
 - [SimpleHeels](https://github.com/Caraxi/SimpleHeels): the render offset and pose identification
 - [Cammy](https://github.com/UnknownX7/Cammy): freecam input handling
+- [Ktisis](https://github.com/ktisis-tools/Ktisis): smooth freecam movement and raw keyboard input
 
 ---

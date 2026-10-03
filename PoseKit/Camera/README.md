@@ -4,7 +4,7 @@ Toggle with `/posekit tfc` or the main-window freecam button. Stop moving and di
 
 - W/S: forward/backward
 - A/D: strafe
-- E/Q: up/down
+- E/Q: up/down (your Jump and Descend keybinds also work). While freecam is moving the camera, E and Q do not trigger hotbar actions; during text entry they type normally.
 - Right mouse drag: look
 - `/posekit tfc`: return to the normal camera
 
