@@ -22,27 +22,8 @@ public static class PairingPanel
             return;
         }
 
-        if (state.PendingInvite is { } pending)
-        {
-            ImGui.TextColored(PoseKitUi.Info, "PAIRING INVITE");
-            ImGui.TextWrapped($"{pending.Sender} wants to pair with you.");
-            ImGui.Spacing();
-            if (HalfButton("Accept##PoseKitAcceptPairing", first: true))
-                plugin.PairingListener.AcceptPending();
-            if (HalfButton("Dismiss##PoseKitDismissPairing", first: false))
-                state.DismissPendingInvite();
+        if (DrawPendingInvite(plugin, compact: false) || DrawOutgoingInvite(plugin, compact: false))
             return;
-        }
-
-        if (state.OutgoingInvite is { } outgoing)
-        {
-            ImGui.TextColored(PoseKitUi.Muted, "INVITE SENT");
-            ImGui.TextWrapped($"Waiting for {outgoing.Target} to accept...");
-            ImGui.Spacing();
-            if (PoseKitUi.WideButton("Cancel invite##PoseKitCancelInvite"))
-                state.CancelOutgoingInvite();
-            return;
-        }
 
         ImGui.TextColored(PoseKitUi.Muted, "NO ACTIVE PAIRING");
         ImGui.TextWrapped("Pair with a partner to queue poses and play couple presets together.");
@@ -75,32 +56,8 @@ public static class PairingPanel
         ImGui.SameLine(0, 6);
         ImGui.TextWrapped($"Paired with {peer}");
 
-        var relay = plugin.CoupleRelayInbox;
-        if (relay.Sender is { } relaySender && relay.PresetName is { } relayPresetName)
-        {
-            PoseKitUi.SectionHeader("Incoming");
-            ImGui.PushStyleColor(ImGuiCol.Text, PoseKitUi.Info);
-            ImGui.TextWrapped($"{relaySender.Name} wants to play \"{relayPresetName}\" with you.");
-            ImGui.PopStyleColor();
-            if (HalfButton("Accept##PoseKitAcceptCoupleRelay", first: true))
-            {
-                if (relay.Accept() is { } captured)
-                    plugin.ApplyCapturedPartnerState(captured);
-            }
-            if (HalfButton("Deny##PoseKitDenyCoupleRelay", first: false))
-                relay.Deny();
-        }
-
-        var outbox = plugin.CoupleRelayOutbox;
-        if (outbox.PendingPresetName is { } outgoingName)
-        {
-            PoseKitUi.SectionHeader("Outgoing");
-            ImGui.PushStyleColor(ImGuiCol.Text, PoseKitUi.Info);
-            ImGui.TextWrapped($"Waiting for your partner to accept \"{outgoingName}\"...");
-            ImGui.PopStyleColor();
-            if (PoseKitUi.WideButton("Cancel##PoseKitCancelCoupleRelay"))
-                outbox.Cancel();
-        }
+        DrawIncomingRelay(plugin, compact: false);
+        DrawOutgoingRelay(plugin, compact: false);
 
         PoseKitUi.SectionHeader("Picks");
         var queue = plugin.CoupleQueueService;
@@ -145,6 +102,93 @@ public static class PairingPanel
         if (PoseKitUi.WideButton("Unpair##PoseKitUnpair"))
             plugin.PairingListener.Unpair();
     }
+
+    // The invite and relay prompts below are shared by this panel (full) and the quick library's
+    // pairing strip (compact), so both windows act the same.
+
+    /// A pairing invite waiting on this side. False when there's none.
+    public static bool DrawPendingInvite(Plugin plugin, bool compact)
+    {
+        var state = plugin.PairingState;
+        if (state.PendingInvite is not { } pending) return false;
+
+        if (!compact) ImGui.TextColored(PoseKitUi.Info, "PAIRING INVITE");
+        Prompt(PoseKitUi.Info, compact ? $"{pending.Sender} wants to pair." : $"{pending.Sender} wants to pair with you.", compact);
+        switch (Choice("Accept##PoseKitAcceptPairing", "Dismiss##PoseKitDismissPairing", compact))
+        {
+            case 1: plugin.PairingListener.AcceptPending(); break;
+            case 2: state.DismissPendingInvite(); break;
+        }
+        return true;
+    }
+
+    /// This side's invite waiting on the other player. False when there's none.
+    public static bool DrawOutgoingInvite(Plugin plugin, bool compact)
+    {
+        var state = plugin.PairingState;
+        if (state.OutgoingInvite is not { } outgoing) return false;
+
+        if (!compact) ImGui.TextColored(PoseKitUi.Muted, "INVITE SENT");
+        Prompt(PoseKitUi.Muted, $"Waiting for {outgoing.Target} to accept...", compact);
+        if (Single(compact ? "Cancel##PoseKitCancelInvite" : "Cancel invite##PoseKitCancelInvite", compact))
+            state.CancelOutgoingInvite();
+        return true;
+    }
+
+    /// The partner's couple preset or library role waiting on this side.
+    public static void DrawIncomingRelay(Plugin plugin, bool compact)
+    {
+        var inbox = plugin.CoupleRelayInbox;
+        if (inbox.Pending is not { } incoming) return;
+
+        if (!compact) PoseKitUi.SectionHeader("Incoming");
+        Prompt(PoseKitUi.Info, $"{incoming.Sender.Name} wants to play \"{incoming.Name}\" with you.", compact);
+        switch (Choice("Accept##PoseKitAcceptCoupleRelay", "Decline##PoseKitDenyCoupleRelay", compact))
+        {
+            case 1:
+                if (inbox.Accept() is { } request)
+                    plugin.ApplyRelayRequest(request);
+                break;
+            case 2: inbox.Deny(); break;
+        }
+    }
+
+    /// This side's couple preset or library role waiting on the partner.
+    public static void DrawOutgoingRelay(Plugin plugin, bool compact)
+    {
+        var outbox = plugin.CoupleRelayOutbox;
+        if (outbox.PendingPresetName is not { } outgoing) return;
+
+        if (!compact) PoseKitUi.SectionHeader("Outgoing");
+        Prompt(compact ? PoseKitUi.Muted : PoseKitUi.Info, $"Waiting for your partner to accept \"{outgoing}\"...", compact);
+        if (Single("Cancel##PoseKitCancelCoupleRelay", compact))
+            outbox.Cancel();
+    }
+
+    /// Wrapped, since option names run long.
+    private static void Prompt(Vector4 color, string text, bool compact)
+    {
+        using (ImRaii.PushColor(ImGuiCol.Text, color))
+            ImGui.TextWrapped(text);
+        if (!compact) ImGui.Spacing();
+    }
+
+    /// Two buttons: small side by side when compact, else splitting the row. 1 or 2 for the one
+    /// clicked, else 0.
+    private static int Choice(string first, string second, bool compact)
+    {
+        if (compact)
+        {
+            var clicked = ImGui.SmallButton(first) ? 1 : 0;
+            ImGui.SameLine();
+            return ImGui.SmallButton(second) ? 2 : clicked;
+        }
+        var firstClicked = HalfButton(first, first: true);
+        return HalfButton(second, first: false) ? 2 : firstClicked ? 1 : 0;
+    }
+
+    private static bool Single(string label, bool compact) =>
+        compact ? ImGui.SmallButton(label) : PoseKitUi.WideButton(label);
 
     private static void DrawPickRow(Vector4 color, string who, string? pick)
     {

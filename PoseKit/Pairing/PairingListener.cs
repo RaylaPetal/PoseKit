@@ -24,6 +24,28 @@ public readonly record struct ForceSelectionHashes(string ModDirectoryHash, stri
 }
 
 /// <summary>
+/// One role of a library animation: its mod, group, option and trigger hashes ("0" for the implicit
+/// group), plus the hash of the option's normalized name, so a partner with a sibling mod that
+/// numbers its options differently can still find it.
+/// </summary>
+public readonly record struct RoleHashes(string ModDirectoryHash, string GroupNameHash, string OptionNameHash, string TriggerHash,
+    string OptionKeyHash);
+
+/// <summary>The answer to a couple relay. The numbers are the wire values.</summary>
+public enum CoupleAnswer
+{
+    Declined = 0,
+    Accepted = 1,
+
+    /// Role relay only: the partner doesn't have the animation.
+    Missing = 2,
+
+    /// Role relay only: the prompt is showing. Tells the sender the partner's PoseKit understood the
+    /// relay, since an older one ignores it and never answers.
+    Received = 3,
+}
+
+/// <summary>
 /// The pairing protocol over /tell, for this session only. No server is involved.
 ///
 /// The sender is always taken from the game's own sender field, never from the message text.
@@ -41,6 +63,8 @@ public sealed class PairingListener : IDisposable
     private const string CoupleRelayKeyword = "posekitcoupleplay";
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
     private const string BoneAlignKeyword = "posekitalign";
+    private const string RoleRelayKeyword = "posekitrole";
+    private const string RelayCancelKeyword = "posekitcouplecancel";
 
     // Long enough to survive a lull, short enough that a forgotten pairing ends.
     private const long StaleTimeoutMs = 2 * 60 * 60 * 1000;
@@ -56,7 +80,13 @@ public sealed class PairingListener : IDisposable
     /// Must be answered exactly once via AnswerCoupleRelay.
     public event Action<PartnerIdentity, string, CapturedPoseState>? CoupleRelayReceived;
 
-    public event Action<PartnerIdentity, string, bool>? CoupleAnswerReceived;
+    public event Action<PartnerIdentity, string, CoupleAnswer>? CoupleAnswerReceived;
+
+    /// Must be answered exactly once via AnswerCoupleRelay.
+    public event Action<PartnerIdentity, string, RoleHashes>? RoleRelayReceived;
+
+    /// The partner withdrew the relay with this name.
+    public event Action<PartnerIdentity, string>? RelayCancelReceived;
 
     public event Action<PartnerIdentity>? PartnerBoneAlignStarted;
 
@@ -120,10 +150,25 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
-    public void AnswerCoupleRelay(string presetName, bool accepted)
+    public void AnswerCoupleRelay(string presetName, CoupleAnswer answer)
     {
         if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeCoupleAnswer(peer, presetName, accepted));
+        PairingSender.Send(PairingComposer.ComposeCoupleAnswer(peer, presetName, answer));
+        state.Touch();
+    }
+
+    /// Withdraws a relay the partner hasn't answered yet.
+    public void CancelRelay(string name)
+    {
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeRelayCancel(peer, name));
+        state.Touch();
+    }
+
+    public void RelayRole(string name, RoleHashes role)
+    {
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeRoleRelay(peer, name, role));
         state.Touch();
     }
 
@@ -235,10 +280,34 @@ public sealed class PairingListener : IDisposable
         {
             if (!state.Active || state.Peer is not { } answerPeer || !answerPeer.Equals(sender)) return;
             var (verdict, presetName) = SplitFirstToken(text[CoupleAnswerKeyword.Length..].Trim());
-            if (verdict is "0" or "1" && presetName.Length > 0)
+            if (verdict is "0" or "1" or "2" or "3" && presetName.Length > 0)
             {
                 state.Touch();
-                CoupleAnswerReceived?.Invoke(sender, presetName, verdict == "1");
+                CoupleAnswerReceived?.Invoke(sender, presetName, (CoupleAnswer)(verdict[0] - '0'));
+            }
+            return;
+        }
+
+        if (text.StartsWith(RelayCancelKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Active || state.Peer is not { } cancelPeer || !cancelPeer.Equals(sender)) return;
+            var cancelledName = text[RelayCancelKeyword.Length..].Trim();
+            if (cancelledName.Length > 0)
+            {
+                state.Touch();
+                RelayCancelReceived?.Invoke(sender, cancelledName);
+            }
+            return;
+        }
+
+        if (text.StartsWith(RoleRelayKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Active || state.Peer is not { } rolePeer || !rolePeer.Equals(sender)) return;
+            var (tokens, name) = SplitTokens(text[RoleRelayKeyword.Length..].Trim(), 5);
+            if (tokens.Length == 5 && name.Length > 0)
+            {
+                state.Touch();
+                RoleRelayReceived?.Invoke(sender, name, new RoleHashes(tokens[0], tokens[1], tokens[2], tokens[3], tokens[4]));
             }
             return;
         }

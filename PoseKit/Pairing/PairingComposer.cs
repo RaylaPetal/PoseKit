@@ -22,6 +22,8 @@ public static class PairingComposer
     private const string CoupleRelayKeyword = "posekitcoupleplay";
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
     private const string BoneAlignKeyword = "posekitalign";
+    private const string RoleRelayKeyword = "posekitrole";
+    private const string RelayCancelKeyword = "posekitcouplecancel";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
@@ -63,9 +65,19 @@ public static class PairingComposer
     public static string ComposeBoneAlign(PartnerIdentity target) =>
         $"/tell {target.TellAddress} {BoneAlignKeyword}";
 
-    /// The one answer to a couple relay.
-    public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, bool accepted) =>
-        $"/tell {target.TellAddress} {CoupleAnswerKeyword} {(accepted ? 1 : 0)} {presetName}";
+    /// The one answer to a couple relay or role relay.
+    public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, CoupleAnswer answer) =>
+        $"/tell {target.TellAddress} {CoupleAnswerKeyword} {(int)answer} {presetName}";
+
+    /// Withdraws an unanswered couple or role relay. Older versions ignore it.
+    public static string ComposeRelayCancel(PartnerIdentity target, string name) =>
+        $"/tell {target.TellAddress} {RelayCancelKeyword} {name}";
+
+    /// Asks the partner to play the other role of a two-role animation. The sender waits for the
+    /// answer before playing its own role.
+    public static string ComposeRoleRelay(PartnerIdentity target, string name, RoleHashes role) =>
+        $"/tell {target.TellAddress} {RoleRelayKeyword} {role.ModDirectoryHash} {role.GroupNameHash} " +
+        $"{role.OptionNameHash} {role.TriggerHash} {role.OptionKeyHash} {name}";
 
     /// Wire format for a captured pose state: fixed fields first, then furniture name, mod name and
     /// optional preset name joined by '|'. Mod, group and option travel as hashes; the mod name is

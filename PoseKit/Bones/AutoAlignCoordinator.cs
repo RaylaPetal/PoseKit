@@ -17,6 +17,10 @@ public sealed class AutoAlignCoordinator : IDisposable
     // Room for an intro, a redraw on each side, and the partner starting later.
     private const long GiveUpMs = 15000;
 
+    // How long the offset must stay untouched after a hand nudge before it's saved, so a drag or a
+    // run of slider clicks is saved once, at the end.
+    private const long NudgeSettleMs = 1500;
+
     private readonly Plugin plugin;
     private readonly AnimationReadiness readiness = new();
 
@@ -27,21 +31,40 @@ public sealed class AutoAlignCoordinator : IDisposable
     private AlignmentEntry? handledEntry;
     private bool done;
 
+    // When the player last nudged a remembered animation by hand, and that play; 0/null when nothing
+    // is waiting to be saved. The save only applies to that same play.
+    private long nudgedAt;
+    private PlayContext? nudgedPlay;
+
     public AutoAlignCoordinator(Plugin plugin)
     {
         this.plugin = plugin;
         plugin.BoneAlign.Succeeded += OnSucceeded;
+        plugin.PoseTrigger.ManualOffsetEdited += OnManualOffsetEdited;
     }
 
-    public void Dispose() => plugin.BoneAlign.Succeeded -= OnSucceeded;
+    public void Dispose()
+    {
+        plugin.BoneAlign.Succeeded -= OnSucceeded;
+        plugin.PoseTrigger.ManualOffsetEdited -= OnManualOffsetEdited;
+    }
+
+    /// A nudge on an animation with a remembered alignment is saved into it once the player stops.
+    /// Only while paired, so it's never measured against a targeted bystander.
+    private void OnManualOffsetEdited()
+    {
+        if (!plugin.PairingState.Active || CurrentEntry == null) return;
+        nudgedAt = Environment.TickCount64;
+        nudgedPlay = plugin.CurrentPlayContext;
+    }
 
     public AlignmentEntry? CurrentEntry =>
         plugin.CurrentPlayContext is { } context ? plugin.AlignmentMemory.TryGet(context.Key) : null;
 
-    /// Records manual Aligns and Remember/Update memory; an auto-align leaves its entry alone.
+    /// Records manual Aligns, Remember/Update memory and saved nudges; an auto-align leaves its entry alone.
     private void OnSucceeded(AlignRequest request, AlignResult result)
     {
-        if (request.Origin != AlignOrigin.Manual || plugin.CurrentPlayContext is not { } context) return;
+        if (request.Origin == AlignOrigin.Memory || plugin.CurrentPlayContext is not { } context) return;
         plugin.AlignmentMemory.Record(new AlignmentEntry
         {
             Key = context.Key,
@@ -66,6 +89,7 @@ public sealed class AutoAlignCoordinator : IDisposable
         {
             handled = null;
             Waiting = "";
+            nudgedAt = 0;
             return;
         }
 
@@ -79,6 +103,8 @@ public sealed class AutoAlignCoordinator : IDisposable
             if (handledEntry is { } entry)
                 FillDropdowns(entry);
         }
+
+        TickNudge(context);
 
         // Re-read rather than trusting handledEntry, so a Forget mid-wait stops it; but only for plays
         // that were known when they started, so a manual Align during this play doesn't trigger one.
@@ -121,9 +147,37 @@ public sealed class AutoAlignCoordinator : IDisposable
             return;
         }
 
+        // Placing on a seat or bed moves the character; aligning first would be undone by it.
+        if (plugin.SeatPlacement.IsMoving)
+        {
+            Waiting = "Waiting for the seat placement to finish...";
+            return;
+        }
+
         Finish("");
         if (OffsetsShared && !SortsFirst(localPlayer, partner)) return;
         plugin.BoneAlign.Start(AlignRequest.FromMemory(known));
+    }
+
+    /// Saves a settled nudge by re-measuring how this player now sits against the partner. Waits
+    /// while an align, a pending auto-align or a seat placement could still move things; dropped once
+    /// another play started or the pairing ended.
+    private void TickNudge(PlayContext context)
+    {
+        if (nudgedAt == 0) return;
+        if (!ReferenceEquals(context, nudgedPlay) || !plugin.PairingState.Active)
+        {
+            nudgedAt = 0;
+            nudgedPlay = null;
+            return;
+        }
+        if (Environment.TickCount64 - nudgedAt < NudgeSettleMs) return;
+        if (plugin.BoneAlign.IsAligning || (!done && handledEntry != null) || plugin.SeatPlacement.IsMoving) return;
+
+        nudgedAt = 0;
+        nudgedPlay = null;
+        if (CurrentEntry is { } entry)
+            plugin.BoneAlign.Start(AlignRequest.ForNudge(entry));
     }
 
     private void Finish(string waiting)
@@ -146,8 +200,7 @@ public sealed class AutoAlignCoordinator : IDisposable
 
     private static bool SortsFirst(IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
-        var own = new PartnerIdentity(localPlayer.Name.TextValue, localPlayer.HomeWorld.Value.Name.ExtractText());
-        var theirs = new PartnerIdentity(partner.Name.TextValue, partner.HomeWorld.Value.Name.ExtractText());
-        return string.CompareOrdinal(own.TellAddress, theirs.TellAddress) < 0;
+        return string.CompareOrdinal(PartnerIdentity.FromCharacter(localPlayer).TellAddress,
+            PartnerIdentity.FromCharacter(partner).TellAddress) < 0;
     }
 }

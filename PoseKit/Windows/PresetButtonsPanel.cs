@@ -6,6 +6,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Interface.Utility.Raii;
 using PoseKit.Furniture;
+using PoseKit.Library;
 using PoseKit.Presets;
 
 namespace PoseKit.Windows;
@@ -170,6 +171,75 @@ public static class PresetButtonsPanel
                 plugin.PresetManager.Update(loaded, plugin.PoseTrigger.GetOffsetForUpdate());
             }
         }
+
+        DrawGizmoToggle(plugin);
+    }
+
+    /// Shows or hides the gizmo on the character's root, and picks move or rotate.
+    public static void DrawGizmoToggle(Plugin plugin)
+    {
+        var configuration = plugin.Configuration;
+        var show = configuration.ShowOffsetGizmo;
+        if (ImGui.Checkbox("Gizmo##PoseKitOffsetGizmo", ref show))
+        {
+            configuration.ShowOffsetGizmo = show;
+            configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Drag handles on your character to set the offset instead of using the sliders.");
+        if (!show) return;
+
+        var rotationAvailable = plugin.OffsetEngine.RotationHookResolved;
+        var mode = rotationAvailable ? configuration.OffsetGizmoMode : OffsetGizmoMode.Move;
+        ImGui.SameLine();
+        if (ImGui.RadioButton("Move##PoseKitGizmoMove", mode == OffsetGizmoMode.Move) && mode != OffsetGizmoMode.Move)
+            SetGizmoMode(configuration, OffsetGizmoMode.Move);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!rotationAvailable))
+        {
+            if (ImGui.RadioButton("Rotate##PoseKitGizmoRotate", mode == OffsetGizmoMode.Rotate) && mode != OffsetGizmoMode.Rotate)
+                SetGizmoMode(configuration, OffsetGizmoMode.Rotate);
+        }
+        if (!rotationAvailable && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip("Rotation offset unavailable — hook didn't resolve this game version.");
+    }
+
+    private static readonly float[] QuickTurnDegrees = [-90f, 180f, 90f];
+
+    /// -90 / 180 / +90 turns around the Self part, added to the bone-align correction.
+    public static void DrawQuickTurns(Plugin plugin)
+    {
+        var align = plugin.BoneAlign;
+        var posing = PoseIdentifier.FromCharacter(Plugin.ObjectTable.LocalPlayer) != null;
+        var rotationAvailable = plugin.OffsetEngine.RotationHookResolved;
+        var why = !rotationAvailable ? "Rotation offset unavailable — hook didn't resolve this game version."
+            : !posing ? "Start a pose or emote first."
+            : align.IsAligning ? "Wait for the current alignment to finish."
+            : "";
+
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var buttonWidth = (ImGui.GetContentRegionAvail().X - spacing * (QuickTurnDegrees.Length - 1)) / QuickTurnDegrees.Length;
+        using (ImRaii.Disabled(why.Length > 0))
+        {
+            for (var i = 0; i < QuickTurnDegrees.Length; i++)
+            {
+                if (i > 0) ImGui.SameLine();
+                var degrees = QuickTurnDegrees[i];
+                var label = MathF.Abs(degrees) >= 180f ? $"{MathF.Abs(degrees):0}°" : $"{degrees:+0;-0}°";
+                if (ImGui.Button($"{label}##PoseKitQuickTurn{i}", new Vector2(buttonWidth, 0)))
+                    align.QuickTurn(degrees);
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    ImGui.SetTooltip(why.Length > 0 ? why : $"Turn {MathF.Abs(degrees):0} degrees around your {Bones.BodyParts.DisplayName(plugin.Configuration.BoneAlignSelf).ToLowerInvariant()}.");
+            }
+        }
+        if (!rotationAvailable)
+            PoseKitUi.TextWrappedDisabled(why);
+    }
+
+    private static void SetGizmoMode(Configuration configuration, OffsetGizmoMode mode)
+    {
+        configuration.OffsetGizmoMode = mode;
+        configuration.Save();
     }
 
     public static void DrawPresets(Plugin plugin)
@@ -358,21 +428,7 @@ public static class PresetButtonsPanel
         using (PoseKitUi.PushPickButtonStyle(pick))
         {
             if (ImGui.Button($"{namedPose.Name}##PoseKitPreset{namedPose.GetHashCode()}"))
-            {
-                // Solo play: only this side's half, nothing relayed.
-                if (plugin.PairingState.SoloPlayEnabled)
-                    plugin.PlayPreset(namedPose);
-                // Couple presets relay directly instead of queueing.
-                else if (namedPose.PartnerHalf != null)
-                    plugin.PlayCouplePreset(namedPose);
-                // Under mutual override, a second click forces this preset on the partner.
-                else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
-                    plugin.CoupleQueueService.TryForceSelect(namedPose.Name, () => plugin.PlayPreset(namedPose));
-                else if (plugin.PairingState.Active)
-                    plugin.CoupleQueueService.QueueSelection(namedPose.Name, () => plugin.PlayPreset(namedPose));
-                else
-                    plugin.PlayPreset(namedPose);
-            }
+                PlayDispatch.ClickPreset(plugin, namedPose);
         }
         PoseKitUi.DrawPickBadge(pick);
 

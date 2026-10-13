@@ -25,15 +25,19 @@ public class FurnitureAnchor
 
     private const float MaxCorrectionDistance = 15f;
 
-    public static FurnitureAnchor Capture(IPlayerCharacter localPlayer, NearbyFurniture furniture)
+    public static FurnitureAnchor Capture(IPlayerCharacter localPlayer, NearbyFurniture furniture) =>
+        Capture(localPlayer.Position, localPlayer.Rotation, furniture);
+
+    /// For a position other than the character's own, such as a recorded seat.
+    public static FurnitureAnchor Capture(Vector3 position, float rotation, NearbyFurniture furniture)
     {
         var inverseFurnitureFacing = Quaternion.Inverse(Quaternion.CreateFromYawPitchRoll(furniture.Rotation, 0, 0));
         return new FurnitureAnchor
         {
             EntryId = furniture.EntryId,
             FurnitureName = furniture.Name,
-            RelativePosition = Vector3.Transform(localPlayer.Position - furniture.Position, inverseFurnitureFacing),
-            RelativeRotation = MathF.IEEERemainder(localPlayer.Rotation - furniture.Rotation, MathF.Tau),
+            RelativePosition = Vector3.Transform(position - furniture.Position, inverseFurnitureFacing),
+            RelativeRotation = MathF.IEEERemainder(rotation - furniture.Rotation, MathF.Tau),
         };
     }
 

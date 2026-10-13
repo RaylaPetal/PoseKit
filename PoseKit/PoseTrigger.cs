@@ -14,7 +14,7 @@ namespace PoseKit;
 /// and cycle "/cpose" until the right variant is reached; other emotes use their normal command,
 /// so emote unlocks and server checks still apply.
 /// </summary>
-public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge)
+public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge, AnywherePose anywherePose)
 {
     private readonly FurnitureScanner furnitureScanner = new();
 
@@ -90,7 +90,11 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         if (partnerTracking is { } tracking)
             tracking.BaseOffset = Subtract(Subtract(edited, tracking.LastCorrection), boneCorrection);
         ApplyOffset(edited);
+        ManualOffsetEdited?.Invoke();
     }
+
+    /// Raised on every live-offset slider or gizmo edit.
+    public event Action? ManualOffsetEdited;
 
     /// Replaces (never stacks) the bone-align correction. It's kept separate so it's never saved into
     /// a preset.
@@ -146,7 +150,15 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         var state = PlayerState.Instance();
         if (state != null) state->SelectedPoses[(int)t.PoseType] = pose.CPoseState;
-        ChatCommand.Execute(t.Command);
+        EnterEmote(t.PoseType, t.Command);
+    }
+
+    /// Doze goes through the emote agent so it works away from a bed or chair; everything else, and
+    /// doze when that call isn't available, uses its slash command.
+    private void EnterEmote(EmoteController.PoseType poseType, string command)
+    {
+        if (poseType == EmoteController.PoseType.Doze && anywherePose.EnterDoze()) return;
+        ChatCommand.Execute(command);
     }
 
     private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent, EmoteController.PoseType poseType, string enterCommand)
@@ -164,7 +176,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         {
             var state = PlayerState.Instance();
             if (state != null) state->SelectedPoses[(int)poseType] = pose.CPoseState;
-            ChatCommand.Execute(enterCommand);
+            EnterEmote(poseType, enterCommand);
         }
 
         cyclingTarget = (pose, offset, anchor, silent);
@@ -221,7 +233,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
                 : ResolveFurnitureCorrection(anchor.Furniture!, localPlayer, offset.Rotation, rotationOffsetApplies);
 
             if (correction is { } c)
-                offset = new PoseOffset { Position = offset.Position + c.Position, Rotation = offset.Rotation + c.Rotation };
+                offset = ComposeOffset(offset, c);
             else if (!silent)
             {
                 var what = anchor.Spot != null ? "saved spot — different zone or too far away" : "furniture — none nearby";
@@ -339,9 +351,9 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     }
 
     /// Field-wise, so Subtract is its exact inverse.
-    private static PoseOffset ComposeOffset(PoseOffset baseOffset, PoseOffset correction) =>
+    public static PoseOffset ComposeOffset(PoseOffset baseOffset, PoseOffset correction) =>
         new() { Position = baseOffset.Position + correction.Position, Rotation = baseOffset.Rotation + correction.Rotation };
 
-    private static PoseOffset Subtract(PoseOffset offset, PoseOffset correction) =>
+    public static PoseOffset Subtract(PoseOffset offset, PoseOffset correction) =>
         new() { Position = offset.Position - correction.Position, Rotation = offset.Rotation - correction.Rotation };
 }

@@ -70,6 +70,33 @@ public class ConfigWindow : Window, IDisposable
                 ? "SimpleHeels detected."
                 : "SimpleHeels not detected — install and enable it to sync your pose offset to nearby players.");
 
+            PoseKitUi.SectionHeader("Quick Library");
+            var showChip = configuration.ShowLibraryChip;
+            if (ImGui.Checkbox("Show library chip when solo", ref showChip))
+            {
+                configuration.ShowLibraryChip = showChip;
+                configuration.Save();
+            }
+            PoseKitUi.TextWrappedDisabled("A small on-screen button that opens the quick library. It's always " +
+                                           "shown while paired. /posekit lib toggles the library either way.");
+            var openWhenSeated = configuration.OpenLibraryWhenSeated;
+            if (ImGui.Checkbox("Open library when seated or lying down", ref openWhenSeated))
+            {
+                configuration.OpenLibraryWhenSeated = openWhenSeated;
+                configuration.Save();
+            }
+            PoseKitUi.TextWrappedDisabled("Opens the library each time you sit or lie down. Closing it keeps it " +
+                                           "closed until you sit or lie down again.");
+            var sendRole = configuration.SendPartnerRole;
+            if (ImGui.Checkbox("Send my partner the other role", ref sendRole))
+            {
+                configuration.SendPartnerRole = sendRole;
+                configuration.Save();
+            }
+            PoseKitUi.TextWrappedDisabled($"Paired and within {PoseKit.Library.PlayDispatch.RoleRelayMaxDistance:0} yalms: " +
+                                           "clicking one role of a couple animation in the library (e.g. Dom on groundsit 2) " +
+                                           "offers your partner the other role, and both play once they accept.");
+
             PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
             PoseKitUi.TextWrappedDisabled("Disabled mods are listed too — PoseKit enables one temporarily when you play a pose from it.");
 

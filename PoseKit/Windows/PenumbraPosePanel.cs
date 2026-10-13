@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Dalamud.Bindings.ImGui;
+using PoseKit.Library;
 using PoseKit.Pairing;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
@@ -94,7 +95,7 @@ public static class PenumbraPosePanel
             ImGui.SameLine(0, 20);
             var modEnabled = mod.Enabled;
             if (ImGui.Checkbox($"Enabled##PoseKitModEnabled{mod.ModDirectory.GetHashCode()}", ref modEnabled))
-                SetModEnabled(plugin, mod, collectionId, modEnabled);
+                PlayDispatch.SetModEnabled(plugin, mod, collectionId, modEnabled);
 
             if (collectionId is { } resetCid && plugin.PenumbraIpc.HasTemporarySettings(mod.ModDirectory))
             {
@@ -172,7 +173,7 @@ public static class PenumbraPosePanel
                         if (isChecked) newSelection.Add(option.Name);
                         else newSelection.Remove(option.Name);
 
-                        ApplyGroupChange(plugin, mod, group, newSelection, cid);
+                        PlayDispatch.ApplyGroupChange(plugin, mod, group, newSelection, cid);
                     }
 
                     if (isChecked && DescribeConflict(plugin, activePoses, mod, option, collectionId) is { } conflict)
@@ -200,7 +201,7 @@ public static class PenumbraPosePanel
                     if (ImGui.Selectable("Disabled##PoseKitGroupDisabled", isOff) && collectionId is { } offCid)
                     {
                         HashSet<string> offSelection = FindOffOption(group) is { } off ? [off.Name] : [];
-                        ApplyGroupChange(plugin, mod, group, offSelection, offCid, enabled: mod.Enabled);
+                        PlayDispatch.ApplyGroupChange(plugin, mod, group, offSelection, offCid, enabled: mod.Enabled);
                     }
                 }
 
@@ -209,7 +210,7 @@ public static class PenumbraPosePanel
                     var isSelected = group.Selected.Contains(option.Name);
                     if (ImGui.Selectable(option.Name, isSelected) && collectionId is { } cid)
                     {
-                        ApplyGroupChange(plugin, mod, group, [option.Name], cid);
+                        PlayDispatch.ApplyGroupChange(plugin, mod, group, [option.Name], cid);
                     }
 
                     DrawOptionPickMarker(plugin, mod, option);
@@ -218,7 +219,7 @@ public static class PenumbraPosePanel
                     DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
                         beforePlay: isSelected || collectionId is null
                             ? null
-                            : () => ApplyGroupChange(plugin, mod, group, [option.Name], collectionId.Value),
+                            : () => PlayDispatch.ApplyGroupChange(plugin, mod, group, [option.Name], collectionId.Value),
                         compact: true);
                 }
 
@@ -257,7 +258,7 @@ public static class PenumbraPosePanel
         var best = PoseKitUi.PickState.None;
         foreach (var trigger in option.Triggers)
         {
-            var state = PoseKitUi.GetPickState(plugin, DescribeTriggerLabel(mod, option, trigger));
+            var state = PoseKitUi.GetPickState(plugin, PlayDispatch.DescribeTriggerLabel(mod, option, trigger));
             if (state == PoseKitUi.PickState.Both) return state;
             if (state != PoseKitUi.PickState.None) best = state;
         }
@@ -266,19 +267,6 @@ public static class PenumbraPosePanel
 
     private static void DrawOptionPickMarker(Plugin plugin, PoseModInfo mod, PoseModOption option) =>
         PoseKitUi.DrawPickBadge(OptionPickState(plugin, mod, option));
-
-    /// "ModName — OptionName", which identifies an animation choice (the pose slot name doesn't).
-    private static string DescribePlayLabel(PoseModInfo mod, PoseModOption option) =>
-        option.Name is "" or "Default" ? mod.ModName : $"{mod.ModName} — {option.Name}";
-
-    /// DescribePlayLabel plus the trigger, when the option has more than one.
-    private static string DescribeTriggerLabel(PoseModInfo mod, PoseModOption option, PoseTriggerHint trigger)
-    {
-        var optionLabel = DescribePlayLabel(mod, option);
-        if (option.Triggers.Count <= 1) return optionLabel;
-        var triggerText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
-        return $"{optionLabel} ({triggerText})";
-    }
 
     /// Null unless another selected option (in any enabled mod) claims the same pose.
     ///
@@ -338,12 +326,12 @@ public static class PenumbraPosePanel
         return (tooltip, () =>
         {
             foreach (var other in otherTrackedMods)
-                SetModEnabled(plugin, other, cid, false);
+                PlayDispatch.SetModEnabled(plugin, other, cid, false);
             foreach (var (modDirectory, _) in otherExternalMods)
                 DisableExternalMod(plugin, cid, modDirectory);
             if (sameModChanges.Count > 0)
-                ApplyGroupChanges(plugin, mod, sameModChanges, cid);
-            SetModEnabled(plugin, mod, cid, true);
+                PlayDispatch.ApplyGroupChanges(plugin, mod, sameModChanges, cid);
+            PlayDispatch.SetModEnabled(plugin, mod, cid, true);
             plugin.PenumbraIpc.TryRedrawLocalPlayer();
         });
     }
@@ -448,59 +436,11 @@ public static class PenumbraPosePanel
     private static bool Matches(string value, string filter)
         => value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,
-        HashSet<string> newSelection, Guid collectionId, bool enabled = true) =>
-        ApplyGroupChanges(plugin, mod, new Dictionary<PoseModGroup, HashSet<string>> { [changedGroup] = newSelection }, collectionId, enabled);
-
-    /// Sends every group's selection, since Penumbra replaces them all at once. The implicit group
-    /// isn't a real Penumbra group and is left out.
-    private static bool ApplyGroupChanges(Plugin plugin, PoseModInfo mod, Dictionary<PoseModGroup, HashSet<string>> changes,
-        Guid collectionId, bool enabled = true)
-    {
-        var allSelections = new Dictionary<string, IReadOnlyList<string>>();
-        foreach (var g in mod.Groups)
-        {
-            if (g.IsImplicit) continue;
-            allSelections[g.Name] = changes.TryGetValue(g, out var changed) ? [.. changed] : [.. g.Selected];
-        }
-
-        if (!plugin.PenumbraIpc.TrySetTemporarySettings(collectionId, mod.ModDirectory, enabled, mod.Priority, allSelections))
-            return false;
-
-        foreach (var (group, selection) in changes)
-            group.Selected = selection;
-        mod.Enabled = enabled;
-        plugin.PenumbraIpc.TryRedrawLocalPlayer();
-        return true;
-    }
-
     /// Drops PoseKit's temporary settings for this mod only and shows Penumbra's own settings again.
     private static void ResetMod(Plugin plugin, PoseModInfo mod, Guid collectionId)
     {
         if (!plugin.PenumbraIpc.TryResetTemporarySettings(collectionId, mod.ModDirectory)) return;
         plugin.PenumbraPoseScanner.RefreshSettings(mod);
-        plugin.PenumbraIpc.TryRedrawLocalPlayer();
-    }
-
-    private static void EnsureModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId)
-        => SetModEnabled(plugin, mod, collectionId, true);
-
-    /// Keeps the current selections, since Penumbra resets any group left out.
-    private static void SetModEnabled(Plugin plugin, PoseModInfo mod, Guid? collectionId, bool enabled)
-    {
-        if (mod.Enabled == enabled || collectionId is not { } cid) return;
-
-        var allSelections = new Dictionary<string, IReadOnlyList<string>>();
-        foreach (var g in mod.Groups)
-        {
-            if (g.IsImplicit) continue;
-            allSelections[g.Name] = [.. g.Selected];
-        }
-
-        if (!plugin.PenumbraIpc.TrySetTemporarySettings(cid, mod.ModDirectory, enabled, mod.Priority, allSelections))
-            return;
-
-        mod.Enabled = enabled;
         plugin.PenumbraIpc.TryRedrawLocalPlayer();
     }
 
@@ -521,60 +461,19 @@ public static class PenumbraPosePanel
         for (var i = 0; i < triggers.Count; i++)
         {
             var trigger = triggers[i];
-            var triggerLabel = DescribeTriggerLabel(mod, option, trigger);
-            var pick = PoseKitUi.GetPickState(plugin, triggerLabel);
-            var buttonText = trigger.SlashCommand is { } cmd ? $"/{cmd}" : trigger.PoseIdentifier!.Value.DisplayName;
+            var pick = PoseKitUi.GetPickState(plugin, PlayDispatch.DescribeTriggerLabel(mod, option, trigger));
 
             using (PoseKitUi.PushPickButtonStyle(pick))
             {
-                var label = $"{buttonText}##{idPrefix}{i}";
+                var label = $"{PlayDispatch.TriggerButtonText(trigger)}##{idPrefix}{i}";
                 PoseKitUi.SameLineIfFits(PoseKitUi.ButtonWidth(label));
                 if (compact ? ImGui.SmallButton(label) : ImGui.Button(label))
-                {
-                    void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
-
-                    // Solo play always plays immediately.
-                    if (plugin.PairingState.SoloPlayEnabled)
-                    {
-                        Play();
-                    }
-                    // Paired: queue. Under mutual override, a second click forces this pick on the
-                    // partner, with hashes so they can resolve it.
-                    else if (plugin.PairingState.MutualOverrideActive && plugin.CoupleQueueService.QueuedSelectionName != null)
-                    {
-                        var penumbraLink = new PenumbraLink
-                        {
-                            ModDirectory = mod.ModDirectory, ModName = mod.ModName, OptionName = option.Name,
-                            GroupName = group.IsImplicit ? "" : group.Name,
-                        };
-                        var triggerText = trigger.SlashCommand is { } slashCmd ? slashCmd : trigger.PoseIdentifier!.Value.DisplayName;
-                        plugin.CoupleQueueService.TryForceSelect(triggerLabel, Play, penumbraLink, triggerText);
-                    }
-                    else if (plugin.PairingState.Active)
-                        plugin.CoupleQueueService.QueueSelection(triggerLabel, Play);
-                    else
-                        Play();
-                }
+                    PlayDispatch.ClickTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
             }
 
             PoseKitUi.DrawPickBadge(pick);
         }
     }
-
-    private static void PlayOptionTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
-        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
-    {
-        beforePlay?.Invoke();
-        EnsureModEnabled(plugin, mod, collectionId);
-        CapturePenumbraContext(plugin, mod, group, option);
-        PlayTrigger(plugin, trigger);
-        plugin.SetPlayContext(mod.ModDirectory, mod.ModName, group.IsImplicit ? "" : group.Name, option.Name,
-            TriggerText(trigger), trigger.PoseIdentifier);
-    }
-
-    /// The slash command (without "/") or the pose's display name.
-    public static string TriggerText(PoseTriggerHint trigger) =>
-        trigger.SlashCommand is { } cmd ? cmd : trigger.PoseIdentifier!.Value.DisplayName;
 
     private static (PoseModInfo Mod, PoseModGroup Group, PoseModOption Option, PoseTriggerHint Trigger)? FindByTriggerLabel(
         Plugin plugin, string label)
@@ -584,7 +483,7 @@ public static class PenumbraPosePanel
         foreach (var option in group.Options)
         foreach (var trigger in option.Triggers)
         {
-            if (DescribeTriggerLabel(mod, option, trigger) == label)
+            if (PlayDispatch.DescribeTriggerLabel(mod, option, trigger) == label)
                 return (mod, group, option, trigger);
         }
         return null;
@@ -596,8 +495,8 @@ public static class PenumbraPosePanel
         var (mod, group, option, trigger) = found;
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
-        var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
-        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+        var beforePlay = PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
+        PlayDispatch.PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
         return true;
     }
 
@@ -641,8 +540,8 @@ public static class PenumbraPosePanel
         var (mod, group, option, trigger) = found;
 
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
-        var beforePlay = SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
-        PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
+        var beforePlay = PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, option, collectionId);
+        PlayDispatch.PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
         return true;
     }
 
@@ -661,7 +560,7 @@ public static class PenumbraPosePanel
         {
             ImGui.TextWrapped(matchedOption.Name);
             DrawTriggerButtons(plugin, mod, group, matchedOption, collectionId, $"PoseKitQuickPlay{matchedOption.Name.GetHashCode()}",
-                SelectOptionBeforePlay(plugin, mod, group, matchedOption, collectionId));
+                PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, matchedOption, collectionId));
             return true;
         }
 
@@ -670,38 +569,9 @@ public static class PenumbraPosePanel
             if (sibling.Triggers.Count == 0) continue;
             ImGui.TextWrapped(sibling.Name);
             DrawTriggerButtons(plugin, mod, group, sibling, collectionId, $"PoseKitQuickPlay{sibling.Name.GetHashCode()}",
-                SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
+                PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
         }
         return true;
     }
 
-    /// Selects the option before playing when it isn't selected yet.
-    private static Action? SelectOptionBeforePlay(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid? collectionId)
-    {
-        var alreadySelected = group.IsImplicit || group.Selected.Contains(option.Name);
-        return alreadySelected || collectionId is not { } cid
-            ? null
-            : () => ApplyGroupChange(plugin, mod, group,
-                group.MultiSelect ? new HashSet<string>(group.Selected) { option.Name } : [option.Name], cid);
-    }
-
-    private static void CapturePenumbraContext(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option)
-    {
-        var link = new PenumbraLink
-        {
-            ModDirectory = mod.ModDirectory, ModName = mod.ModName, OptionName = option.Name,
-            GroupName = group.IsImplicit ? "" : group.Name,
-        };
-        foreach (var g in mod.Groups)
-            link.GroupSelections[g.Name] = [.. g.Selected];
-        plugin.LastPlayedPenumbraContext = link;
-    }
-
-    private static void PlayTrigger(Plugin plugin, PoseTriggerHint trigger)
-    {
-        if (trigger.SlashCommand is { } command)
-            plugin.PoseTrigger.TriggerCommand(command);
-        else if (trigger.PoseIdentifier is { } identifier)
-            plugin.PoseTrigger.Trigger(identifier, PoseOffset.Zero);
-    }
 }

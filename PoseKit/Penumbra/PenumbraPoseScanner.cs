@@ -9,12 +9,20 @@ namespace PoseKit.Penumbra;
 public sealed class PoseModOption
 {
     public required string Name { get; init; }
+
+    /// The mod author's text for this option, for automatic categories.
+    public string Description { get; init; } = "";
+
     public required List<PoseTriggerHint> Triggers { get; init; }
 }
 
 public sealed class PoseModGroup
 {
     public required string Name { get; init; }
+
+    /// The mod author's text for this group, for automatic categories.
+    public string Description { get; init; } = "";
+
     public required bool MultiSelect { get; init; }
     public required List<PoseModOption> Options { get; init; }
     public HashSet<string> Selected { get; set; } = new();
@@ -53,9 +61,9 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
 
     private sealed record DefaultDataDto(Dictionary<string, string>? Files);
 
-    private sealed record GroupFileDto(string Type, string Name, List<OptionFileDto> Options, List<ContainerDto>? Containers);
+    private sealed record GroupFileDto(string Type, string Name, string? Description, List<OptionFileDto> Options, List<ContainerDto>? Containers);
 
-    private sealed record OptionFileDto(string Name, Dictionary<string, string>? Files);
+    private sealed record OptionFileDto(string Name, string? Description, Dictionary<string, string>? Files);
 
     /// One per option combination in a Combining group; bit i of the index means option i is on.
     private sealed record ContainerDto(Dictionary<string, string>? Files);
@@ -188,12 +196,13 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 {
                     var opt = dto.Options[i];
                     var triggers = PoseNameHeuristics.Detect(dto.Name, opt.Name, OptionFileKeys(dto, i));
-                    options.Add(new PoseModOption { Name = opt.Name, Triggers = triggers });
+                    options.Add(new PoseModOption { Name = opt.Name, Description = opt.Description ?? "", Triggers = triggers });
                 }
 
                 groups.Add(new PoseModGroup
                 {
                     Name = dto.Name,
+                    Description = dto.Description ?? "",
                     // Combining groups toggle each option independently, like Multi.
                     MultiSelect = string.Equals(dto.Type, "Multi", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(dto.Type, "Combining", StringComparison.OrdinalIgnoreCase),

@@ -10,6 +10,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using PoseKit.Furniture;
+using PoseKit.Library;
 using PoseKit.Pairing;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
@@ -31,8 +32,10 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static ICondition Condition { get; private set; } = null!;
+    [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
+    [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
 
     private const string CommandName = "/posekit";
 
@@ -44,6 +47,9 @@ public sealed class Plugin : IDalamudPlugin
     private ConfigWindow ConfigWindow { get; init; }
     private MainWindow MainWindow { get; init; }
     private WelcomeWindow WelcomeWindow { get; init; }
+    private ChangelogWindow ChangelogWindow { get; init; }
+    private QuickLibraryWindow QuickLibraryWindow { get; init; }
+    private LibraryChipWindow LibraryChipWindow { get; init; }
 
     public EmoteSyncCommand EmoteSync { get; init; }
     public FreeCamService FreeCam { get; init; }
@@ -56,11 +62,30 @@ public sealed class Plugin : IDalamudPlugin
     public PenumbraPoseScanner PenumbraPoseScanner { get; init; }
     public List<PoseModInfo> DiscoveredPoses { get; private set; } = new();
 
+    /// DiscoveredPoses flattened for the quick library; the version bumps on every rescan.
+    public List<LibraryEntry> LibraryIndex { get; private set; } = new();
+    public int LibraryIndexVersion { get; private set; }
+
+    /// The player's categories.json; themes and acts are resolved onto LibraryIndex.
+    public Library.Categories.CategoryFile Categories { get; init; }
+
+    /// Problems in the player's file, for the library header.
+    /// Refreshed by RebuildCategories, which runs after every load and edit; read each frame.
+    public IReadOnlyList<string> CategoryNotices { get; private set; } = [];
+
+    /// Bumps whenever any entry's themes, acts or hidden flag may have changed.
+    public int CategoryVersion { get; private set; }
+
+    public SeatReferenceService SeatReferences { get; } = new();
+    public SeatPlacement SeatPlacement { get; init; }
+    public SeatSnapMemory SeatSnapMemory { get; init; }
+
     /// Poses claimed by unscanned mods, used only for conflict warnings.
     public Dictionary<PoseIdentifier, List<PenumbraPoseScanner.ExternalPoseClaim>> ExternalPoseClaims { get; private set; } = new();
 
     public PairingState PairingState { get; init; }
     public PairingListener PairingListener { get; init; }
+    private PairingContextMenu PairingContextMenu { get; init; }
     public CoupleQueueService CoupleQueueService { get; init; }
     public CouplePresetCaptureService CouplePresetCaptureService { get; init; }
     public CoupleRelayInbox CoupleRelayInbox { get; init; }
@@ -98,6 +123,7 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Categories = new Library.Categories.CategoryFile(PluginInterface.GetPluginConfigDirectory());
 
         PairingState = new PairingState();
 
@@ -107,20 +133,24 @@ public sealed class Plugin : IDalamudPlugin
 
         PresetManager = new PresetManager(Configuration);
         SimpleHeelsBridge = new SimpleHeelsBridge();
-        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge);
+        PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge, new AnywherePose());
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
         PairingListener = new PairingListener(PairingState);
+        PairingContextMenu = new PairingContextMenu(ContextMenu, PairingState, PairingListener);
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
         CouplePresetCaptureService = new CouplePresetCaptureService(PairingState, PairingListener, PresetManager);
         CouplePresetCaptureService.Saved += saved => LoadedPreset = saved;
-        CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener);
-        CoupleRelayInbox.AutoApply += ApplyCapturedPartnerState;
+        CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener,
+            role => Library.PlayDispatch.FindRole(this, role) != null);
+        CoupleRelayInbox.AutoApply += ApplyRelayRequest;
         CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, PlayPreset);
         BoneAlign = new Bones.BoneAlignService(Configuration, PairingState, PairingListener, PoseTrigger, OffsetEngine, EmoteSync);
         AlignmentMemory = new Bones.AlignmentMemory(PluginInterface.GetPluginConfigDirectory());
         AutoAlign = new Bones.AutoAlignCoordinator(this);
+        SeatPlacement = new SeatPlacement(this);
+        SeatSnapMemory = new SeatSnapMemory(PluginInterface.GetPluginConfigDirectory());
 
         // Reply with this side's own pose state; send nothing when not in a pose.
         PairingListener.PartnerCaptureRequested += (sender, requestId, hint) =>
@@ -151,10 +181,26 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this);
         WelcomeWindow = new WelcomeWindow(this) { IsOpen = !Configuration.HasSeenWelcome };
+        // Once per new changelog after an update; a fresh install gets the welcome instead.
+        ChangelogWindow = new ChangelogWindow(Configuration);
+        if (!Configuration.HasSeenWelcome) ChangelogWindow.MarkSeen();
+        else ChangelogWindow.IsOpen = ChangelogWindow.IsUnseen;
+        QuickLibraryWindow = new QuickLibraryWindow(this);
+        LibraryChipWindow = new LibraryChipWindow(this, ToggleQuickLibrary);
+
+        // Once per sit; closing the library while seated keeps it closed until the next sit.
+        SeatReferences.SatDown += () =>
+        {
+            if (Configuration.OpenLibraryWhenSeated)
+                QuickLibraryWindow.IsOpen = true;
+        };
 
         WindowSystem.AddWindow(ConfigWindow);
         WindowSystem.AddWindow(MainWindow);
         WindowSystem.AddWindow(WelcomeWindow);
+        WindowSystem.AddWindow(ChangelogWindow);
+        WindowSystem.AddWindow(QuickLibraryWindow);
+        WindowSystem.AddWindow(LibraryChipWindow);
 
         // Keep the scan selection in step with Penumbra. Penumbra doesn't say which thread it raises
         // these on, and the rescan touches game state.
@@ -171,10 +217,14 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Toggle the PoseKit window.\n" +
+                          "/posekit lib → Toggle the quick library.\n" +
+                          "/posekit changelog → Show what's new.\n" +
                           "/posekit tfc → Toggle freecam.\n" +
                           "/posekit sync [delay <seconds>] → Resync nearby players' emotes."
         });
 
+        // Before the windows, so the gizmo overlay sits behind them.
+        PluginInterface.UiBuilder.Draw += DrawOffsetGizmo;
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
@@ -189,6 +239,7 @@ public sealed class Plugin : IDalamudPlugin
         PenumbraIpc.Dispose();
         FreeCam.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
+        PluginInterface.UiBuilder.Draw -= DrawOffsetGizmo;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
 
@@ -197,6 +248,9 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow.Dispose();
         MainWindow.Dispose();
         WelcomeWindow.Dispose();
+        ChangelogWindow.Dispose();
+        QuickLibraryWindow.Dispose();
+        LibraryChipWindow.Dispose();
         EmoteSync.Dispose();
         OffsetEngine.Dispose();
         CoupleQueueService.Dispose();
@@ -205,6 +259,7 @@ public sealed class Plugin : IDalamudPlugin
         CoupleRelayOutbox.Dispose();
         AutoAlign.Dispose();
         BoneAlign.Dispose();
+        PairingContextMenu.Dispose();
         PairingListener.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
@@ -240,6 +295,9 @@ public sealed class Plugin : IDalamudPlugin
             RefreshPenumbraPoses();
             hasScannedPenumbraPoses = true;
         }
+
+        SeatReferences.Tick(localPlayer, currentPose, ClientState.TerritoryType);
+        SeatPlacement.Tick(localPlayer, currentPose);
 
         OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
@@ -289,7 +347,7 @@ public sealed class Plugin : IDalamudPlugin
         if (triggerIndex < 0) return;
         var trigger = option.Triggers[triggerIndex];
         SetPlayContext(mod.ModDirectory, mod.ModName, group.IsImplicit ? "" : group.Name, option.Name,
-            PenumbraPosePanel.TriggerText(trigger), pose);
+            PlayDispatch.TriggerText(trigger), pose);
     }
 
     /// Fallback for a pose dropped during freecam without the player moving: re-enters it, with a
@@ -339,7 +397,30 @@ public sealed class Plugin : IDalamudPlugin
         PenumbraIpc.ResetAllTemporarySettings();
         DiscoveredPoses = PenumbraPoseScanner.Scan();
         ExternalPoseClaims = PenumbraPoseScanner.ScanExternalConflicts();
+        LibraryIndex = Library.LibraryIndex.Build(DiscoveredPoses);
+        LibraryIndexVersion++;
+        Log.Debug($"[PoseKit] Library index: {LibraryIndex.Count} entries, {LibraryIndex.Count(e => e.IsCouple)} couple.");
+        RebuildCategories();
     }
+
+    /// Re-resolves every entry's themes, acts and hidden flag, e.g. after a category edit.
+    public void RebuildCategories()
+    {
+        Library.Categories.CategoryResolver.Apply(LibraryIndex, Categories);
+        CategoryNotices = [.. Categories.Notices];
+        CategoryVersion++;
+    }
+
+    /// Re-reads categories.json without rescanning mods, and reports its problems in chat.
+    public void ReloadCategories()
+    {
+        Categories.Load();
+        RebuildCategories();
+        foreach (var notice in CategoryNotices)
+            ChatGui.PrintError($"[PoseKit] {notice}");
+    }
+
+    private void DrawOffsetGizmo() => OffsetGizmo.Draw(this);
 
     /// Re-applies the preset's mod selection, then triggers the pose.
     public void PlayPreset(NamedPose pose)
@@ -361,12 +442,30 @@ public sealed class Plugin : IDalamudPlugin
         PlayPreset(pose);
     }
 
+    /// Plays an accepted relay: a couple preset's half, or the other role of the partner's library pick.
+    public void ApplyRelayRequest(CoupleRelayRequest request)
+    {
+        if (request.Captured is { } captured)
+            ApplyCapturedPartnerState(captured);
+        else if (request.Role is { } role && !Library.PlayDispatch.PlayRole(this, role))
+            ChatGui.PrintError($"[PoseKit] \"{request.Name}\" is no longer in your mods.");
+    }
+
     /// Plays an accepted partner half.
     public void ApplyCapturedPartnerState(CapturedPoseState captured) =>
         PlayPose(captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra, silent: true);
 
-    private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false)
+    /// <param name="retryFromSeat">False for the stand-up retry's own replay.</param>
+    private void PlayPose(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra, bool silent = false,
+        bool retryFromSeat = true)
     {
+        // From a chair sit or doze the game may refuse another pose (e.g. a groundsit saved for this
+        // seat); if it does, get up and play it again.
+        if (retryFromSeat && SeatReferences.Reference is { } seat && pose.EmoteModeId != seat.NativeMode &&
+            PoseIdentifier.FromCharacter(ObjectTable.LocalPlayer)?.EmoteModeId == seat.NativeMode)
+            SeatPlacement.BeginRetryOnly(seat, pose,
+                () => PlayPose(pose, offset, anchor, penumbra, silent, retryFromSeat: false));
+
         if (penumbra is { } link && !TryApplyPenumbraLink(link) && link.ModDirectory.StartsWith('#'))
         {
             // Only a partner's (hashed) link gets the notice.
@@ -410,7 +509,7 @@ public sealed class Plugin : IDalamudPlugin
         if (matches.Count != 1) return;
         var (g, o, t) = matches[0];
         SetPlayContext(mod.ModDirectory, mod.ModName, g.IsImplicit ? "" : g.Name, o.Name,
-            PenumbraPosePanel.TriggerText(t), pose, fromPartnerAnchoredPreset: anchor?.Partner != null);
+            PlayDispatch.TriggerText(t), pose, fromPartnerAnchoredPreset: anchor?.Partner != null);
     }
 
     /// Enables the linked mod and option. False on any failure.
@@ -477,7 +576,7 @@ public sealed class Plugin : IDalamudPlugin
         var targets = new List<(string Label, IPlayerCharacter Character)>();
         if (ObjectTable.LocalPlayer is { } self)
             targets.Add(("self", self));
-        if ((TargetManager.Target ?? TargetManager.SoftTarget) is IPlayerCharacter target && target.Address != ObjectTable.LocalPlayer?.Address)
+        if (Pairing.PairingTargets.TryGetTargetedPlayer(ObjectTable.LocalPlayer) is { } target)
             targets.Add(("target", target));
 
         if (ObjectTable.LocalPlayer is { } me)
@@ -515,6 +614,18 @@ public sealed class Plugin : IDalamudPlugin
                 FreeCam.Toggle();
                 ChatGui.Print($"[PoseKit] {FreeCam.Status}");
             }
+            return;
+        }
+
+        if (string.Equals(splitArgs[0], "lib", StringComparison.OrdinalIgnoreCase))
+        {
+            ToggleQuickLibrary();
+            return;
+        }
+
+        if (string.Equals(splitArgs[0], "changelog", StringComparison.OrdinalIgnoreCase))
+        {
+            ChangelogWindow.IsOpen = true;
             return;
         }
 
@@ -575,4 +686,5 @@ public sealed class Plugin : IDalamudPlugin
 
     public void ToggleConfigUi() => ConfigWindow.Toggle();
     public void ToggleMainUi() => MainWindow.Toggle();
+    public void ToggleQuickLibrary() => QuickLibraryWindow.Toggle();
 }

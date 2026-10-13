@@ -148,7 +148,9 @@ public sealed class BoneAlignService : IDisposable
         correctionAtStart = poseTrigger.BoneCorrection;
         facingNote = Measuring ? "" : TurnToRelativeYaw(localPlayer, partner);
 
-        emoteSync.Sync();
+        // A nudge save only reads where things are; restarting both animations for it would be jarring.
+        if (request.Origin != AlignOrigin.Nudge)
+            emoteSync.Sync();
         poseTrigger.PartnerTrackingPaused = true;
         phase = Phase.Settling;
         phaseStartedAt = Environment.TickCount64;
@@ -199,8 +201,12 @@ public sealed class BoneAlignService : IDisposable
         });
     }
 
-    private void SetStatus(string text) =>
-        Status = request.Origin == AlignOrigin.Memory ? $"From memory: {text}" : text;
+    private void SetStatus(string text) => Status = request.Origin switch
+    {
+        AlignOrigin.Memory => $"From memory: {text}",
+        AlignOrigin.Nudge => $"Saving your adjustment: {text}",
+        _ => text,
+    };
 
     public IPlayerCharacter? FindPartner(IPlayerCharacter localPlayer) => ResolvePartner(localPlayer, out _);
 
@@ -215,8 +221,7 @@ public sealed class BoneAlignService : IDisposable
             return paired;
         }
 
-        if ((Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget) is IPlayerCharacter target &&
-            target.GameObjectId != localPlayer.GameObjectId)
+        if (PairingTargets.TryGetTargetedPlayer(localPlayer) is { } target)
             return target;
 
         failure = "Pair with someone or target a player first.";
@@ -378,7 +383,7 @@ public sealed class BoneAlignService : IDisposable
         SetStatus(reason);
     }
 
-    private void Cancel(string reason)
+    public void Cancel(string reason)
     {
         phase = Phase.Idle;
         poseTrigger.PartnerTrackingPaused = false;
@@ -413,7 +418,6 @@ public sealed class BoneAlignService : IDisposable
     {
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         if (localPlayer == null || pairingState.Peer is not { } peer) return true;
-        var own = new PartnerIdentity(localPlayer.Name.TextValue, localPlayer.HomeWorld.Value.Name.ExtractText());
-        return string.CompareOrdinal(own.TellAddress, peer.TellAddress) < 0;
+        return string.CompareOrdinal(PartnerIdentity.FromCharacter(localPlayer).TellAddress, peer.TellAddress) < 0;
     }
 }

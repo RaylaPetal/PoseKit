@@ -3,8 +3,15 @@ namespace PoseKit.Pairing;
 using System;
 
 /// <summary>
-/// Holds a relayed couple-preset play until this side accepts or denies it. Under mutual override
-/// it's applied immediately.
+/// A relayed play waiting on this side: a couple preset's partner half, or the other role of a
+/// library animation the partner clicked. Exactly one of Captured and Role is set.
+/// </summary>
+public sealed record CoupleRelayRequest(PartnerIdentity Sender, string Name, CapturedPoseState? Captured, RoleHashes? Role);
+
+/// <summary>
+/// Holds a relayed couple-preset play or role until this side accepts or denies it. Under mutual
+/// override it's applied immediately. A role this side doesn't have is answered as missing without
+/// prompting.
 ///
 /// Every relay gets exactly one answer, since the sender waits for it before playing its own half.
 /// </summary>
@@ -14,68 +21,103 @@ public sealed class CoupleRelayInbox : IDisposable
 
     private readonly PairingState pairingState;
     private readonly PairingListener pairingListener;
+    private readonly Func<RoleHashes, bool> hasRole;
 
     private long receivedAt;
 
-    public PartnerIdentity? Sender { get; private set; }
-    public string? PresetName { get; private set; }
-    public CapturedPoseState? Captured { get; private set; }
+    public CoupleRelayRequest? Pending { get; private set; }
+
+    public PartnerIdentity? Sender => Pending?.Sender;
+    public string? PresetName => Pending?.Name;
 
     public event Action? Changed;
 
     /// Raised instead of prompting when mutual override is active.
-    public event Action<CapturedPoseState>? AutoApply;
+    public event Action<CoupleRelayRequest>? AutoApply;
 
-    public CoupleRelayInbox(PairingState pairingState, PairingListener pairingListener)
+    public CoupleRelayInbox(PairingState pairingState, PairingListener pairingListener, Func<RoleHashes, bool> hasRole)
     {
         this.pairingState = pairingState;
         this.pairingListener = pairingListener;
-        pairingListener.CoupleRelayReceived += OnReceived;
+        this.hasRole = hasRole;
+        pairingListener.CoupleRelayReceived += OnPresetReceived;
+        pairingListener.RoleRelayReceived += OnRoleReceived;
+        pairingListener.RelayCancelReceived += OnCancelReceived;
         pairingState.Changed += OnPairingStateChanged;
     }
 
     public void Dispose()
     {
-        pairingListener.CoupleRelayReceived -= OnReceived;
+        pairingListener.CoupleRelayReceived -= OnPresetReceived;
+        pairingListener.RoleRelayReceived -= OnRoleReceived;
+        pairingListener.RelayCancelReceived -= OnCancelReceived;
         pairingState.Changed -= OnPairingStateChanged;
     }
 
-    private void OnReceived(PartnerIdentity sender, string presetName, CapturedPoseState captured)
+    private void OnPresetReceived(PartnerIdentity sender, string presetName, CapturedPoseState captured) =>
+        Receive(new CoupleRelayRequest(sender, presetName, captured, null));
+
+    private void OnRoleReceived(PartnerIdentity sender, string name, RoleHashes role)
     {
-        // Decline a replaced relay so its sender isn't left waiting.
-        if (PresetName is { } replaced)
-            pairingListener.AnswerCoupleRelay(replaced, accepted: false);
+        if (!hasRole(role))
+        {
+            pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Missing);
+            Plugin.ChatGui.Print($"[PoseKit] {sender.Name} wants to play \"{name}\" with you, but it isn't in your mods.");
+            return;
+        }
+        Receive(new CoupleRelayRequest(sender, name, null, role));
+        if (Pending == null) return;
+
+        pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Received);
+        // Library clicks can arrive while neither PoseKit window is open.
+        Plugin.ChatGui.Print($"[PoseKit] {sender.Name} wants to play \"{name}\" with you. Accept or decline in the library " +
+                                 "(/posekit lib) or PoseKit's pairing panel.");
+    }
+
+    private void Receive(CoupleRelayRequest request)
+    {
+        // Decline a replaced relay so its sender isn't left waiting. Not one with the same name: the
+        // sender has replaced its own wait with the new relay, and a decline would end that too.
+        if (PresetName is { } replaced && !string.Equals(replaced.Trim(), request.Name.Trim(), StringComparison.Ordinal))
+            pairingListener.AnswerCoupleRelay(replaced, CoupleAnswer.Declined);
 
         if (pairingState.MutualOverrideActive)
         {
             Clear();
-            pairingListener.AnswerCoupleRelay(presetName, accepted: true);
-            AutoApply?.Invoke(captured);
+            pairingListener.AnswerCoupleRelay(request.Name, CoupleAnswer.Accepted);
+            AutoApply?.Invoke(request);
             return;
         }
 
-        Sender = sender;
-        PresetName = presetName;
-        Captured = captured;
+        Pending = request;
         receivedAt = Environment.TickCount64;
         Changed?.Invoke();
     }
 
-    /// Returns the captured state to apply, or null if nothing was pending.
-    public CapturedPoseState? Accept()
+    /// Returns the request to apply, or null if nothing was pending.
+    public CoupleRelayRequest? Accept()
     {
-        var captured = Captured;
-        if (PresetName is { } name)
-            pairingListener.AnswerCoupleRelay(name, accepted: true);
+        var request = Pending;
+        if (request != null)
+            pairingListener.AnswerCoupleRelay(request.Name, CoupleAnswer.Accepted);
         Clear();
-        return captured;
+        return request;
     }
 
     public void Deny()
     {
         if (PresetName is { } name)
-            pairingListener.AnswerCoupleRelay(name, accepted: false);
+            pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Declined);
         Clear();
+    }
+
+    /// The sender withdrew it, so it's dropped without an answer.
+    private void OnCancelReceived(PartnerIdentity sender, string name)
+    {
+        if (Pending is not { } pending || !pending.Sender.Equals(sender)) return;
+        if (!string.Equals(pending.Name.Trim(), name.Trim(), StringComparison.Ordinal)) return;
+        Clear();
+        Plugin.ChatGui.Print($"[PoseKit] {sender.Name} cancelled \"{name}\".");
     }
 
     private void OnPairingStateChanged()
@@ -85,16 +127,14 @@ public sealed class CoupleRelayInbox : IDisposable
 
     private void Clear()
     {
-        Sender = null;
-        PresetName = null;
-        Captured = null;
+        Pending = null;
         Changed?.Invoke();
     }
 
     /// A timed-out prompt counts as a deny.
     public void Tick()
     {
-        if (Captured == null) return;
+        if (Pending == null) return;
         if (Environment.TickCount64 - receivedAt > PromptTimeoutMs) Deny();
     }
 }

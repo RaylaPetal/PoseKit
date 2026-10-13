@@ -2,8 +2,11 @@ using System.Numerics;
 
 namespace PoseKit.Bones;
 
-/// <summary>Where a Bone Align came from: the Align or Remember button, or alignment memory's auto-align.</summary>
-public enum AlignOrigin { Manual, Memory }
+/// <summary>
+/// Where a Bone Align came from: the Align or Remember button, alignment memory's auto-align, or the
+/// automatic re-remember after the player nudged a remembered animation's offset by hand.
+/// </summary>
+public enum AlignOrigin { Manual, Memory, Nudge }
 
 /// <summary>Align moves this player; Measure only reads the current alignment, for Remember.</summary>
 public enum AlignMode { Align, Measure }
@@ -22,14 +25,22 @@ public sealed record AlignRequest(
     AlignOrigin Origin,
     AlignMode Mode = AlignMode.Align)
 {
+    /// The Align button: faces the partner's way first when that setting is on (a relative yaw of 0),
+    /// otherwise keeps the current facing.
     public static AlignRequest FromConfiguration(Configuration configuration) => new(
-        configuration.BoneAlignSelf, configuration.BoneAlignPartner, configuration.BoneAlignGap, null, null, AlignOrigin.Manual);
+        configuration.BoneAlignSelf, configuration.BoneAlignPartner, configuration.BoneAlignGap,
+        configuration.BoneAlignFaceSameWay ? 0f : null, null, AlignOrigin.Manual);
 
+    /// Remember reads how the player is placed now, facing included, so it never turns.
     public static AlignRequest ForMeasure(Configuration configuration) =>
-        FromConfiguration(configuration) with { Mode = AlignMode.Measure };
+        FromConfiguration(configuration) with { Mode = AlignMode.Measure, RelativeYaw = null };
 
     public static AlignRequest FromMemory(AlignmentEntry entry) => new(
         entry.Self, entry.Partner, entry.Gap, entry.RelativeYaw, entry.ContactOffset?.ToVector3(), AlignOrigin.Memory);
+
+    /// Re-measures a remembered animation with its own parts, after a hand nudge.
+    public static AlignRequest ForNudge(AlignmentEntry entry) => new(
+        entry.Self, entry.Partner, entry.Gap, null, null, AlignOrigin.Nudge, AlignMode.Measure);
 }
 
 /// <summary>What a successful Align or Measure ended with, relative to the partner.</summary>
