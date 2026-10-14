@@ -9,6 +9,24 @@ namespace PoseKit.Windows;
 /// <summary>Shared theme and UI helpers.</summary>
 internal static class PoseKitUi
 {
+    // The reason each node was last opened for, so it opens again only when that reason changes.
+    private static readonly Dictionary<string, string> openedFor = new();
+
+    /// Opens the next tree node when <paramref name="reason"/> starts or changes (a new search, a new
+    /// pick), then leaves it to the player so it can still be collapsed. Forcing it open every frame
+    /// would undo each click. Null means there's no reason to open it.
+    public static void OpenOnce(string id, string? reason)
+    {
+        if (reason == null)
+        {
+            openedFor.Remove(id);
+            return;
+        }
+        if (openedFor.TryGetValue(id, out var last) && last == reason) return;
+        openedFor[id] = reason;
+        ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+    }
+
     public static readonly Vector4 Accent = new(0.78f, 0.65f, 1f, 1f);
     public static readonly Vector4 AccentMuted = new(0.43f, 0.32f, 0.58f, 1f);
     private static readonly Vector4 AccentHovered = new(0.55f, 0.41f, 0.74f, 1f);

@@ -335,7 +335,7 @@ public static class PresetButtonsPanel
         }
     }
 
-    /// Presets grouped by pose. While filtering, every group is forced open.
+    /// Presets grouped by pose. A new search or filter opens every group once.
     private static void DrawLibrary(Plugin plugin)
     {
         var all = plugin.PresetManager.Presets;
@@ -359,8 +359,7 @@ public static class PresetButtonsPanel
         foreach (var group in groups)
         {
             var presets = group.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
-            if (filtering)
-                ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+            PoseKitUi.OpenOnce($"presetgroup|{group.Key}", filtering ? $"{presetSearch}|{typeFilter}|{anchorFilter}" : null);
             if (!ImGui.CollapsingHeader($"{group.Key.DisplayName}  ({presets.Count})##PoseKitPresetGroup{group.Key.GetHashCode()}",
                     ImGuiTreeNodeFlags.DefaultOpen))
                 continue;

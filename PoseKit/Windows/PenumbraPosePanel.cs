@@ -82,8 +82,7 @@ public static class PenumbraPosePanel
             var searchTreeFlags = string.IsNullOrWhiteSpace(animationSearch) || modPick != PoseKitUi.PickState.None
                 ? ImGuiTreeNodeFlags.None
                 : ImGuiTreeNodeFlags.DefaultOpen;
-            if (modPick != PoseKitUi.PickState.None)
-                ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+            PoseKitUi.OpenOnce($"mod|{mod.ModDirectory}", modPick != PoseKitUi.PickState.None ? "pick" : null);
 
             var expanded = ImGui.CollapsingHeader($"{mod.ModName}##PoseKitMod{mod.ModDirectory.GetHashCode()}", searchTreeFlags);
             PoseKitUi.DrawPickBadge(modPick);
@@ -158,8 +157,7 @@ public static class PenumbraPosePanel
             var searchTreeFlags = string.IsNullOrWhiteSpace(filter) || groupHasPick
                 ? ImGuiTreeNodeFlags.None
                 : ImGuiTreeNodeFlags.DefaultOpen;
-            if (groupHasPick)
-                ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+            PoseKitUi.OpenOnce($"group|{mod.ModDirectory}|{group.Name}", groupHasPick ? "pick" : null);
 
             if (ImGui.CollapsingHeader(group.Name, searchTreeFlags))
             {

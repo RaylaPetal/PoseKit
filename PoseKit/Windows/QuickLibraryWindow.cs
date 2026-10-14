@@ -46,6 +46,10 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
     private bool Searching => search.Trim().Length > 0;
 
+    /// While searching or filtering, a new search, filter or level opens everything once; null otherwise.
+    private string? ExpandReason(LibraryTypeFilter filter) =>
+        Searching || filter != LibraryTypeFilter.All ? $"{search.Trim()}|{filter}|{path}" : null;
+
     /// "Lesbian > Rough", for the search hint.
     private string PathLabel => path.Level switch
     {
@@ -267,8 +271,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         var presets = LibraryView.GetPresets(plugin.PresetManager.Presets, context, search, filter);
         if (presets.Count == 0) return false;
 
-        if (Searching || filter != LibraryTypeFilter.All)
-            ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+        PoseKitUi.OpenOnce("library|presets", ExpandReason(filter));
         if (ImGui.CollapsingHeader($"{context.PresetsTitle}  ({presets.Count})##PoseKitLibraryPresets", ImGuiTreeNodeFlags.DefaultOpen))
         {
             foreach (var preset in presets)
@@ -319,18 +322,18 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         var tree = view.GetTree(plugin.LibraryIndex, plugin.LibraryIndexVersion, plugin.CategoryVersion, context,
             search, filter, path);
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
-        var expandAll = Searching || filter != LibraryTypeFilter.All;
+        var expandReason = ExpandReason(filter);
 
         foreach (var mod in tree)
         {
-            if (expandAll) ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+            PoseKitUi.OpenOnce($"library|mod|{mod.Mod.ModDirectory}", expandReason);
             if (!ImGui.CollapsingHeader($"{mod.Mod.ModName}  ({mod.Count})##PoseKitLibraryMod{mod.Mod.ModDirectory}",
                     ImGuiTreeNodeFlags.DefaultOpen))
                 continue;
 
             ImGui.PushID(mod.Mod.ModDirectory);
             foreach (var animation in mod.Animations)
-                DrawAnimation(animation, collectionId, counts, expandAll);
+                DrawAnimation(animation, mod.Mod.ModDirectory, collectionId, counts, expandReason);
             ImGui.PopID();
         }
         return tree.Count > 0;
@@ -338,13 +341,16 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
     /// An option group with its options under it. Collapsed by default unless it has a single option,
     /// so a long pack reads as a list of animations rather than a wall of roles.
-    private void DrawAnimation(LibraryView.Animation animation, Guid? collectionId, LibraryView.CategoryCounts counts, bool expandAll)
+    private void DrawAnimation(LibraryView.Animation animation, string modDirectory, Guid? collectionId,
+        LibraryView.CategoryCounts counts, string? expandReason)
     {
         ImGui.PushID(animation.Group.Name);
-        if (expandAll || animation.Rows.Count == 1) ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+        PoseKitUi.OpenOnce($"library|animation|{modDirectory}|{animation.Group.Name}", expandReason);
 
         // The node only carries the arrow and the click; the name is drawn beside it so it can wrap.
-        var open = ImGui.TreeNodeEx("##PoseKitLibraryAnimation", ImGuiTreeNodeFlags.SpanAvailWidth | ImGuiTreeNodeFlags.AllowItemOverlap);
+        var flags = ImGuiTreeNodeFlags.SpanAvailWidth | ImGuiTreeNodeFlags.AllowItemOverlap |
+                    (animation.Rows.Count == 1 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+        var open = ImGui.TreeNodeEx("##PoseKitLibraryAnimation", flags);
         // Roles and variants of one animation share its categories, so the animation is tagged as a
         // whole; in a list of separate animations each option is tagged on its own.
         var perOption = animation.Rows.All(r => r.Entry.AnimationKey == r.Entry.Id);
