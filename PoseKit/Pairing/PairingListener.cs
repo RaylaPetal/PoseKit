@@ -55,6 +55,7 @@ public sealed class PairingListener : IDisposable
     private const string InviteKeyword = "posekitpair invite";
     private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
+    private const string HelloKeyword = "posekithello";
     private const string QueueKeyword = "posekitqueue";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
@@ -114,6 +115,7 @@ public sealed class PairingListener : IDisposable
         state.SetOutgoingInvite(target, inviteId);
         PairingSender.Send(PairingComposer.ComposeInvite(target, inviteId));
         state.Touch();
+        Echo($"Pairing invite sent to {target}.");
     }
 
     public void AcceptPending()
@@ -121,6 +123,14 @@ public sealed class PairingListener : IDisposable
         if (state.PendingInvite is not { } pending) return;
         PairingSender.Send(PairingComposer.ComposeAccept(pending.Sender, pending.InviteId));
         state.Activate(pending.Sender);
+        SendHello(pending.Sender);
+        Echo($"Paired with {pending.Sender.Name}.");
+    }
+
+    private void SendHello(PartnerIdentity peer)
+    {
+        PairingSender.Send(PairingComposer.ComposeHello(peer));
+        state.Touch();
     }
 
     public void RequestPartnerCapture(string requestId, PresetAnchor? anchorHint)
@@ -186,15 +196,29 @@ public sealed class PairingListener : IDisposable
         {
             PairingSender.Send(PairingComposer.ComposeUnpair(peer));
             state.Touch();
+            Echo($"Ended the pairing with {peer.Name}.");
         }
         state.Clear();
     }
 
+    /// A meaningful pairing event, in place of the hidden tell that carried it.
+    private static void Echo(string text) => Plugin.ChatGui.Print($"[PoseKit] {text}");
+
+    /// Every PoseKit keyword starts with this, newer ones this version doesn't know included.
+    private const string ProtocolPrefix = "posekit";
+
     private void OnChatMessage(IHandleableChatMessage message)
     {
-        if (message.LogKind != XivChatType.TellIncoming) return;
+        var sent = message.LogKind == XivChatType.TellOutgoing;
+        if (!sent && message.LogKind != XivChatType.TellIncoming) return;
 
+        // Protocol tells are hidden both ways; meaningful events print their own [PoseKit] line.
         var text = message.Message.TextValue.Trim();
+        if (!text.StartsWith(ProtocolPrefix, StringComparison.OrdinalIgnoreCase)) return;
+        message.PreventOriginal();
+        Plugin.Log.Debug($"[PoseKit] Pairing tell {(sent ? "to" : "from")} {message.Sender.TextValue}: {text}");
+        if (sent) return;
+
         var (senderName, senderWorld) = ExtractNameAndWorld(message.Sender);
         if (senderName is null || senderWorld is null) return;
         var sender = new PartnerIdentity(senderName, senderWorld);
@@ -202,7 +226,11 @@ public sealed class PairingListener : IDisposable
         if (text.StartsWith(InviteKeyword, StringComparison.OrdinalIgnoreCase))
         {
             var inviteId = text[InviteKeyword.Length..].Trim();
-            if (inviteId.Length > 0) state.SetPendingInvite(sender, inviteId);
+            if (inviteId.Length > 0)
+            {
+                state.SetPendingInvite(sender, inviteId);
+                Echo($"{sender.Name} invited you to pair. Accept in the library (/posekit lib) or PoseKit's pairing panel.");
+            }
             return;
         }
 
@@ -210,14 +238,31 @@ public sealed class PairingListener : IDisposable
         {
             var inviteId = text[AcceptKeyword.Length..].Trim();
             if (state.OutgoingInvite is { } outgoing && outgoing.InviteId == inviteId && outgoing.Target.Equals(sender))
+            {
                 state.Activate(sender);
+                SendHello(sender);
+                Echo($"Paired with {sender.Name}.");
+            }
+            return;
+        }
+
+        if (text.StartsWith(HelloKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            if (state.Active && state.Peer is { } helloPeer && helloPeer.Equals(sender))
+            {
+                state.Touch();
+                state.SetPeerHello();
+            }
             return;
         }
 
         if (text.StartsWith(UnpairKeyword, StringComparison.OrdinalIgnoreCase))
         {
             if (state.Active && state.Peer is { } peer && peer.Equals(sender))
+            {
                 state.Clear();
+                Echo($"{sender.Name} ended the pairing.");
+            }
             return;
         }
 
@@ -324,11 +369,13 @@ public sealed class PairingListener : IDisposable
             {
                 state.SetPartnerOverrideEnabled(true);
                 state.SetLocalOverrideEnabled(true);
+                Echo($"{sender.Name} turned override on.");
             }
             else if (value.Equals("off", StringComparison.OrdinalIgnoreCase))
             {
                 state.SetPartnerOverrideEnabled(false);
                 state.SetLocalOverrideEnabled(false);
+                Echo($"{sender.Name} turned override off.");
             }
             return;
         }

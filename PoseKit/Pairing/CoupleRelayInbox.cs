@@ -13,7 +13,9 @@ public sealed record CoupleRelayRequest(PartnerIdentity Sender, string Name, Cap
 /// override it's applied immediately. A role this side doesn't have is answered as missing without
 /// prompting.
 ///
-/// Every relay gets exactly one answer, since the sender waits for it before playing its own half.
+/// Every relay gets exactly one answer, since the sender waits for it before playing its own half,
+/// except a role under mutual override from an up-to-date sender, which played without waiting and
+/// only hears back if the role is missing here.
 /// </summary>
 public sealed class CoupleRelayInbox : IDisposable
 {
@@ -54,8 +56,13 @@ public sealed class CoupleRelayInbox : IDisposable
         pairingState.Changed -= OnPairingStateChanged;
     }
 
-    private void OnPresetReceived(PartnerIdentity sender, string presetName, CapturedPoseState captured) =>
+    private void OnPresetReceived(PartnerIdentity sender, string presetName, CapturedPoseState captured)
+    {
         Receive(new CoupleRelayRequest(sender, presetName, captured, null));
+        if (Pending == null) return;
+        Plugin.ChatGui.Print($"[PoseKit] {sender.Name} wants to play \"{presetName}\" with you. Accept or decline in the library " +
+                             "(/posekit lib) or PoseKit's pairing panel.");
+    }
 
     private void OnRoleReceived(PartnerIdentity sender, string name, RoleHashes role)
     {
@@ -68,7 +75,9 @@ public sealed class CoupleRelayInbox : IDisposable
         Receive(new CoupleRelayRequest(sender, name, null, role));
         if (Pending == null) return;
 
-        pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Received);
+        // Only a sender that hasn't said hello (3.0.0.x and older) waits for this receipt.
+        if (!pairingState.PeerHello)
+            pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Received);
         // Library clicks can arrive while neither PoseKit window is open.
         Plugin.ChatGui.Print($"[PoseKit] {sender.Name} wants to play \"{name}\" with you. Accept or decline in the library " +
                                  "(/posekit lib) or PoseKit's pairing panel.");
@@ -84,7 +93,10 @@ public sealed class CoupleRelayInbox : IDisposable
         if (pairingState.MutualOverrideActive)
         {
             Clear();
-            pairingListener.AnswerCoupleRelay(request.Name, CoupleAnswer.Accepted);
+            // An up-to-date sender played its half of a role already and expects no answer.
+            if (request.Role == null || !pairingState.PeerHello)
+                pairingListener.AnswerCoupleRelay(request.Name, CoupleAnswer.Accepted);
+            Plugin.ChatGui.Print($"[PoseKit] Playing \"{request.Name}\" with {request.Sender.Name}.");
             AutoApply?.Invoke(request);
             return;
         }

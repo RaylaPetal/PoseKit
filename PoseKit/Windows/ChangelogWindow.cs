@@ -12,7 +12,7 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.0.0.1";
+    public const string ChangelogId = "3.0.0.2";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
@@ -41,6 +41,8 @@ public sealed class ChangelogWindow : Window, IDisposable
         ("Pairing", [
             "Right-click a player in the world, in chat, in your party or friend list and choose \"Pair with PoseKit\".",
             "When you pick one role of a couple animation, PoseKit can send your partner the other role (setting).",
+            "PoseKit's pairing tells no longer clutter your chat: they're hidden, and you get a short [PoseKit] line for what matters (invites, offers, accepts, declines).",
+            "Playing a couple animation from the library sends fewer tells, and with override on for both of you, both halves start right away.",
         ]),
     ];
 

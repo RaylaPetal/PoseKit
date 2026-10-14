@@ -14,6 +14,10 @@ public static class PairingComposer
     private const string InviteKeyword = "posekitpair invite";
     private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
+    private const string HelloKeyword = "posekithello";
+
+    /// Raised when the protocol gains something a partner needs to know this side supports.
+    public const int ProtocolVersion = 1;
     private const string QueueKeyword = "posekitqueue";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
@@ -33,6 +37,10 @@ public static class PairingComposer
 
     public static string ComposeUnpair(PartnerIdentity target) =>
         $"/tell {target.TellAddress} {UnpairKeyword}";
+
+    /// Sent once by each side when a pairing starts; older versions ignore it.
+    public static string ComposeHello(PartnerIdentity target) =>
+        $"/tell {target.TellAddress} {HelloKeyword} {ProtocolVersion}";
 
     public static string ComposeQueueSignal(PartnerIdentity target, string name) =>
         $"/tell {target.TellAddress} {QueueKeyword} {name}";

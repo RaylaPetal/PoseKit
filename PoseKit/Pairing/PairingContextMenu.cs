@@ -67,6 +67,5 @@ public sealed class PairingContextMenu : IDisposable
         // The menu may have stayed open while the pairing state changed.
         if (!PairingTargets.CanInvite(state)) return;
         listener.InitiatePairing(invitee);
-        Plugin.ChatGui.Print($"[PoseKit] Pairing invite sent to {invitee}.");
     }
 }
