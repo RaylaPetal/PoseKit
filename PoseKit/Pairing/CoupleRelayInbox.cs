@@ -13,9 +13,8 @@ public sealed record CoupleRelayRequest(PartnerIdentity Sender, string Name, Cap
 /// override it's applied immediately. A role this side doesn't have is answered as missing without
 /// prompting.
 ///
-/// Every relay gets exactly one answer, since the sender waits for it before playing its own half,
-/// except a role under mutual override from an up-to-date sender, which played without waiting and
-/// only hears back if the role is missing here.
+/// Every relay gets exactly one answer, since the sender waits for it before playing its own half.
+/// Role offers only come from partners on 3.0.0.0-3.0.0.4; this version queues library picks instead.
 /// </summary>
 public sealed class CoupleRelayInbox : IDisposable
 {
@@ -75,9 +74,8 @@ public sealed class CoupleRelayInbox : IDisposable
         Receive(new CoupleRelayRequest(sender, name, null, role));
         if (Pending == null) return;
 
-        // Only a sender that hasn't said hello (3.0.0.x and older) waits for this receipt.
-        if (!pairingState.PeerHello)
-            pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Received);
+        // Role offers only come from 3.0.0.0-3.0.0.4, which wait for this receipt.
+        pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Received);
         // Library clicks can arrive while neither PoseKit window is open.
         Plugin.ChatGui.Print($"[PoseKit] {sender.Name} wants to play \"{name}\" with you. Accept or decline in the library " +
                                  "(/posekit lib) or PoseKit's pairing panel.");
@@ -93,9 +91,7 @@ public sealed class CoupleRelayInbox : IDisposable
         if (pairingState.MutualOverrideActive)
         {
             Clear();
-            // An up-to-date sender played its half of a role already and expects no answer.
-            if (request.Role == null || !pairingState.PeerHello)
-                pairingListener.AnswerCoupleRelay(request.Name, CoupleAnswer.Accepted);
+            pairingListener.AnswerCoupleRelay(request.Name, CoupleAnswer.Accepted);
             Plugin.ChatGui.Print($"[PoseKit] Playing \"{request.Name}\" with {request.Sender.Name}.");
             AutoApply?.Invoke(request);
             return;

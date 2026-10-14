@@ -107,8 +107,23 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         if (state.Active && state.Peer is { } peer)
         {
             PoseKitUi.StatusDot(PoseKitUi.Good, $"PAIRED WITH {peer}");
+            const string unpairLabel = "Unpair##PoseKitLibraryUnpair";
+            ImGui.SameLine();
+            var unpairX = ImGui.GetWindowContentRegionMax().X - PoseKitUi.ButtonWidth(unpairLabel);
+            if (ImGui.GetCursorPosX() < unpairX) ImGui.SetCursorPosX(unpairX);
+            if (ImGui.SmallButton(unpairLabel))
+                plugin.PairingListener.Unpair();
+
             PairingPanel.DrawIncomingRelay(plugin, compact: true);
             PairingPanel.DrawOutgoingRelay(plugin, compact: true);
+
+            // The partner picked and this side hasn't: their animation's options, to play along.
+            var queue = plugin.CoupleQueueService;
+            if (queue.PartnerSelectionName is { } theirs && queue.QueuedSelectionName == null &&
+                ImGui.CollapsingHeader($"{peer.Name} picked: {theirs}##PoseKitLibraryPartnerPick"))
+            {
+                PairingPanel.DrawQuickPick(plugin, theirs);
+            }
         }
         else if (PairingPanel.DrawPendingInvite(plugin, compact: true) || PairingPanel.DrawOutgoingInvite(plugin, compact: true))
         {

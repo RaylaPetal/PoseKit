@@ -14,10 +14,6 @@ public static class PairingComposer
     private const string InviteKeyword = "posekitpair invite";
     private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
-    private const string HelloKeyword = "posekithello";
-
-    /// Raised when the protocol gains something a partner needs to know this side supports.
-    public const int ProtocolVersion = 1;
     private const string QueueKeyword = "posekitqueue";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
@@ -26,7 +22,6 @@ public static class PairingComposer
     private const string CoupleRelayKeyword = "posekitcoupleplay";
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
     private const string BoneAlignKeyword = "posekitalign";
-    private const string RoleRelayKeyword = "posekitrole";
     private const string RelayCancelKeyword = "posekitcouplecancel";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
@@ -37,10 +32,6 @@ public static class PairingComposer
 
     public static string ComposeUnpair(PartnerIdentity target) =>
         $"/tell {target.TellAddress} {UnpairKeyword}";
-
-    /// Sent once by each side when a pairing starts; older versions ignore it.
-    public static string ComposeHello(PartnerIdentity target) =>
-        $"/tell {target.TellAddress} {HelloKeyword} {ProtocolVersion}";
 
     public static string ComposeQueueSignal(PartnerIdentity target, string name) =>
         $"/tell {target.TellAddress} {QueueKeyword} {name}";
@@ -80,12 +71,6 @@ public static class PairingComposer
     /// Withdraws an unanswered couple or role relay. Older versions ignore it.
     public static string ComposeRelayCancel(PartnerIdentity target, string name) =>
         $"/tell {target.TellAddress} {RelayCancelKeyword} {name}";
-
-    /// Asks the partner to play the other role of a two-role animation. The sender waits for the
-    /// answer before playing its own role.
-    public static string ComposeRoleRelay(PartnerIdentity target, string name, RoleHashes role) =>
-        $"/tell {target.TellAddress} {RoleRelayKeyword} {role.ModDirectoryHash} {role.GroupNameHash} " +
-        $"{role.OptionNameHash} {role.TriggerHash} {role.OptionKeyHash} {name}";
 
     /// Wire format for a captured pose state: fixed fields first, then furniture name, mod name and
     /// optional preset name joined by '|'. Mod, group and option travel as hashes; the mod name is

@@ -101,7 +101,6 @@ public static class PairingPanel
     // The invite and relay prompts below are shared by this panel (full) and the quick library's
     // pairing strip (compact), so both windows act the same.
 
-    /// A pairing invite waiting on this side. False when there's none.
     /// The shared override toggle, also in the quick library. Turning it on tells the partner, whose
     /// PoseKit mirrors it; with both on, a second pick plays the first and forces it on the partner.
     public static void DrawOverrideToggle(Plugin plugin, string label)
@@ -121,6 +120,7 @@ public static class PairingPanel
                     : "Picks queue until you've both chosen, then both play. Turn on to choose for both of you.");
     }
 
+    /// A pairing invite waiting on this side. False when there's none.
     public static bool DrawPendingInvite(Plugin plugin, bool compact)
     {
         var state = plugin.PairingState;
@@ -226,7 +226,8 @@ public static class PairingPanel
     }
 
     /// This side's matching preset or animation for the partner's pick, if any.
-    private static void DrawQuickPick(Plugin plugin, string partnerSelectionName)
+    /// The partner's pick, with this side's options to play along (also shown in the quick library).
+    public static void DrawQuickPick(Plugin plugin, string partnerSelectionName)
     {
         var preset = plugin.PresetManager.Presets.FirstOrDefault(p => p.Name == partnerSelectionName);
         if (preset != null)

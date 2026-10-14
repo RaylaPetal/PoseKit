@@ -30,10 +30,6 @@ public sealed class PairingState
 
     public bool MutualOverrideActive => Active && LocalOverrideEnabled && PartnerOverrideEnabled;
 
-    /// The partner's PoseKit sent its hello this pairing, so it skips per-play receipts. Without one
-    /// (an older version, or a dropped tell) everything works as with an older partner.
-    public bool PeerHello { get; private set; }
-
     /// Kept so an accept is only honored for an invite this side actually sent.
     public (PartnerIdentity Target, string InviteId)? OutgoingInvite { get; private set; }
 
@@ -74,7 +70,6 @@ public sealed class PairingState
         OutgoingInvite = null;
         PendingInvite = null;
         PartnerOverrideEnabled = false;
-        PeerHello = false;
         Touch();
         Changed?.Invoke();
     }
@@ -86,13 +81,6 @@ public sealed class PairingState
         OutgoingInvite = null;
         PendingInvite = null;
         PartnerOverrideEnabled = false;
-        PeerHello = false;
-        Changed?.Invoke();
-    }
-
-    public void SetPeerHello()
-    {
-        PeerHello = true;
         Changed?.Invoke();
     }
 

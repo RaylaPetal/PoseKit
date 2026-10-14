@@ -55,7 +55,6 @@ public sealed class PairingListener : IDisposable
     private const string InviteKeyword = "posekitpair invite";
     private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
-    private const string HelloKeyword = "posekithello";
     private const string QueueKeyword = "posekitqueue";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
@@ -123,14 +122,7 @@ public sealed class PairingListener : IDisposable
         if (state.PendingInvite is not { } pending) return;
         PairingSender.Send(PairingComposer.ComposeAccept(pending.Sender, pending.InviteId));
         state.Activate(pending.Sender);
-        SendHello(pending.Sender);
         Echo($"Paired with {pending.Sender.Name}.");
-    }
-
-    private void SendHello(PartnerIdentity peer)
-    {
-        PairingSender.Send(PairingComposer.ComposeHello(peer));
-        state.Touch();
     }
 
     public void RequestPartnerCapture(string requestId, PresetAnchor? anchorHint)
@@ -172,13 +164,6 @@ public sealed class PairingListener : IDisposable
     {
         if (state.Peer is not { } peer) return;
         PairingSender.Send(PairingComposer.ComposeRelayCancel(peer, name));
-        state.Touch();
-    }
-
-    public void RelayRole(string name, RoleHashes role)
-    {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeRoleRelay(peer, name, role));
         state.Touch();
     }
 
@@ -240,18 +225,7 @@ public sealed class PairingListener : IDisposable
             if (state.OutgoingInvite is { } outgoing && outgoing.InviteId == inviteId && outgoing.Target.Equals(sender))
             {
                 state.Activate(sender);
-                SendHello(sender);
                 Echo($"Paired with {sender.Name}.");
-            }
-            return;
-        }
-
-        if (text.StartsWith(HelloKeyword, StringComparison.OrdinalIgnoreCase))
-        {
-            if (state.Active && state.Peer is { } helloPeer && helloPeer.Equals(sender))
-            {
-                state.Touch();
-                state.SetPeerHello();
             }
             return;
         }
