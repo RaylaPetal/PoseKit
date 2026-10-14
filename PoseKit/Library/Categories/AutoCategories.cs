@@ -27,11 +27,11 @@ public static class AutoCategories
     private const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant;
 
     private const string Solo = "Solo", Vanilla = "Vanilla", Lesbian = "Lesbian", Gay = "Gay", Straight = "Straight", Futa = "Futa";
-    private const string Idles = "Idles", Dancing = "Dancing";
+    private const string Idles = "Idles", Dancing = "Dancing", Cuddles = "Cuddles";
 
     /// The library's top level, in display order. The pairing roots hold the other themes (categories);
-    /// Solo, Idles and Dancing list their animations directly.
-    public static readonly IReadOnlyList<string> Roots = [Futa, Gay, Straight, Lesbian, Solo, Idles, Dancing];
+    /// Cuddles, Solo, Idles and Dancing list their animations directly.
+    public static readonly IReadOnlyList<string> Roots = [Futa, Gay, Straight, Lesbian, Cuddles, Solo, Idles, Dancing];
 
     public static readonly IReadOnlySet<string> PairingRoots =
         new HashSet<string>([Futa, Gay, Straight, Lesbian], StringComparer.OrdinalIgnoreCase);
@@ -89,7 +89,7 @@ public static class AutoCategories
 
     // A sex position counts as vaginal unless the names say oral or anal.
     private static readonly Regex VaginalPattern =
-        new(@"vaginal|pussy(?! ?(lick|eat|play|rub))|clit|flicking the bean|missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|nelson|plap|pound|\bsex\b|breed|\bpress|pinned|slam|mating|ramming|railing|filled|\bfuck(ing|ed)?\b|thrust|penetrat|creampie|cum pump|lotus|amazon|\[pussy\]|bench sex", Options);
+        new(@"vaginal|pussy(?! ?(lick|eat|play|rub))|clit|flicking the bean|missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|nelson|plap|pound|\bsex\b|breed|\bpress|pinned|slam|mating|ramming|railing|filled|\bfuck(ing|ed)?\b|thrust|penetrat|creampie|cum pump|lotus(?! ?cuddl)|amazon|\[pussy\]|bench sex", Options);
 
     // The mods' position groups hold sex animations; oral has its own group.
     private static readonly Regex SexPositionGroup =
@@ -108,7 +108,7 @@ public static class AutoCategories
         new(@"cuddl|snuggl|(?<![a-z])hug|embrac|lap pillow|kabedon", Options);
 
     private static readonly Regex Penetration =
-        new(@"missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|plap|pound|\bsex\b|breed|\bpress|filled|\bfuck|thrust|penetrat|creampie|lotus|\bdp\b", Options);
+        new(@"missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|plap|pound|\bsex\b|breed|\bpress|filled|\bfuck|thrust|penetrat|creampie|lotus(?! ?cuddl)|\bdp\b", Options);
 
     // Acts that take two people, so they make a couple even when the roles aren't named.
     private static readonly Regex TwoPersonActs =
@@ -214,7 +214,45 @@ public static class AutoCategories
         // means explicit, so it's not applied there.
         if (acts.Any(IsSexAct) && !themes.Any(FlavorThemes.Contains))
             themes.Add(HardcoreIntensity.IsMatch(input.OptionDescription) ? "Rough" : Vanilla);
+
+        ResolveCuddles(input, themes, acts);
     }
+
+    /// Cuddles, kisses, lap-sitting and cozy rest are their own root, read from the option's own
+    /// text so it works for any mod (a list group's name, like "CuddleNsleep Animation List",
+    /// describes the list and isn't used). With no sex act it leaves the pairings and Solo, since it
+    /// suits anyone. A light act (a handjob or fingering while cuddling) is still a cuddle and keeps its
+    /// pairing too; penetration, oral, feet or masturbation never are ("Mission Romance").
+    private static void ResolveCuddles(in AutoCategoryInput input, ISet<string> themes, ICollection<string> acts)
+    {
+        if (themes.Contains("Masturbation") || themes.Contains("Props") ||
+            acts.Any(a => IsSexAct(a) && a != "Handjob & Fingering")) return;
+
+        var names = ListGroup.IsMatch(input.GroupName) ? input.OptionName : $"{input.GroupName}\n{input.OptionName}";
+        // A default-only mod is named only by the mod.
+        if (input.GroupName == "Default") names = $"{input.ModName}\n{names}";
+        var description = string.Join('\n', input.OptionDescription.Replace("\r", "").Split('\n')
+            .Where(line => !StockLine.IsMatch(line)));
+        // Sharing a seat is only a cuddle when nothing says it's a tease, bondage or a rough scene.
+        var lapCuddle = LapSit.IsMatch(names) && !themes.Any(LapSitExclusions.Contains) &&
+                        !acts.Any(a => a is "Teasing" or "Bondage" or "Spanking" or "Humiliation");
+        if (!CuddleSignal.IsMatch($"{names}\n{description}") && !lapCuddle) return;
+
+        themes.Add(Cuddles);
+        if (!acts.Any(IsSexAct))
+            foreach (var root in PairingRoots.Append(Solo)) themes.Remove(root);
+    }
+
+    private static readonly Regex CuddleSignal = new(
+        @"cuddl|snuggl|(?<![a-z])hug|embrac|spoon|glomp|nuzzl|head ?pat|belly ?rub|kabedon|kiss|make ?out|lovey|" +
+        @"propos(al|e)|marry|massag|\bbath|shower|lounge|\bchill|\bpurr|\bsleep|curl(s|ed|ing)? up|butt ?grab|" +
+        @"lap ?(pillow|dog|cat|sit)|sits? on [\w'\s]{0,20}lap\b", Options);
+
+    private static readonly HashSet<string> LapSitExclusions = new(StringComparer.OrdinalIgnoreCase)
+        { "BDSM", "Rough", "Big Races", "Group", "Beast & Monster" };
+
+    // A couple where both roles are chair sits shares one seat: one sits on the other's lap.
+    private static readonly Regex LapSit = new(@"\b(f?dom|sub)\d*-c(hair)?sit\w*[^/)]*/\s*(f?dom|sub)\d*-c(hair)?sit", Options);
 
     private static readonly Regex HardcoreIntensity = new(@"intensity\s*:[^\n]*\bhardcore\b", Options);
 
@@ -248,7 +286,9 @@ public static class AutoCategories
     /// lounging) is an idle.
     private static void AddDefaultRoot(in AutoCategoryInput input, ISet<string> themes, IReadOnlySet<string> acts)
     {
-        if (themes.Any(IsRoot)) return;
+        // A sex scene that's also a cuddle still needs its pairing; a plain cuddle doesn't.
+        if (themes.Contains(Cuddles) && !acts.Any(IsSexAct)) return;
+        if (themes.Any(t => IsRoot(t) && !string.Equals(t, Cuddles, StringComparison.OrdinalIgnoreCase))) return;
         if (themes.Any(t => !NonPairingCategories.Contains(t)) || IsTwoPerson(input)) themes.Add(Straight);
         else if (acts.Contains("Teasing")) themes.Add(Solo);
         else if (acts.Count == 0) themes.Add(Idles);

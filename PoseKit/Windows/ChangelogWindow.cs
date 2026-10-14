@@ -12,13 +12,13 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.0.0.0";
+    public const string ChangelogId = "3.0.0.1";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
         ("Quick Library", [
             "A small on-screen chip opens a compact animation library. It's always shown while you're paired; you can hide it when solo in Settings.",
-            "Browse by Futa, Gay, Straight or Lesbian, then by category (Vanilla, Romantic, BDSM, Rough…), or open Solo, Idles and Dancing.",
+            "Browse by Futa, Gay, Straight or Lesbian, then by category (Vanilla, Romantic, BDSM, Rough…), or open Cuddles, Solo, Idles and Dancing. Cuddles and kisses that aren't sex scenes have their own Cuddles root.",
             "Animations are laid out like the main window: mod, then animation, then its roles and variants. Long names wrap, and counts are per animation.",
             "It only shows what you can play right now: ground sits, dozes and emotes while standing, sit poses while seated, doze poses while lying down. It opens by itself when you sit or lie down.",
             "Search stays inside the category you're in. Right-click an animation's title to change its categories or hide it; its roles and variants follow along.",
