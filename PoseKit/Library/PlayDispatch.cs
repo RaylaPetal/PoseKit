@@ -16,14 +16,11 @@ namespace PoseKit.Library;
 /// </summary>
 public static class PlayDispatch
 {
-    /// How close the partner must be for a click to send them the other role.
-    public const float RoleRelayMaxDistance = 5f;
-
-    /// A trigger button click. <paramref name="beforePlay"/> runs first, e.g. to select the option.
-    /// <paramref name="offerPartnerRole"/> is set for a couple animation: when paired, the partner is
-    /// sent the other role instead of the click being queued (see TryRelayPartnerRole).
+    /// A trigger button click, from the main window or the library alike. <paramref name="beforePlay"/>
+    /// runs first, e.g. to select the option. Paired, it's queued until the partner picks too (or forced
+    /// on them under mutual override), so one click sends at most one tell.
     public static void ClickTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
-        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null, bool offerPartnerRole = false)
+        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
     {
         void Play() => PlayOptionTrigger(plugin, mod, group, option, trigger, collectionId, beforePlay);
 
@@ -33,10 +30,6 @@ public static class PlayDispatch
         if (plugin.PairingState.SoloPlayEnabled)
         {
             Play();
-        }
-        else if (offerPartnerRole && TryRelayPartnerRole(plugin, mod, group, option, trigger, Play))
-        {
-            // Plays once the partner accepts.
         }
         // Paired: queue. Under mutual override, a second click forces this pick on the partner, with
         // hashes so they can resolve it.
@@ -54,34 +47,6 @@ public static class PlayDispatch
         else
             Play();
     }
-
-    /// Paired, with the partner close by, and the option has exactly two roles: sends the partner the
-    /// one not clicked, and plays <paramref name="play"/> once they accept. False when it doesn't apply.
-    private static bool TryRelayPartnerRole(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
-        PoseTriggerHint trigger, Action play)
-    {
-        if (!plugin.Configuration.SendPartnerRole || !plugin.PairingState.Active || plugin.PairingState.Peer is not { } peer)
-            return false;
-
-        var clicked = TriggerText(trigger);
-        var roles = option.Triggers.Select(TriggerText).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (roles.Count != 2 || roles.FirstOrDefault(r => !string.Equals(r, clicked, StringComparison.OrdinalIgnoreCase)) is not { } other)
-            return false;
-
-        if (Plugin.ObjectTable.LocalPlayer is not { } localPlayer || PartnerAnchor.TryFindLive(peer) is not { } partner ||
-            Vector3.Distance(localPlayer.Position, partner.Position) > RoleRelayMaxDistance)
-            return false;
-
-        plugin.CoupleRelayOutbox.StartRole(DescribePlayLabel(mod, option), RoleHashesFor(mod, group, option, other), play);
-        return true;
-    }
-
-    private static RoleHashes RoleHashesFor(PoseModInfo mod, PoseModGroup group, PoseModOption option, string triggerText) =>
-        new(ModDirectoryHash.Compute(mod.ModDirectory),
-            group.IsImplicit ? "0" : ModDirectoryHash.Compute(group.Name),
-            ModDirectoryHash.Compute(option.Name),
-            ModDirectoryHash.Compute(triggerText),
-            OptionKeyHash(option.Name));
 
     /// The option name without its number, spacing or case, so a sibling mod's copy matches.
     private static string OptionKeyHash(string optionName) =>

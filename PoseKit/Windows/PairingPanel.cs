@@ -71,12 +71,7 @@ public static class PairingPanel
         }
 
         PoseKitUi.SectionHeader("Options");
-        var overrideEnabled = state.LocalOverrideEnabled;
-        if (ImGui.Checkbox("Override queue##PoseKitOverrideQueue", ref overrideEnabled))
-        {
-            state.SetLocalOverrideEnabled(overrideEnabled);
-            plugin.PairingListener.SendOverrideToggle(overrideEnabled);
-        }
+        DrawOverrideToggle(plugin, "Override queue");
 
         if (state.MutualOverrideActive)
         {
@@ -107,6 +102,25 @@ public static class PairingPanel
     // pairing strip (compact), so both windows act the same.
 
     /// A pairing invite waiting on this side. False when there's none.
+    /// The shared override toggle, also in the quick library. Turning it on tells the partner, whose
+    /// PoseKit mirrors it; with both on, a second pick plays the first and forces it on the partner.
+    public static void DrawOverrideToggle(Plugin plugin, string label)
+    {
+        var state = plugin.PairingState;
+        var overrideEnabled = state.LocalOverrideEnabled;
+        if (ImGui.Checkbox($"{label}##PoseKitOverrideQueue", ref overrideEnabled))
+        {
+            state.SetLocalOverrideEnabled(overrideEnabled);
+            plugin.PairingListener.SendOverrideToggle(overrideEnabled);
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(state.MutualOverrideActive
+                ? "Override active: your first pick queues, your second plays both and forces the first on your partner."
+                : state.LocalOverrideEnabled
+                    ? "Waiting on your partner to turn override on too."
+                    : "Picks queue until you've both chosen, then both play. Turn on to choose for both of you.");
+    }
+
     public static bool DrawPendingInvite(Plugin plugin, bool compact)
     {
         var state = plugin.PairingState;

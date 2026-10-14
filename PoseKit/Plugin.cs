@@ -301,6 +301,7 @@ public sealed class Plugin : IDalamudPlugin
 
         OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
+        PairingSender.Tick();
         PairingListener.Tick();
         CoupleQueueService.Tick();
         CouplePresetCaptureService.Tick();

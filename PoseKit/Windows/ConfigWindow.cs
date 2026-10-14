@@ -87,16 +87,6 @@ public class ConfigWindow : Window, IDisposable
             }
             PoseKitUi.TextWrappedDisabled("Opens the library each time you sit or lie down. Closing it keeps it " +
                                            "closed until you sit or lie down again.");
-            var sendRole = configuration.SendPartnerRole;
-            if (ImGui.Checkbox("Send my partner the other role", ref sendRole))
-            {
-                configuration.SendPartnerRole = sendRole;
-                configuration.Save();
-            }
-            PoseKitUi.TextWrappedDisabled($"Paired and within {PoseKit.Library.PlayDispatch.RoleRelayMaxDistance:0} yalms: " +
-                                           "clicking one role of a couple animation in the library (e.g. Dom on groundsit 2) " +
-                                           "offers your partner the other role, and both play once they accept.");
-
             PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
             PoseKitUi.TextWrappedDisabled("Disabled mods are listed too — PoseKit enables one temporarily when you play a pose from it.");
 

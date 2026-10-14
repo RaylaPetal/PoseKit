@@ -54,9 +54,6 @@ public class Configuration : IPluginConfiguration
     /// Opens the quick library each time the character sits or lies down.
     public bool OpenLibraryWhenSeated { get; set; } = true;
 
-    /// Paired and close by: clicking one role of a two-role library animation sends the partner the other.
-    public bool SendPartnerRole { get; set; } = true;
-
     /// A move/rotate gizmo on the character's root, shown below the live-offset sliders' toggle.
     public bool ShowOffsetGizmo { get; set; }
 

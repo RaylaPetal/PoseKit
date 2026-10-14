@@ -77,6 +77,16 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         if (ImGui.CollapsingHeader("Adjust##PoseKitLibraryAdjust", ImGuiTreeNodeFlags.DefaultOpen))
         {
             PresetButtonsPanel.DrawGizmoToggle(plugin);
+            if (plugin.PairingState.Active)
+            {
+                // Right-aligned on the gizmo line.
+                const string overrideLabel = "Override";
+                var width = ImGui.GetFrameHeight() + ImGui.GetStyle().ItemInnerSpacing.X + ImGui.CalcTextSize(overrideLabel).X;
+                ImGui.SameLine();
+                var x = ImGui.GetWindowContentRegionMax().X - width;
+                if (ImGui.GetCursorPosX() < x) ImGui.SetCursorPosX(x);
+                PairingPanel.DrawOverrideToggle(plugin, overrideLabel);
+            }
             BoneAlignPanel.Draw(plugin, compact: true);
             ImGui.Spacing();
         }
@@ -431,8 +441,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
                 {
                     // Selection is read at click time, since a play may have just changed it.
                     var beforePlay = PlayDispatch.SelectOptionBeforePlay(plugin, entry.Mod, entry.Group, entry.Option, collectionId);
-                    PlayDispatch.ClickTrigger(plugin, entry.Mod, entry.Group, entry.Option, trigger, collectionId, beforePlay,
-                        offerPartnerRole: entry.IsCouple);
+                    PlayDispatch.ClickTrigger(plugin, entry.Mod, entry.Group, entry.Option, trigger, collectionId, beforePlay);
                 }
             }
             PoseKitUi.DrawPickBadge(pick);
