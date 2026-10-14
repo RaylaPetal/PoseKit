@@ -8,25 +8,32 @@ namespace PoseKit.Library.Categories;
 /// Gives every library entry its themes, acts and hidden flag, later layers winning: automatic
 /// categories (with their pairing fallbacks), then the player's categories.json, where rules add and
 /// per-animation entries replace.
+///
+/// Automatic categories are worked out per animation, not per option: every option of one animation
+/// (its roles, sizes and variants) gets the same themes and acts, so the animation is always listed
+/// whole. Only the player's own entries can then tell its options apart.
 /// </summary>
 public static class CategoryResolver
 {
     public static void Apply(IEnumerable<LibraryEntry> index, CategoryFile file)
     {
-        foreach (var entry in index)
+        foreach (var animation in index.GroupBy(e => e.AnimationKey))
         {
-            var themes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var acts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var input = new AutoCategoryInput(entry.Mod.ModName, entry.Group.Name, entry.Option.Name,
-                entry.Group.Description, entry.Option.Description, entry.IsCouple);
-            AutoCategories.Apply(input, themes, acts);
+            var options = animation.ToList();
+            var (themes, acts) = AutoCategories.Categorize(AutoCategories.Combine(options.Select(e =>
+                new AutoCategoryInput(e.Mod.ModName, e.Group.Name, e.Option.Name, e.Group.Description,
+                    e.Option.Description, e.IsCouple)).ToList()));
 
-            AutoCategories.AddPairingFallbacks(input, themes, acts);
-            var hidden = file.Source.Apply(entry.Mod.ModName, entry.Group.Name, entry.Option.Name, themes, acts) ?? false;
+            foreach (var entry in options)
+            {
+                var entryThemes = new HashSet<string>(themes, StringComparer.OrdinalIgnoreCase);
+                var entryActs = new HashSet<string>(acts, StringComparer.OrdinalIgnoreCase);
+                var hidden = file.Source.Apply(entry.Mod.ModName, entry.Group.Name, entry.Option.Name, entryThemes, entryActs) ?? false;
 
-            entry.Hidden = hidden;
-            entry.Themes = themes;
-            entry.Acts = acts;
+                entry.Hidden = hidden;
+                entry.Themes = entryThemes;
+                entry.Acts = entryActs;
+            }
         }
     }
 

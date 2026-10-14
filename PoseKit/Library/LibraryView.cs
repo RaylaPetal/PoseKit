@@ -51,10 +51,10 @@ public sealed class LibraryView
         /// Every root on a visible option, in display order, with its playable count.
         public List<(string Name, int Count)> Roots { get; } = [];
 
-        /// Per pairing root: its categories in display order with counts.
+        /// Per pairing root: its acts in display order with counts.
         public Dictionary<string, List<(string Name, int Count)>> Categories { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        /// Per pairing root: playable options with no category, when there are any.
+        /// Per pairing root: playable options with no act, when there are any.
         public Dictionary<string, int> Other { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int All { get; set; }
@@ -137,7 +137,8 @@ public sealed class LibraryView
                 if (!categoryKeys.TryGetValue(root, out var categories))
                     categoryKeys[root] = categories = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
                 var any = false;
-                foreach (var category in entry.Themes.Where(t => !AutoCategories.IsRoot(t)))
+                // A pairing root is browsed by act (Oral, Vaginal, …); styles like BDSM stay searchable tags.
+                foreach (var category in entry.Acts)
                 {
                     Tally(categories, category, animation, playable);
                     any = true;
@@ -151,7 +152,7 @@ public sealed class LibraryView
         foreach (var root in CategoryResolver.Order(rootKeys.Keys, AutoCategories.ThemeOrder))
             counts.Roots.Add((root, rootKeys[root].Count));
         foreach (var (root, categories) in categoryKeys)
-            counts.Categories[root] = CategoryResolver.Order(categories.Keys, AutoCategories.ThemeOrder)
+            counts.Categories[root] = CategoryResolver.Order(categories.Keys, AutoCategories.ActOrder)
                 .Select(c => (c, categories[c].Count)).ToList();
         foreach (var (root, keys) in otherKeys)
             counts.Other[root] = keys.Count;
@@ -193,8 +194,8 @@ public sealed class LibraryView
         CategoryLevel.Root => !entry.Hidden && path.Root != null && entry.Themes.Contains(path.Root) && path.Category switch
         {
             null => true,
-            OtherCategory => entry.Themes.All(AutoCategories.IsRoot),
-            var category => entry.Themes.Contains(category),
+            OtherCategory => entry.Acts.Count == 0,
+            var category => entry.Acts.Contains(category),
         },
         _ => false,
     };

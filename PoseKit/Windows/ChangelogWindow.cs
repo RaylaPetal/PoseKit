@@ -12,24 +12,24 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.0.0.2";
+    public const string ChangelogId = "3.0.0.4";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
         ("Quick Library", [
             "A small on-screen chip opens a compact animation library. It's always shown while you're paired; you can hide it when solo in Settings.",
-            "Browse by Futa, Gay, Straight or Lesbian, then by category (Vanilla, Romantic, BDSM, Rough…), or open Cuddles, Solo, Idles and Dancing. Cuddles and kisses that aren't sex scenes have their own Cuddles root.",
+            "Browse by Futa, Gay, Straight or Lesbian, then by act (Oral, Vaginal, Anal, Handjob & Fingering, Toys, Bondage…), or open Cuddles, Solo, Idles and Dancing. Cuddles and kisses that aren't sex scenes have their own Cuddles section.",
             "Animations are laid out like the main window: mod, then animation, then its roles and variants. Long names wrap, and counts are per animation.",
             "It only shows what you can play right now: ground sits, dozes and emotes while standing, sit poses while seated, doze poses while lying down. It opens by itself when you sit or lie down.",
-            "Search stays inside the category you're in. Right-click an animation's title to change its categories or hide it; its roles and variants follow along.",
+            "Search stays inside the section you're in. Right-click an animation's title to change its acts and tags or hide it; its roles and variants follow along.",
             "Rescan and Reload categories buttons sit in the library header.",
             "The Adjust section has the gizmo and Bone Align (parts, gap, auto-align, quick turns, Align and Remember), so you rarely need the main window.",
             "Target a player and pair with them straight from the library.",
         ]),
         ("Categories", [
-            "Animations are sorted automatically from their names and descriptions. Your own tags always win, and right-click > Hide removes toggles or animations you don't want.",
-            "Couple animations that don't need a penis (bondage, foot play, fingering, cuddles) show under both Straight and Lesbian.",
-            "Scenes the mod rates hardcore, and fisting, go under Rough.",
+            "Animations are sorted automatically from their names and descriptions, each animation as a whole, so its roles and variants always stay together. Your own tags always win, and right-click > Hide removes toggles or animations you don't want.",
+            "Anything that doesn't need a penis (bondage, devices, foot play, fingering, pussy play, anal toys) shows under both Straight and Lesbian.",
+            "Every animation lands somewhere: nothing is left under Other. Styles like BDSM, Rough or Romantic are still searchable tags.",
             "Standalone Dom/Sub mods are recognised as couple animations.",
         ]),
         ("Posing", [

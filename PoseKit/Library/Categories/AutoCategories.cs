@@ -72,14 +72,14 @@ public static class AutoCategories
     [
         (Oral, new(@"oral|bukkake|on (your|her|his|my) knees|blow ?job|\bbj\b|cunni|lingus|(?<![a-z])lick|throat|face ?fuck|face ?rid|face ?sit|suck|\b69\b|giving head|head female|eat(s|ing|en)? (out|ass|pussy)|eaten out|(?<![a-z])rim(ming|job)?\b|tongue|dinner time|worship", Options)),
         (Anal, new(@"\banal\b|\bin (the |her |his |your |my )?ass\b|ass ?fuck|butt ?fuck|anus|eat(s|ing)? ass|(?<![a-z])rim(ming|job)?\b|\[anal\]|ass 2 ass", Options)),
-        ("Handjob & Fingering", new(@"hand ?job|finger|jerk|strok|milk(ing)?\b|grope|hitachi|pussy ?rub|panty rub|mage hand|pleasing my partner", Options)),
+        ("Handjob & Fingering", new(@"hand ?job|reach ?around|finger|jerk|strok|milk(ing)?\b|grope|hitachi|pussy ?rub|panty rub|mage hand|pleasing my partner", Options)),
         ("Toys", new(@"dildo|\btoys?\b|machine|vibrat|hitachi|beads|\bplug\b|strap.?on|pocket pussy|fleshlight", Options)),
-        ("Foot & Titjob", new(@"foot ?(job|work)|feet|boob ?job|titty|tit ?(job|fuck)|paizuri|thigh ?job|step on me", Options)),
-        ("Kissing & Cuddling", new(@"kiss|make ?out|cuddle|snuggle|(?<![a-z])hug(?!ger)|spoon|lap pillow|lovey|glomp", Options)),
-        ("Teasing", new(@"teas|show ?off|spread|grind|twerk|strip|booty|butt (shake|sway)|wiggle|jiggle|bounc|sway|flash|yoga|gib milk|pole", Options)),
+        ("Foot & Titjob", new(@"foot[- ]?(job|work)|feet|boob ?job|titty|tit ?(job|fuck)|paizuri|thigh ?job|step on me", Options)),
+        ("Kissing & Cuddling", new(@"kiss|mak(e|ing) ?out|cuddle|snuggle|(?<![a-z])hug(?!ger)|spoon|lap pillow|lovey|glomp", Options)),
+        ("Teasing", new(@"teas|show ?off|spread|grind|frott|sword ?fight|twerk|strip|booty|butt (shake|sway)|wiggle|jiggle|bounc|sway|flash|yoga|gib milk|pole", Options)),
         ("DP", new(@"\bdp\b|double pen|sandwich", Options)),
         ("Bondage", new(@"bondage|struggl|\btie (you|her|him|them|me) up\b|\bbound\b|\bgag|latex|glory wall|brainwash|(?<![a-z])tied|rope|shackle|cuff|chain|pillory|gibbet|suspension|leash|collar|\bcage|stocks|restrain|hogtie|shibari|wooden horse|spread posts|castigation|squatting pole|signpost|hooked|scavenger|\bcross\b", Options)),
-        ("Humiliation", new(@"humiliat|cuckold|human (seat|chair|furniture|table)|step on me|degrad|\bcbt\b|ball ?kick|cock ?slap|slave", Options)),
+        ("Humiliation", new(@"humiliat|whore|receptacle|cuckold|human (seat|chair|furniture|table)|step on me|degrad|\bcbt\b|ball ?kick|cock ?slap|slave", Options)),
         ("Spanking", new(@"spank|paddl|whip|(?<![a-z])slap|flog|caning", Options)),
         ("Submission", new(@"\bbeg(ging)?\b|submi(t|ssive|ssion)|pet ?play", Options)),
         ("Watersports", new(@"\bpee\b|piss|watersport|golden shower", Options)),
@@ -89,7 +89,7 @@ public static class AutoCategories
 
     // A sex position counts as vaginal unless the names say oral or anal.
     private static readonly Regex VaginalPattern =
-        new(@"vaginal|pussy(?! ?(lick|eat|play|rub))|clit|flicking the bean|missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|nelson|plap|pound|\bsex\b|breed|\bpress|pinned|slam|mating|ramming|railing|filled|\bfuck(ing|ed)?\b|thrust|penetrat|creampie|cum pump|lotus(?! ?cuddl)|amazon|\[pussy\]|bench sex", Options);
+        new(@"vaginal|pussy(?! ?(lick|eat|play|rub))|clit|flicking the bean|missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|nelson|congress|plap|pound|\bsex\b|breed|\bpress|pinned|slam|mating|ramming|railing|filled|\bfuck(ing|ed)?\b|thrust|penetrat|creampie|cum pump|lotus(?! ?cuddl)|amazon|\[pussy\]|bench sex", Options);
 
     // The mods' position groups hold sex animations; oral has its own group.
     private static readonly Regex SexPositionGroup =
@@ -134,7 +134,7 @@ public static class AutoCategories
     private static readonly Regex ListNumber = new(@"^\s*\d+[.)]?\s+", Options);
 
     private static readonly Regex Penis =
-        new(@"cock|dick|penis|\bbj\b|blow ?job|hand ?job|futa|throat|jerk|strok|cum pump|thigh ?job|paizuri|titty|boob ?job|deepthroat|balls\b|\bmasc\b|cuckold|condom|\bmdom\b", Options);
+        new(@"cock|dick|penis|\bcbt\b|ball ?(kick|torture|bust)|\bbj\b|blow ?job|hand ?job|futa|throat|jerk|strok|cum pump|thigh ?job|paizuri|titty|boob ?job|deepthroat|balls\b|\bmasc\b|cuckold|condom|\bmdom\b", Options);
 
     // Description lines every option of some packs repeats; they say nothing about the animation.
     private static readonly Regex StockLine =
@@ -170,7 +170,8 @@ public static class AutoCategories
         // A list group's name describes the list, not this option.
         var names = ListGroup.IsMatch(input.GroupName) ? optionName : $"{input.GroupName}\n{optionName}";
         var namedTwo = input.IsCouple || RoleWords.IsMatch(optionName) || TwoPersonActs.IsMatch(names);
-        var couple = namedTwo || notation.IsCouple;
+        // Solo poses carry gender marks too, so the author's "solo" wins over them; named roles still count.
+        var couple = namedTwo || (notation.IsCouple && !soloByAuthor);
 
         foreach (var (name, pattern) in ThemeRules)
             if (pattern.IsMatch(text)) themes.Add(name);
@@ -212,7 +213,7 @@ public static class AutoCategories
         // The packs rate many options "intensity: normal / comfy / hardcore". For a sex scene nothing else
         // flavors, hardcore means rough rather than vanilla; on solo, femdom or dance options it only
         // means explicit, so it's not applied there.
-        if (acts.Any(IsSexAct) && !themes.Any(FlavorThemes.Contains))
+        if (acts.Any(IsSexAct) && !themes.Any(t => FlavorThemes.Contains(t) && !IsRoot(t)))
             themes.Add(HardcoreIntensity.IsMatch(input.OptionDescription) ? "Rough" : Vanilla);
 
         ResolveCuddles(input, themes, acts);
@@ -261,20 +262,81 @@ public static class AutoCategories
     /// Pairings filled in before the player's own file, so a player's removal sticks: Straight by
     /// default, and Lesbian too for a Straight animation that doesn't need a penis (a bound sub
     /// struggling, foot worship).
-    public static void AddPairingFallbacks(in AutoCategoryInput input, ISet<string> themes, IReadOnlySet<string> acts)
+    public static void AddPairingFallbacks(in AutoCategoryInput input, ISet<string> themes, ISet<string> acts)
     {
         AddDefaultRoot(input, themes, acts);
+        EnsureAct(themes, acts);
+        AddLesbianFallback(input, themes, acts);
+    }
+
+    /// Pairing roots are browsed by act, so every animation in one gets an act and nothing lands under
+    /// "Other": a couple scene that names none is most likely penetrative, a BDSM one most likely bondage.
+    private static void EnsureAct(ISet<string> themes, ISet<string> acts)
+    {
+        if (themes.Any(PairingRoots.Contains) && acts.Count == 0)
+            acts.Add(themes.Contains("BDSM") ? "Bondage" : Vaginal);
+
+        // Penetration between two men is anal, whatever the position's name suggested.
+        if (themes.Contains(Gay) && !themes.Contains(Straight) && !themes.Contains(Lesbian) && !themes.Contains(Futa) &&
+            acts.Remove(Vaginal))
+            acts.Add(Anal);
+    }
+
+    /// One animation's options (roles, sizes, variants) categorized as a whole, so they're never split
+    /// across categories: their names and descriptions are read together, and a couple if any is.
+    public static AutoCategoryInput Combine(IReadOnlyList<AutoCategoryInput> options) =>
+        options.Count == 1 ? options[0] : options[0] with
+        {
+            OptionName = string.Join('\n', options.Select(o => o.OptionName)),
+            OptionDescription = string.Join('\n', options.Select(o => o.OptionDescription).Where(d => d.Length > 0)),
+            IsCouple = options.Any(o => o.IsCouple),
+        };
+
+    /// The automatic themes and acts for one animation, pairing fallbacks included.
+    public static (HashSet<string> Themes, HashSet<string> Acts) Categorize(in AutoCategoryInput input)
+    {
+        var themes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var acts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Apply(input, themes, acts);
+        AddPairingFallbacks(input, themes, acts);
+        return (themes, acts);
+    }
+
+    private static void AddLesbianFallback(in AutoCategoryInput input, ISet<string> themes, ICollection<string> acts)
+    {
         if (!themes.Contains(Straight) || themes.Contains(Lesbian) || themes.Contains(Gay) || themes.Contains(Futa)) return;
         if (themes.Contains(Solo) || themes.Contains(Idles) || themes.Contains(Dancing)) return;
-        if (themes.Contains("Group") || themes.Contains("Beast & Monster") || themes.Contains("Big Races")) return;
-        if (acts.Any(a => a is Vaginal or Anal or "DP")) return;
+        if (themes.Contains("Group") || themes.Contains("Beast & Monster")) return;
+        if (acts.Contains("DP")) return;
 
+        // Only evidence of a penis keeps it Straight-only: Anal alone is beads or fingering, and Vaginal
+        // named only through pussy, clit or panty play is hands and mouths; an unnamed sex position isn't.
         var text = Text(input);
-        if (Penis.IsMatch(text) || MaleRole.IsMatch(text) || (Penetration.IsMatch(text) && !StrapOn.IsMatch(text))) return;
+        // A man named next to female roles ("Tall Males" / "Tall Females") just means sizes for both.
+        if (Penis.IsMatch(text) || (MaleRole.IsMatch(text) && !FemaleRole.IsMatch(text))) return;
+        // Strapped to a device, "riding" a wooden horse or bent over "doggy" isn't sex.
+        var sex = acts.Contains("Bondage") ? DeviceSafePenetration : PenetrativeSex;
+        if (sex.IsMatch(text) && !StrapOn.IsMatch(text)) return;
+        // In a bondage scene a Vaginal act from riding a device was ruled out just above.
+        if (acts.Contains(Vaginal) && !PussyPlay.IsMatch(text) && !acts.Contains("Bondage")) return;
         // Unnamed oral ("On Your Knees") is a blowjob far more often than not.
         if (acts.Contains(Oral) && !LesbianActs.IsMatch(text)) return;
         themes.Add(Lesbian);
     }
+
+    // Penetrative sex: the penetration words plus the positions that only describe it.
+    private static readonly Regex PenetrativeSex =
+        new(@"missionary|cowgirl|cowboy|dogg(y|ie)|riding|\bride|plap|pound|\bsex\b|breed|\bpress|filled|\bfuck|thrust|" +
+            @"penetrat|creampie|lotus(?! ?cuddl)|\bdp\b|nelson|pinned|slam|mating|ramming|railing|amazon|cum pump|congress", Options);
+
+    private static readonly Regex DeviceSafePenetration =
+        new(@"cowgirl|cowboy|plap|pound|\bsex\b|breed|\bpress|filled|\bfuck|thrust|penetrat|creampie|\bdp\b|" +
+            @"missionary|nelson|pinned|slam|mating|ramming|railing|amazon|cum pump|congress", Options);
+
+    private static readonly Regex FemaleRole =
+        new(@"\bfemales?\b|\b(standard|tall|big|small|mid|short)\s+f\b|\bf\s*[x&/]\s*f\b", Options);
+
+    private static readonly Regex PussyPlay = new(@"pussy|clit|flicking the bean|panty|finger", Options);
 
     // A man named in a role or size option: "Tall Males", "Standard M", "MxF".
     private static readonly Regex MaleRole =
@@ -284,11 +346,18 @@ public static class AutoCategories
     /// animations are written for a man and a woman without saying so, so a categorized or two-person
     /// one is Straight; a one-person tease is Solo; anything with no categories at all (party emotes,
     /// lounging) is an idle.
-    private static void AddDefaultRoot(in AutoCategoryInput input, ISet<string> themes, IReadOnlySet<string> acts)
+    private static void AddDefaultRoot(in AutoCategoryInput input, ISet<string> themes, ICollection<string> acts)
     {
+        // A sex scene doesn't belong under Idles because one of its triggers is an idle pose.
+        if (acts.Any(IsSexAct)) themes.Remove(Idles);
+
         // A sex scene that's also a cuddle still needs its pairing; a plain cuddle doesn't.
         if (themes.Contains(Cuddles) && !acts.Any(IsSexAct)) return;
-        if (themes.Any(t => IsRoot(t) && !string.Equals(t, Cuddles, StringComparison.OrdinalIgnoreCase))) return;
+        // One animation's options can cover several pairings ("Giver: Standard M" next to "Giver:
+        // Standard F"): a Futa or Lesbian line doesn't make it theirs alone while a man has a role too.
+        var manInRole = MaleRole.IsMatch(Text(input));
+        if (themes.Any(t => IsRoot(t) && !string.Equals(t, Cuddles, StringComparison.OrdinalIgnoreCase) &&
+                            !(manInRole && t is Futa or Lesbian))) return;
         if (themes.Any(t => !NonPairingCategories.Contains(t)) || IsTwoPerson(input)) themes.Add(Straight);
         else if (acts.Contains("Teasing")) themes.Add(Solo);
         else if (acts.Count == 0) themes.Add(Idles);
