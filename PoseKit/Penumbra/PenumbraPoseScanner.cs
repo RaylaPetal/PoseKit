@@ -68,11 +68,16 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
     /// One per option combination in a Combining group; bit i of the index means option i is on.
     private sealed record ContainerDto(Dictionary<string, string>? Files);
 
+    /// Penumbra also writes an empty "Containers" list on Single/Multi groups, so only the group
+    /// type says whether files live in containers.
+    private static List<ContainerDto>? CombiningContainers(GroupFileDto group) =>
+        string.Equals(group.Type, "Combining", StringComparison.OrdinalIgnoreCase) ? group.Containers : null;
+
     /// An option's game paths. Combining groups keep files in containers instead of on options,
     /// so an option gets every container its bit is set in.
     private static IEnumerable<string> OptionFileKeys(GroupFileDto group, int optionIndex)
     {
-        if (group.Containers is not { } containers)
+        if (CombiningContainers(group) is not { } containers)
             return group.Options[optionIndex].Files?.Keys ?? Enumerable.Empty<string>();
 
         return containers
@@ -84,7 +89,7 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
     /// The game paths active for these selected options.
     private static IEnumerable<string> SelectedFileKeys(GroupFileDto group, IReadOnlyCollection<string> selected)
     {
-        if (group.Containers is not { } containers)
+        if (CombiningContainers(group) is not { } containers)
         {
             return group.Options
                 .Where(opt => selected.Contains(opt.Name))
