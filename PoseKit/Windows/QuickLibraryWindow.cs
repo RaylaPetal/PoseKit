@@ -262,11 +262,6 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         ImGui.PushTextWrapPos(0);
         ImGui.TextUnformatted(animation.Rows.Count > 1 ? $"{animation.Group.Name}  ({animation.Rows.Count})" : animation.Group.Name);
         ImGui.PopTextWrapPos();
-        if (animation.IsCouple)
-        {
-            ImGui.SameLine(0, RowItemSpacing);
-            ImGui.TextColored(PoseKitUi.Info, "Couple");
-        }
 
         if (open)
         {

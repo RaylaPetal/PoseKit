@@ -18,10 +18,7 @@ public sealed class LibraryView
     public sealed record Row(LibraryEntry Entry, List<PoseTriggerHint> Triggers, bool Favorite);
 
     /// One option group: in most packs the animation itself, its options the roles or variants.
-    public sealed record Animation(PoseModGroup Group, List<Row> Rows)
-    {
-        public bool IsCouple { get; } = Rows.Any(r => r.Entry.IsCouple);
-    }
+    public sealed record Animation(PoseModGroup Group, List<Row> Rows);
 
     public sealed record ModBlock(PoseModInfo Mod, List<Animation> Animations);
 
