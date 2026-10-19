@@ -61,7 +61,7 @@ public sealed class LibraryView
         public int Hidden { get; set; }
         public bool AnyHidden { get; set; }
 
-        /// Names offered when tagging: the automatic ones plus any in use.
+        /// Names offered when tagging: the roots (themes) or automatic acts, plus the player's own.
         public List<string> KnownThemes { get; set; } = [];
         public List<string> KnownActs { get; set; } = [];
     }
@@ -137,7 +137,7 @@ public sealed class LibraryView
                 if (!categoryKeys.TryGetValue(root, out var categories))
                     categoryKeys[root] = categories = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
                 var any = false;
-                // A pairing root is browsed by act (Oral, Vaginal, …); styles like BDSM stay searchable tags.
+                // A pairing root is browsed by act (Oral, Vaginal, …); styles like BDSM only pick roots.
                 foreach (var category in entry.Acts)
                 {
                     Tally(categories, category, animation, playable);
@@ -156,7 +156,11 @@ public sealed class LibraryView
                 .Select(c => (c, categories[c].Count)).ToList();
         foreach (var (root, keys) in otherKeys)
             counts.Other[root] = keys.Count;
-        counts.KnownThemes = CategoryResolver.Order(AutoCategories.ThemeOrder.Concat(allThemes), AutoCategories.ThemeOrder);
+        // Automatic styles (BDSM, Romantic, …) only help pick a root and aren't browsed, so tagging
+        // offers the roots plus the player's own names.
+        counts.KnownThemes = CategoryResolver.Order(
+            AutoCategories.Roots.Concat(allThemes.Where(t => !AutoCategories.ThemeOrder.Contains(t, StringComparer.OrdinalIgnoreCase))),
+            AutoCategories.ThemeOrder);
         counts.KnownActs = CategoryResolver.Order(AutoCategories.ActOrder.Concat(allActs), AutoCategories.ActOrder);
 
         cachedCounts = counts;

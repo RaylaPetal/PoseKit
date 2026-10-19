@@ -136,6 +136,16 @@ public static class AutoCategories
     private static readonly Regex Penis =
         new(@"cock|dick|penis|\bcbt\b|ball ?(kick|torture|bust)|\bbj\b|blow ?job|hand ?job|futa|throat|jerk|strok|cum pump|thigh ?job|paizuri|titty|boob ?job|deepthroat|balls\b|\bmasc\b|cuckold|condom|\bmdom\b", Options);
 
+    // Penis evidence besides oral on one, which a dildo or strap-on stands in for ("Forced Dildo BJ").
+    private static readonly Regex PenisBesidesOral =
+        new(@"cock|dick|penis|\bcbt\b|ball ?(kick|torture|bust)|hand ?job|futa|jerk|strok|cum pump|thigh ?job|paizuri|titty|boob ?job|balls\b|\bmasc\b|cuckold|condom|\bmdom\b", Options);
+
+    private static readonly Regex PhallicToy = new(@"dildo|strap.?on", Options);
+
+    /// A blowjob on a dildo or strap-on needs no penis, so two women can play it.
+    private static bool NamesPenis(string text) =>
+        PhallicToy.IsMatch(text) ? PenisBesidesOral.IsMatch(text) : Penis.IsMatch(text);
+
     // Description lines every option of some packs repeats; they say nothing about the animation.
     private static readonly Regex StockLine =
         new(@"^\s*(intensity\s*:|similar height|by\s|note from mod|please check this link|-?\s*https?://|solo\s*$)", Options);
@@ -191,7 +201,7 @@ public static class AutoCategories
         // Solo poses carry marks too, so the names must show two roles.
         var namedCouple = namedTwo && !themes.Contains(Solo) &&
                           !themes.Contains("Dancing") && !SoloTag.IsMatch(optionName);
-        var twoWomen = namedCouple && !themes.Contains("Group") && !themes.Contains("Beast & Monster") && !Penis.IsMatch(text);
+        var twoWomen = namedCouple && !themes.Contains("Group") && !themes.Contains("Beast & Monster") && !NamesPenis(text);
         if (twoWomen && notation.FemaleFemale) themes.Add(Lesbian);
         if (namedCouple && notation.MaleMaleMadeFor) themes.Add(Gay);
         // Only guessed from acts two women can do, not marked as lesbian, so it suits a man and a
@@ -313,14 +323,14 @@ public static class AutoCategories
         // named only through pussy, clit or panty play is hands and mouths; an unnamed sex position isn't.
         var text = Text(input);
         // A man named next to female roles ("Tall Males" / "Tall Females") just means sizes for both.
-        if (Penis.IsMatch(text) || (MaleRole.IsMatch(text) && !FemaleRole.IsMatch(text))) return;
+        if (NamesPenis(text) || (MaleRole.IsMatch(text) && !FemaleRole.IsMatch(text))) return;
         // Strapped to a device, "riding" a wooden horse or bent over "doggy" isn't sex.
         var sex = acts.Contains("Bondage") ? DeviceSafePenetration : PenetrativeSex;
         if (sex.IsMatch(text) && !StrapOn.IsMatch(text)) return;
         // In a bondage scene a Vaginal act from riding a device was ruled out just above.
         if (acts.Contains(Vaginal) && !PussyPlay.IsMatch(text) && !acts.Contains("Bondage")) return;
-        // Unnamed oral ("On Your Knees") is a blowjob far more often than not.
-        if (acts.Contains(Oral) && !LesbianActs.IsMatch(text)) return;
+        // Unnamed oral ("On Your Knees") is a blowjob far more often than not, unless it's on a toy.
+        if (acts.Contains(Oral) && !LesbianActs.IsMatch(text) && !PhallicToy.IsMatch(text)) return;
         themes.Add(Lesbian);
     }
 

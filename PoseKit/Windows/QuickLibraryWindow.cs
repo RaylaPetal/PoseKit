@@ -520,7 +520,8 @@ public sealed class QuickLibraryWindow : Window, IDisposable
     private static HashSet<string>? DrawNameToggles(IReadOnlySet<string> current, List<string> known, ref string newName, string kind)
     {
         HashSet<string>? changed = null;
-        foreach (var name in known.Concat(current).Distinct(StringComparer.OrdinalIgnoreCase))
+        // Only the offered names: an option's automatic styles stay set but aren't listed (see KnownThemes).
+        foreach (var name in known)
         {
             var on = current.Contains(name);
             if (!ImGui.Checkbox($"{name}##PoseKitTag{kind}{name}", ref on)) continue;

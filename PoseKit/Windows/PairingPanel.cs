@@ -29,6 +29,21 @@ public static class PairingPanel
         ImGui.TextWrapped("Pair with a partner to queue poses and play couple presets together.");
         ImGui.Spacing();
 
+        // The same target pairing as the quick library; typing a name still works for anyone.
+        if (PairingTargets.TryGetTargetedIdentity(Plugin.ObjectTable.LocalPlayer) is { } targeted)
+        {
+            if (PoseKitUi.WideButton($"Pair with {targeted.Name}##PoseKitPairTarget"))
+                plugin.PairingListener.InitiatePairing(targeted);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"Send a PoseKit pairing invite to {targeted}.");
+            ImGui.Spacing();
+            ImGui.TextColored(PoseKitUi.Muted, "Or invite by name:");
+        }
+        else
+        {
+            PoseKitUi.TextWrappedDisabled("Target a player to pair with them, or invite by name:");
+        }
+
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##PoseKitInviteAddress", "Name Surname@World", ref inviteAddress, 64);
 
