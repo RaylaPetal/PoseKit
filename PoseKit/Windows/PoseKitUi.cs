@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
 
 namespace PoseKit.Windows;
@@ -287,6 +288,54 @@ internal static class PoseKitUi
                    .Push(ImGuiCol.ButtonHovered, BadHovered)
                    .Push(ImGuiCol.ButtonActive, Bad))
             return ImGui.Button(label);
+    }
+
+    /// Starred animations.
+    public static readonly Vector4 Favorite = new(1f, 0.8f, 0.3f, 1f);
+
+    /// Saved presets, so they're never mistaken for a mod's animations.
+    public static readonly Vector4 Preset = new(0.38f, 0.84f, 0.76f, 1f);
+    private static readonly Vector4 PresetMuted = new(0.14f, 0.36f, 0.34f, 1f);
+    private static readonly Vector4 PresetHovered = new(0.19f, 0.47f, 0.44f, 1f);
+
+    public static ImRaii.ColorDisposable PushPresetButtonStyle() =>
+        ImRaii.PushColor(ImGuiCol.Button, PresetMuted)
+            .Push(ImGuiCol.ButtonHovered, PresetHovered)
+            .Push(ImGuiCol.ButtonActive, PresetHovered);
+
+    /// Draws <paramref name="body"/> on a rounded panel spanning the content width, behind it.
+    public static void Panel(Vector4 color, Action body)
+    {
+        const float pad = 4f;
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.ChannelsSplit(2);
+        drawList.ChannelsSetCurrent(1);
+
+        var top = ImGui.GetCursorScreenPos();
+        ImGui.Dummy(new Vector2(0, pad / 2));
+        ImGui.Indent(pad);
+        body();
+        ImGui.Unindent(pad);
+        ImGui.Dummy(new Vector2(0, pad / 2));
+        var right = ImGui.GetWindowPos().X + ImGui.GetWindowContentRegionMax().X;
+
+        drawList.ChannelsSetCurrent(0);
+        drawList.AddRectFilled(top, new Vector2(right, ImGui.GetCursorScreenPos().Y - ImGui.GetStyle().ItemSpacing.Y),
+            ImGui.GetColorU32(color), 4f);
+        drawList.ChannelsMerge();
+    }
+
+    /// A star toggle, gold when on. True when clicked.
+    public static bool FavoriteStar(string id, bool on)
+    {
+        bool clicked;
+        using (Plugin.PluginInterface.UiBuilder.IconFontHandle.Push())
+        using (ImRaii.PushColor(ImGuiCol.Text, on ? Favorite : Muted with { W = 0.5f })
+                   .Push(ImGuiCol.Button, Vector4.Zero))
+            clicked = ImGui.SmallButton($"{FontAwesomeIcon.Star.ToIconString()}##PoseKitFavorite{id}");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(on ? "Remove from favorites" : "Add to favorites: listed at the top of its mod");
+        return clicked;
     }
 
     public static bool WideButton(string label) =>

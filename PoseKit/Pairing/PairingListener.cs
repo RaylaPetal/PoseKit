@@ -214,7 +214,7 @@ public sealed class PairingListener : IDisposable
             if (inviteId.Length > 0)
             {
                 state.SetPendingInvite(sender, inviteId);
-                Echo($"{sender.Name} invited you to pair. Accept in the library (/posekit lib) or PoseKit's pairing panel.");
+                Echo($"{sender.Name} invited you to pair. Accept in the notification, the library (/posekit lib) or PoseKit's pairing panel.");
             }
             return;
         }

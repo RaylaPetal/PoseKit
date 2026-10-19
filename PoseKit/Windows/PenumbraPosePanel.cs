@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility.Raii;
 using PoseKit.Library;
 using PoseKit.Pairing;
 using PoseKit.Penumbra;
@@ -72,6 +73,8 @@ public static class PenumbraPosePanel
         var anyVisible = false;
         var activePoses = ActivePoseMap.Build(plugin.DiscoveredPoses);
 
+        anyVisible |= DrawFavorites(plugin, collectionId, animationSearch);
+
         foreach (var mod in plugin.DiscoveredPoses)
         {
             if (!ModMatches(mod, animationSearch))
@@ -140,6 +143,7 @@ public static class PenumbraPosePanel
                 if (DescribeConflict(plugin, activePoses, mod, option, collectionId) is { } conflict)
                     PoseKitUi.DrawConflictMarker(ConflictId(mod, option), conflict.Tooltip, conflict.Resolve);
                 DrawOptionPickMarker(plugin, mod, option);
+                DrawOptionStar(plugin, mod, group, option);
                 DrawTriggerButtons(plugin, mod, group, option, collectionId, "PoseKitDefaultPlay");
             }
             ImGui.PopID();
@@ -165,7 +169,10 @@ public static class PenumbraPosePanel
                 foreach (var option in visibleOptions)
                 {
                     var isChecked = group.Selected.Contains(option.Name);
-                    if (ImGui.Checkbox(option.Name, ref isChecked) && collectionId is { } cid)
+                    bool toggled;
+                    using (ImRaii.PushColor(ImGuiCol.Text, PoseKitUi.Favorite, Favorites.IsFavorite(plugin.Configuration, mod, group, option)))
+                        toggled = ImGui.Checkbox(option.Name, ref isChecked);
+                    if (toggled && collectionId is { } cid)
                     {
                         var newSelection = new HashSet<string>(group.Selected);
                         if (isChecked) newSelection.Add(option.Name);
@@ -177,6 +184,7 @@ public static class PenumbraPosePanel
                     if (isChecked && DescribeConflict(plugin, activePoses, mod, option, collectionId) is { } conflict)
                         PoseKitUi.DrawConflictMarker(ConflictId(mod, option), conflict.Tooltip, conflict.Resolve);
                     DrawOptionPickMarker(plugin, mod, option);
+                    DrawOptionStar(plugin, mod, group, option);
 
                     DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitMultiPlay{option.Name.GetHashCode()}");
                 }
@@ -206,12 +214,16 @@ public static class PenumbraPosePanel
                 foreach (var option in visibleOptions)
                 {
                     var isSelected = group.Selected.Contains(option.Name);
-                    if (ImGui.Selectable(option.Name, isSelected) && collectionId is { } cid)
+                    bool clicked;
+                    using (ImRaii.PushColor(ImGuiCol.Text, PoseKitUi.Favorite, Favorites.IsFavorite(plugin.Configuration, mod, group, option)))
+                        clicked = ImGui.Selectable(option.Name, isSelected);
+                    if (clicked && collectionId is { } cid)
                     {
                         PlayDispatch.ApplyGroupChange(plugin, mod, group, [option.Name], cid);
                     }
 
                     DrawOptionPickMarker(plugin, mod, option);
+                    DrawOptionStar(plugin, mod, group, option);
 
                     // Every option gets a Play button that selects it first.
                     DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitComboPlay{option.Name.GetHashCode()}",
@@ -230,10 +242,65 @@ public static class PenumbraPosePanel
                 DrawOptionPickMarker(plugin, mod, selectedOption);
 
             if (selectedOption != null)
+            {
+                DrawOptionStar(plugin, mod, group, selectedOption);
                 DrawTriggerButtons(plugin, mod, group, selectedOption, collectionId, "PoseKitGroupPlay");
+            }
         }
 
         ImGui.PopID();
+    }
+
+    /// The option's star, on the current line. Options with nothing to play get none.
+    private static void DrawOptionStar(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option)
+    {
+        if (option.Triggers.Count == 0) return;
+        ImGui.SameLine();
+        if (PoseKitUi.FavoriteStar($"Option{option.Name.GetHashCode()}", Favorites.IsFavorite(plugin.Configuration, mod, group, option)))
+            Favorites.Toggle(plugin.Configuration, mod, group, option);
+    }
+
+    /// Every starred animation in a section of its own above the mods, playable without opening
+    /// their mod or group (a list group can hold hundreds). Playing selects the option first, like
+    /// the combo's buttons. False when none matches the search.
+    private static bool DrawFavorites(Plugin plugin, Guid? collectionId, string filter)
+    {
+        var favorites = Favorites.All(plugin.Configuration, plugin.DiscoveredPoses)
+            .Where(f => string.IsNullOrWhiteSpace(filter) || Matches(f.Mod.ModName, filter) || Matches(f.Group.Name, filter) ||
+                        OptionMatches(f.Option, filter))
+            .ToList();
+        if (favorites.Count == 0) return false;
+
+        bool open;
+        using (ImRaii.PushColor(ImGuiCol.Text, PoseKitUi.Favorite))
+            open = ImGui.CollapsingHeader($"Favorites  ({favorites.Count})##PoseKitFavorites", ImGuiTreeNodeFlags.DefaultOpen);
+        if (!open) return true;
+
+        ImGui.PushID("PoseKitFavorites");
+        ImGui.Indent();
+        foreach (var (mod, group, option) in favorites)
+        {
+            ImGui.PushID(mod.ModDirectory);
+            ImGui.PushID(group.Name);
+            ImGui.AlignTextToFramePadding();
+            if (PoseKitUi.FavoriteStar($"Option{option.Name.GetHashCode()}", true))
+                Favorites.Toggle(plugin.Configuration, mod, group, option);
+            ImGui.SameLine();
+            ImGui.PushTextWrapPos(0);
+            ImGui.TextColored(PoseKitUi.Favorite, group.IsImplicit && option.Name is "" or "Default" ? mod.ModName : option.Name);
+            ImGui.PopTextWrapPos();
+            ImGui.TextColored(PoseKitUi.Muted, Favorites.Context(mod, group));
+            DrawOptionPickMarker(plugin, mod, option);
+            DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitFavoritePlay{option.Name.GetHashCode()}",
+                PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
+            ImGui.Spacing();
+            ImGui.PopID();
+            ImGui.PopID();
+        }
+        ImGui.Unindent();
+        ImGui.PopID();
+        ImGui.Separator();
+        return true;
     }
 
     /// Whether a queued pick is in this mod, so its header can open and show a badge.

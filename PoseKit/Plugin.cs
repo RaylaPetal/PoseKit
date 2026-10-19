@@ -36,6 +36,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
+    [PluginService] internal static INotificationManager NotificationManager { get; private set; } = null!;
 
     private const string CommandName = "/posekit";
 
@@ -66,16 +67,6 @@ public sealed class Plugin : IDalamudPlugin
     public List<LibraryEntry> LibraryIndex { get; private set; } = new();
     public int LibraryIndexVersion { get; private set; }
 
-    /// The player's categories.json; themes and acts are resolved onto LibraryIndex.
-    public Library.Categories.CategoryFile Categories { get; init; }
-
-    /// Problems in the player's file, for the library header.
-    /// Refreshed by RebuildCategories, which runs after every load and edit; read each frame.
-    public IReadOnlyList<string> CategoryNotices { get; private set; } = [];
-
-    /// Bumps whenever any entry's themes, acts or hidden flag may have changed.
-    public int CategoryVersion { get; private set; }
-
     public SeatReferenceService SeatReferences { get; } = new();
     public SeatPlacement SeatPlacement { get; init; }
     public SeatSnapMemory SeatSnapMemory { get; init; }
@@ -86,6 +77,7 @@ public sealed class Plugin : IDalamudPlugin
     public PairingState PairingState { get; init; }
     public PairingListener PairingListener { get; init; }
     private PairingContextMenu PairingContextMenu { get; init; }
+    private PairingInviteNotifier PairingInviteNotifier { get; init; }
     public CoupleQueueService CoupleQueueService { get; init; }
     public CouplePresetCaptureService CouplePresetCaptureService { get; init; }
     public CoupleRelayInbox CoupleRelayInbox { get; init; }
@@ -123,7 +115,6 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        Categories = new Library.Categories.CategoryFile(PluginInterface.GetPluginConfigDirectory());
 
         PairingState = new PairingState();
 
@@ -139,6 +130,7 @@ public sealed class Plugin : IDalamudPlugin
 
         PairingListener = new PairingListener(PairingState);
         PairingContextMenu = new PairingContextMenu(ContextMenu, PairingState, PairingListener);
+        PairingInviteNotifier = new PairingInviteNotifier(NotificationManager, PairingState, PairingListener);
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
         CouplePresetCaptureService = new CouplePresetCaptureService(PairingState, PairingListener, PresetManager);
         CouplePresetCaptureService.Saved += saved => LoadedPreset = saved;
@@ -260,6 +252,7 @@ public sealed class Plugin : IDalamudPlugin
         AutoAlign.Dispose();
         BoneAlign.Dispose();
         PairingContextMenu.Dispose();
+        PairingInviteNotifier.Dispose();
         PairingListener.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
@@ -401,24 +394,6 @@ public sealed class Plugin : IDalamudPlugin
         LibraryIndex = Library.LibraryIndex.Build(DiscoveredPoses);
         LibraryIndexVersion++;
         Log.Debug($"[PoseKit] Library index: {LibraryIndex.Count} entries, {LibraryIndex.Count(e => e.IsCouple)} couple.");
-        RebuildCategories();
-    }
-
-    /// Re-resolves every entry's themes, acts and hidden flag, e.g. after a category edit.
-    public void RebuildCategories()
-    {
-        Library.Categories.CategoryResolver.Apply(LibraryIndex, Categories);
-        CategoryNotices = [.. Categories.Notices];
-        CategoryVersion++;
-    }
-
-    /// Re-reads categories.json without rescanning mods, and reports its problems in chat.
-    public void ReloadCategories()
-    {
-        Categories.Load();
-        RebuildCategories();
-        foreach (var notice in CategoryNotices)
-            ChatGui.PrintError($"[PoseKit] {notice}");
     }
 
     private void DrawOffsetGizmo() => OffsetGizmo.Draw(this);

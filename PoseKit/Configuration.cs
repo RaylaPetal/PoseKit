@@ -26,6 +26,9 @@ public class Configuration : IPluginConfiguration
     /// Mod directories to scan for poses.
     public HashSet<string> SelectedPenumbraMods { get; set; } = new();
 
+    /// Starred animations (mod options), as "modDirectory|groupName|optionName". See Library.Favorites.
+    public HashSet<string> FavoriteOptions { get; set; } = new();
+
     /// Penumbra sort-folder the mod picker is limited to; empty means all mods.
     public string PenumbraFolderFilter { get; set; } = "";
 

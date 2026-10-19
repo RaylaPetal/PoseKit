@@ -10,7 +10,7 @@ public sealed class PoseModOption
 {
     public required string Name { get; init; }
 
-    /// The mod author's text for this option, for automatic categories.
+    /// The mod author's text for this option.
     public string Description { get; init; } = "";
 
     public required List<PoseTriggerHint> Triggers { get; init; }
@@ -20,7 +20,7 @@ public sealed class PoseModGroup
 {
     public required string Name { get; init; }
 
-    /// The mod author's text for this group, for automatic categories.
+    /// The mod author's text for this group.
     public string Description { get; init; } = "";
 
     public required bool MultiSelect { get; init; }

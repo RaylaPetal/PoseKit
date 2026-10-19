@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using PoseKit.Library.Categories;
+using System.Text.RegularExpressions;
 using PoseKit.Pairing;
 using PoseKit.Penumbra;
 using PoseKit.Presets;
@@ -48,9 +48,23 @@ public static class PlayDispatch
             Play();
     }
 
-    /// The option name without its number, spacing or case, so a sibling mod's copy matches.
+    /// The option name without its number, spacing or case, so a sibling mod's copy matches. Part of
+    /// the pairing protocol: changing it breaks role matching with other versions.
     private static string OptionKeyHash(string optionName) =>
-        ModDirectoryHash.Compute(CategorySource.NormalizeName(optionName).ToLowerInvariant());
+        ModDirectoryHash.Compute(NormalizeOptionName(optionName).ToLowerInvariant());
+
+    // The number must be set apart ("176 ", "121. ", "3)"), so "3some" or "2B" keep theirs.
+    private static readonly Regex LeadingNumber = new(@"^\s*\d+(?:[.)]\s*|\s+)", RegexOptions.Compiled);
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
+    /// The option name without a leading number ("176 ", "121. ") and with runs of spaces collapsed.
+    /// A name that is only a number keeps it, so options "1", "2" and "3" stay apart.
+    private static string NormalizeOptionName(string name)
+    {
+        var collapsed = Whitespace.Replace(name, " ").Trim();
+        var stripped = LeadingNumber.Replace(collapsed, "").Trim();
+        return stripped.Length > 0 ? stripped : collapsed;
+    }
 
     /// Finds a relayed role among this side's mods: the same mod first, then the same option name in
     /// any mod (e.g. Nightlife+ for a GoonersLife+ pick).
