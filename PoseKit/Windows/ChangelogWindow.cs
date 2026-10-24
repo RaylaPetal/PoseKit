@@ -12,21 +12,20 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.0.0.9";
+    public const string ChangelogId = "3.0.1.0";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
         ("Quick Library", [
-            "A small on-screen chip opens a compact animation library. It's always shown while you're paired; you can hide it when solo in Settings.",
+            "A small on-screen chip opens a compact animation library. By default it's shown while you're paired; Settings can hide it when solo, or never show it at all (/posekit lib still opens the library).",
             "Laid out like the main window, just smaller: your mods (collapsed), then each animation, then its roles and variants with small play buttons. Search and the Solo/Couple filter open what matches.",
-            "It only shows what you can play right now: ground sits, dozes and emotes while standing, sit poses while seated, doze poses while lying down. It opens by itself when you sit or lie down.",
+            "It only shows what you can play right now: ground sits, dozes and emotes while standing, sit poses while seated, doze poses while lying down. It opens by itself when you sit or lie down (you can turn that off in Settings).",
             "The Adjust section has the gizmo and Bone Align (parts, gap, auto-align, quick turns, Align and Remember), so you rarely need the main window.",
-            "Target a player and pair with them straight from the library or the main window. Invites you receive pop up as a notification you can accept right there.",
+            "Rescan your mods right from the library header.",
         ]),
         ("Favorites", [
             "Click the star next to any animation you can play, in the main window or the library, to make it a favorite.",
             "Favorites get their own section above your mods, ready to play without digging through long lists, each showing which mod it comes from.",
-            "Automatic categories are gone: they weren't reliable enough. Favorites replace them.",
         ]),
         ("Posing", [
             "Doze anywhere: doze poses play where you stand, and others see them. Beds and chairs still place you on them.",
@@ -35,9 +34,15 @@ public sealed class ChangelogWindow : Window, IDisposable
             "Nudging a remembered animation by hand saves the new placement to Bone Align's memory.",
         ]),
         ("Pairing", [
-            "Right-click a player in the world, in chat, in your party or friend list and choose \"Pair with PoseKit\".",
-            "PoseKit's pairing tells no longer clutter your chat: they're hidden, and you get a short [PoseKit] line for what matters (invites, offers, accepts, declines).",
-            "The library pairs like the main window: your pick is queued with a single tell, your partner picks theirs, and both play. With Override on (next to Gizmo in the library), your second pick plays both. Tells are spaced out so the game doesn't drop them.",
+            "Target a player and pair with them straight from the library or the main window, or right-click a player in the world, in chat, in your party or friend list and choose \"Pair with PoseKit\".",
+            "Invites you receive pop up as a notification you can accept right there.",
+            "PoseKit's pairing tells no longer clutter your chat: they're hidden, and you get a short [PoseKit] line for what matters (invites, pairing, accepts, declines).",
+            "The library pairs like the main window: your pick is queued with a single tell, your partner picks theirs, and both play. With Override on (next to Gizmo in the library), your second pick plays both. When your partner picks, the library shows their pick so you can play your part.",
+            "Tells are spaced out so the game no longer drops them, and the library has an Unpair button on the \"Paired with\" line.",
+        ]),
+        ("Fixes", [
+            "Mods saved by newer Penumbra versions could show options without a play button; they play again.",
+            "Dropdowns no longer snap back open when you collapse them.",
         ]),
     ];
 

@@ -54,6 +54,9 @@ public class Configuration : IPluginConfiguration
     /// The small on-screen button that opens the quick library.
     public bool ShowLibraryChip { get; set; } = true;
 
+    /// Hides the library chip even while paired, for players who only use /posekit lib or the main window.
+    public bool NeverShowLibraryChip { get; set; }
+
     /// Opens the quick library each time the character sits or lies down.
     public bool OpenLibraryWhenSeated { get; set; } = true;
 

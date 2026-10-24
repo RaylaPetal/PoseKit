@@ -38,8 +38,10 @@ public sealed class LibraryChipWindow : Window, IDisposable
 
     public void Dispose() { }
 
-    /// Always shown while paired, where the library is how picks get queued; the setting only hides it solo.
-    public override bool DrawConditions() => plugin.Configuration.ShowLibraryChip || plugin.PairingState.Active;
+    /// Shown while paired by default, where the library is how picks get queued; "never show" overrides that.
+    public override bool DrawConditions() =>
+        !plugin.Configuration.NeverShowLibraryChip &&
+        (plugin.Configuration.ShowLibraryChip || plugin.PairingState.Active);
 
     public override void Draw()
     {

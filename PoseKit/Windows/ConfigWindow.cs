@@ -71,14 +71,24 @@ public class ConfigWindow : Window, IDisposable
                 : "SimpleHeels not detected — install and enable it to sync your pose offset to nearby players.");
 
             PoseKitUi.SectionHeader("Quick Library");
-            var showChip = configuration.ShowLibraryChip;
-            if (ImGui.Checkbox("Show library chip when solo", ref showChip))
+            var neverShowChip = configuration.NeverShowLibraryChip;
+            if (ImGui.Checkbox("Never show library chip", ref neverShowChip))
             {
-                configuration.ShowLibraryChip = showChip;
+                configuration.NeverShowLibraryChip = neverShowChip;
                 configuration.Save();
             }
-            PoseKitUi.TextWrappedDisabled("A small on-screen button that opens the quick library. It's always " +
-                                           "shown while paired. /posekit lib toggles the library either way.");
+            using (ImRaii.Disabled(neverShowChip))
+            {
+                var showChip = configuration.ShowLibraryChip;
+                if (ImGui.Checkbox("Show library chip when solo", ref showChip))
+                {
+                    configuration.ShowLibraryChip = showChip;
+                    configuration.Save();
+                }
+            }
+            PoseKitUi.TextWrappedDisabled("A small on-screen button that opens the quick library. Unless it's set " +
+                                           "to never show, it's always shown while paired. /posekit lib toggles the " +
+                                           "library either way.");
             var openWhenSeated = configuration.OpenLibraryWhenSeated;
             if (ImGui.Checkbox("Open library when seated or lying down", ref openWhenSeated))
             {
