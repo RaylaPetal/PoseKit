@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "PoseKit",
     "InternalName": "PoseKit",
-    "AssemblyVersion": "2.2.0.9",
+    "AssemblyVersion": "3.0.1.0",
     "Description": "Animation Assistance Plugin, offset your character's pose, save named presets and replay them, auto-discover Penumbra pose mods, and manually resync emote timing with a partner.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.9/PoseKit-2.2.0.9.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v2.2.0.9/PoseKit-2.2.0.9.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/PoseKit/releases/download/v3.0.1.0/PoseKit-3.0.1.0.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/PoseKit/releases/download/v3.0.1.0/PoseKit-3.0.1.0.zip",
     "Changelog": "PoseKit 3.0\n\nQuick Library\n- A small on-screen chip opens a compact animation library. Shown while paired by default; Settings can hide it when solo or never show it (/posekit lib still opens the library).\n- Laid out like the main window: your mods, then each animation, then its roles and variants with small play buttons.\n- Only shows what you can play right now (standing, seated or lying down), and opens by itself when you sit or lie down (optional).\n- Adjust section with the gizmo and Bone Align, and a Rescan button.\n\nFavorites\n- Star any playable animation in the main window or the library; favorites get their own section above your mods.\n\nPosing\n- Doze anywhere: doze poses play where you stand, and others see them.\n- Gizmo: drag handles on your character to move or turn your offset.\n- Bone Align faces your partner's direction first (\"Face partner's direction\", on by default).\n- Nudging a remembered animation by hand saves it to Bone Align's memory.\n\nPairing\n- Pair with your target from the library or main window, or right-click a player and choose \"Pair with PoseKit\". Invites pop up as a notification.\n- Pairing tells are hidden from chat and spaced out so the game doesn't drop them.\n- The library pairs like the main window (queue, override, partner's pick, Unpair).\n\nFixes\n- Options from mods saved by newer Penumbra versions play again.\n- Dropdowns no longer snap back open when collapsed.\n\n- New \"What's new\" window after updates; reopen it with /posekit changelog.",
-    "LastUpdate": "1792439370"
+    "LastUpdate": "1792861664"
   }
 ]
