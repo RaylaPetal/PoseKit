@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using PoseKit.Bones;
 using PoseKit.Library;
 using PoseKit.Pairing;
 
@@ -15,7 +18,8 @@ namespace PoseKit.Windows;
 /// </summary>
 public sealed class QuickLibraryWindow : Window, IDisposable
 {
-    private static readonly LibraryTypeFilter[] TypeFilters = [LibraryTypeFilter.All, LibraryTypeFilter.Solo, LibraryTypeFilter.Couple];
+    private static readonly LibraryTypeFilter[] TypeFilters =
+        [LibraryTypeFilter.All, LibraryTypeFilter.Solo, LibraryTypeFilter.Couple, LibraryTypeFilter.FxF, LibraryTypeFilter.MxF];
 
     private readonly Plugin plugin;
     private readonly LibraryView view = new();
@@ -58,7 +62,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
         // The main window's gizmo and Bone Align (with its quick turns), so a pose can be adjusted
         // without opening it.
-        if (ImGui.CollapsingHeader("Adjust##PoseKitLibraryAdjust", ImGuiTreeNodeFlags.DefaultOpen))
+        if (PoseKitUi.TintedHeader("Adjust##PoseKitLibraryAdjust", PoseKitUi.HeaderAdjust, ImGuiTreeNodeFlags.DefaultOpen))
         {
             PresetButtonsPanel.DrawGizmoToggle(plugin);
             if (plugin.PairingState.Active)
@@ -103,7 +107,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             // The partner picked and this side hasn't: their animation's options, to play along.
             var queue = plugin.CoupleQueueService;
             if (queue.PartnerSelectionName is { } theirs && queue.QueuedSelectionName == null &&
-                ImGui.CollapsingHeader($"{peer.Name} picked: {theirs}##PoseKitLibraryPartnerPick"))
+                PoseKitUi.TintedHeader($"{peer.Name} picked: {theirs}##PoseKitLibraryPartnerPick", PoseKitUi.HeaderPartnerPick))
             {
                 PairingPanel.DrawQuickPick(plugin, theirs);
             }
@@ -158,6 +162,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             plugin.RefreshPenumbraPoses();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Re-scan your selected Penumbra mods for poses and animations, e.g. after adding or updating a mod.");
+
         ImGui.Spacing();
     }
 
@@ -191,10 +196,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
         PoseKitUi.OpenOnce("library|presets", ExpandReason(filter));
         var title = context.PresetsTitle == "Presets" ? "Presets" : $"Presets · {context.PresetsTitle}";
-        bool open;
-        using (ImRaii.PushColor(ImGuiCol.Text, PoseKitUi.Preset))
-            open = ImGui.CollapsingHeader($"{title}  ({presets.Count})##PoseKitLibraryPresets", ImGuiTreeNodeFlags.DefaultOpen);
-        if (open)
+        if (PoseKitUi.TintedHeader($"{title}  ({presets.Count})##PoseKitLibraryPresets", PoseKitUi.HeaderPresets, ImGuiTreeNodeFlags.DefaultOpen))
         {
             var rowRight = ImGui.GetCursorScreenPos().X + ImGui.GetContentRegionAvail().X;
             for (var i = 0; i < presets.Count; i++)
@@ -208,18 +210,17 @@ public sealed class QuickLibraryWindow : Window, IDisposable
     /// collapsed, each listing its animations.
     private bool DrawTree(ILibraryContext context, LibraryTypeFilter filter)
     {
-        var tree = view.GetTree(plugin.LibraryIndex, plugin.LibraryIndexVersion, plugin.Configuration, context, search, filter);
+        var tree = view.GetTree(plugin.LibraryIndex, plugin.LibraryIndexVersion, plugin.PairingTags.Version, plugin.Configuration, context, search, filter);
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
         var expandReason = ExpandReason(filter);
+
+        var anyRecent = DrawRecent(context, collectionId, expandReason);
 
         var favorites = view.Favorites;
         if (favorites.Count > 0)
         {
             PoseKitUi.OpenOnce("library|favorites", expandReason);
-            bool favoritesOpen;
-            using (ImRaii.PushColor(ImGuiCol.Text, PoseKitUi.Favorite))
-                favoritesOpen = ImGui.CollapsingHeader($"Favorites  ({favorites.Count})##PoseKitLibraryFavorites", ImGuiTreeNodeFlags.DefaultOpen);
-            if (favoritesOpen)
+            if (PoseKitUi.TintedHeader($"Favorites  ({favorites.Count})##PoseKitLibraryFavorites", PoseKitUi.HeaderFavorites, ImGuiTreeNodeFlags.DefaultOpen))
             {
                 ImGui.PushID("PoseKitFavorites");
                 foreach (var row in favorites)
@@ -232,27 +233,84 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             }
         }
 
-        if (tree.Count > 0) PoseKitUi.SectionHeader("Animations");
-        foreach (var mod in tree)
+        if (LibraryBuckets.SectionsActive(filter))
         {
-            PoseKitUi.OpenOnce($"library|mod|{mod.Mod.ModDirectory}", expandReason);
+            DrawSection($"Fits {filter}", "Fits", PoseKitUi.HeaderFits, tree, collectionId, expandReason, ImGuiTreeNodeFlags.DefaultOpen);
+            DrawSection("Doesn't fit", "DoesntFit", PoseKitUi.HeaderDoesntFit, view.DoesntFit, collectionId, null, ImGuiTreeNodeFlags.None,
+                "Tagged as something else. They can still be played, and you can click a tag to correct it.");
+            return anyRecent || tree.Count + view.DoesntFit.Count > 0;
+        }
+
+        if (tree.Count > 0) PoseKitUi.SectionHeader("Animations");
+        DrawMods(tree, collectionId, expandReason, "Tree");
+        return anyRecent || tree.Count > 0;
+    }
+
+    /// One filter section, absent when empty, counting options rather than mods.
+    private void DrawSection(string title, string id, Vector4 color, List<LibraryView.ModBlock> mods, Guid? collectionId, string? expandReason,
+        ImGuiTreeNodeFlags flags, string? tooltip = null)
+    {
+        if (mods.Count == 0) return;
+
+        var count = mods.Sum(mod => mod.Animations.Sum(animation => animation.Rows.Count));
+        PoseKitUi.OpenOnce($"library|section|{id}", expandReason);
+        var open = PoseKitUi.TintedHeader($"{title}  ({count})###PoseKitLibrarySection{id}", color, flags);
+        if (tooltip != null && ImGui.IsItemHovered())
+            ImGui.SetTooltip(tooltip);
+        if (!open) return;
+
+        ImGui.PushID(id);
+        ImGui.Indent(4);
+        DrawMods(mods, collectionId, expandReason, id);
+        ImGui.Unindent(4);
+        ImGui.PopID();
+    }
+
+    private void DrawMods(List<LibraryView.ModBlock> mods, Guid? collectionId, string? expandReason, string section)
+    {
+        foreach (var mod in mods)
+        {
+            PoseKitUi.OpenOnce($"library|{section}|mod|{mod.Mod.ModDirectory}", expandReason);
             if (!ImGui.CollapsingHeader($"{mod.Mod.ModName}  ({mod.Animations.Count})##PoseKitLibraryMod{mod.Mod.ModDirectory}"))
                 continue;
 
             ImGui.PushID(mod.Mod.ModDirectory);
             foreach (var animation in mod.Animations)
-                DrawAnimation(animation, mod.Mod, collectionId, expandReason);
+                DrawAnimation(animation, mod.Mod, collectionId, expandReason, section);
             ImGui.PopID();
         }
-        return tree.Count > 0;
+    }
+
+    /// What was last played with this partner, or alone when unpaired or playing solo.
+    private bool DrawRecent(ILibraryContext context, Guid? collectionId, string? expandReason)
+    {
+        var pairing = plugin.PairingState;
+        var partner = pairing.Active && !pairing.SoloPlayEnabled ? pairing.Peer : null;
+        var rows = view.GetRecent(plugin.LibraryIndex, plugin.LibraryIndexVersion, plugin.RecentPlays.Get(partner), plugin.Configuration, context, search);
+        if (rows.Count == 0) return false;
+
+        PoseKitUi.OpenOnce("library|recent", expandReason);
+        var title = partner is { } peer ? $"Recent with {peer.Name}" : "Recent";
+        if (PoseKitUi.TintedHeader($"{title}  ({rows.Count})###PoseKitLibraryRecent", PoseKitUi.HeaderRecent, ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.PushID("PoseKitRecent");
+            foreach (var row in rows)
+            {
+                ImGui.PushID(row.Entry.Id);
+                DrawRow(row, collectionId, Favorites.Context(row.Entry.Mod, row.Entry.Group));
+                ImGui.PopID();
+            }
+            ImGui.PopID();
+        }
+        return true;
     }
 
     /// An option group with its options under it. Collapsed by default unless it has a single option,
     /// so a long pack reads as a list of animations rather than a wall of roles.
-    private void DrawAnimation(LibraryView.Animation animation, Penumbra.PoseModInfo mod, Guid? collectionId, string? expandReason)
+    private void DrawAnimation(LibraryView.Animation animation, Penumbra.PoseModInfo mod, Guid? collectionId, string? expandReason, string section)
     {
         ImGui.PushID(animation.Group.Name);
-        PoseKitUi.OpenOnce($"library|animation|{mod.ModDirectory}|{animation.Group.Name}", expandReason);
+        PoseKitUi.OpenOnce($"library|{section}|animation|{mod.ModDirectory}|{animation.Group.Name}", expandReason);
 
         // The node only carries the arrow and the click; the name is drawn beside it so it can wrap.
         var flags = ImGuiTreeNodeFlags.SpanAvailWidth | ImGuiTreeNodeFlags.AllowItemOverlap |
@@ -305,11 +363,17 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             ImGui.TextColored(PoseKitUi.Muted, groupName);
             ImGui.SetCursorPosX(starStart + indent);
         }
+        DrawChip(entry);
+        ImGui.SameLine(0, RowItemSpacing);
         using (ImRaii.PushColor(ImGuiCol.Text, PoseKitUi.Favorite, row.Favorite))
             ImGui.TextUnformatted(entry.DisplayName);
         ImGui.PopTextWrapPos();
         if (ImGui.IsItemHovered() && entry.Option.Description.Trim() is { Length: > 0 } description)
             ImGui.SetTooltip(description);
+        OpenTagMenuOnRightClick();
+        DrawTagMenu(entry);
+
+        if (entry.Scene is { } scene) DrawScene(row, scene, rowRight);
 
         for (var t = 0; t < row.Triggers.Count; t++)
         {
@@ -329,6 +393,115 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             PoseKitUi.DrawPickBadge(pick);
         }
         ImGui.Unindent(indent);
+    }
+
+    private const string TagMenuId = "##PoseKitTagMenu";
+
+    private static void OpenTagMenuOnRightClick()
+    {
+        if (ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+            ImGui.OpenPopup(TagMenuId);
+    }
+
+    /// The animation's pairing as a chip in front of its name. Clicking it opens the tag menu.
+    private static void DrawChip(LibraryEntry entry)
+    {
+        if (PoseKitUi.PairingChip("PoseKitLibraryChip", entry.Pairing))
+            ImGui.OpenPopup(TagMenuId);
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(entry.PairingSource switch
+            {
+                PairingSource.Player => "You set this. Click to change it.",
+                PairingSource.Alignment => "From the body parts you aligned on this animation. Click to change it.",
+                PairingSource.ActWords => "Its name states the act. Click to change it.",
+                PairingSource.ReliableWords => "Read from its name. Click to change it.",
+                PairingSource.Author => "Declared by the mod's author. Click to change it.",
+                PairingSource.IdenticalAnimation => "Declared by the mod's author for the same animation in another mod. Click to change it.",
+                PairingSource.Name => "Stated in the animation's name. Click to change it.",
+                _ => "Nothing in its name says otherwise. Click to change it.",
+            });
+        }
+        OpenTagMenuOnRightClick();
+    }
+
+    private static readonly (string Label, CouplePairing State)[] TagChoices =
+    [
+        ("FxF", CouplePairing.FxF),
+        ("MxF", CouplePairing.MxF),
+        ("M/F x F", CouplePairing.Either),
+        ("Solo", CouplePairing.Solo),
+    ];
+
+    private void DrawTagMenu(LibraryEntry entry)
+    {
+        if (!ImGui.BeginPopup(TagMenuId)) return;
+
+        if (entry.AnimationKey == null)
+        {
+            ImGui.TextColored(PoseKitUi.Muted, "Still reading this animation's files...");
+        }
+        else
+        {
+            if (plugin.ContactObservations.TryGet(entry.AnimationKey) is { } measured && measured.Suggestion.TagText() is var suggested)
+            {
+                ImGui.TextColored(PoseKitUi.Muted,
+                    $"Measured: {BodyParts.DisplayName(measured.A)} near {BodyParts.DisplayName(measured.B)}");
+                if (ImGui.Selectable($"Use suggested tag: {suggested}"))
+                    plugin.PairingTags.SetPlayerTag(entry, measured.Suggestion);
+                ImGui.Separator();
+            }
+
+            foreach (var (label, state) in TagChoices)
+            {
+                if (ImGui.Selectable(label, entry.Pairing == state && entry.PairingSource == PairingSource.Player))
+                    plugin.PairingTags.SetPlayerTag(entry, state);
+            }
+            using (ImRaii.Disabled(entry.PairingSource != PairingSource.Player))
+            {
+                if (ImGui.Selectable("Clear my tag"))
+                    plugin.PairingTags.SetPlayerTag(entry, null);
+            }
+        }
+        ImGui.EndPopup();
+    }
+
+    /// Scenes the player swapped this session, so a choice survives the list redrawing.
+    private readonly HashSet<string> swappedScenes = [];
+
+    /// Who plays what, with one click to offer it. The trigger buttons below stay for playing along
+    /// the usual way.
+    private void DrawScene(LibraryView.Row row, Scene scene, float rowRight)
+    {
+        var pairing = plugin.PairingState;
+        if (!pairing.Active || pairing.SoloPlayEnabled || pairing.Peer is not { } peer) return;
+
+        var entry = row.Entry;
+        var swapped = swappedScenes.Contains(entry.Id);
+        var own = swapped ? scene.Other : scene.Dominant;
+        var theirs = swapped ? scene.Dominant : scene.Other;
+
+        ImGui.TextColored(PoseKitUi.Muted, $"You: {own.Label} ({PlayDispatch.TriggerButtonText(own.Trigger)})");
+        const float gap = 8;
+        var partnerText = $"{peer.Name}: {theirs.Label} ({PlayDispatch.TriggerButtonText(theirs.Trigger)})";
+        SameLineIfFits(ImGui.CalcTextSize(partnerText).X, rowRight, gap);
+        ImGui.TextColored(PoseKitUi.Muted, partnerText);
+
+        var canPlay = row.Triggers.Contains(own.Trigger);
+        using (ImRaii.Disabled(!canPlay || plugin.CoupleRelayOutbox.PendingPresetName != null))
+        {
+            if (ImGui.SmallButton("Play together##PoseKitLibraryPlayTogether"))
+                PlayDispatch.OfferScene(plugin, entry.Mod, entry.Group, entry.Option, own, theirs);
+        }
+        if (!canPlay && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip("Your side of this animation can't play from where you are. Try swapping.");
+
+        ImGui.SameLine(0, RowItemSpacing);
+        if (ImGui.SmallButton("Swap##PoseKitLibrarySwapScene"))
+        {
+            if (!swappedScenes.Add(entry.Id))
+                swappedScenes.Remove(entry.Id);
+        }
     }
 
     private const float RowItemSpacing = 6;

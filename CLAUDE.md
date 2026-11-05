@@ -66,13 +66,20 @@ hand nudges. `AlignOrigin` (Manual/Memory/Nudge) decides what gets recorded and 
 groundsits/emotes played while seated onto the seat (stand-up retry, hip snap). `PlayDispatch` is the single
 click path shared with the main window. The main window must keep working as before; the library is the quick UI.
 
+**Pairing tags** (`Library/DeclaredTags.cs`, `PairingTagService.cs`): each option's `FxF`, `MxF` or `M/F x F` state comes only from evidence, strongest first: the player's right-click tag, parts recorded by Bone Align (`ContactEvidence`), words naming the act (`NameGuess`, Strong), the author's role code or solo mark, a selected mod's byte-identical animation, a literal label, and other words in its names. The rule: a penis means `MxF`, anything else defaults to `M/F x F`, explicit no-penis acts are `FxF`, and male-only scenes are `MxF`. Author codes are often wrong, which is why act words outrank them. Identical files share their best word reading, and a non-list group's options share a tag. Don't infer from bone tracks: penis tracks appear in F/F animations. `AnimationHasher` identifies animations by `.pap` content in the background, so tags and alignments carry across renumbering and packs. `LibraryBuckets` sorts rows into Fits and Doesn't fit; only a stated solo removes one. `ContactObserver` measures closest parts during paired plays, and its results stay suggestions in the row's menu.
+
+**Scenes** (`Library/SceneRoles.cs`): a name like `(Dom-Confirm/Sub-Sweep)` or `[Sub-Gsit1, Dom-Gsit2]` whose two triggers exist on the option is a scene; anything less clear keeps the queue flow. Play together offers the partner their role through `posekitrole` and plays this side only on `Accepted`; a partner's Swap declines and sends the reversed offer.
+
+**Recents** (`Library/RecentPlays.cs`): `PlayDispatch.PlayOptionTrigger` records every mod play per partner or solo, and the quick library lists them above the mods, ignoring type filters.
+
 **Favorites** (`Library/Favorites.cs`): starred options (`modDirectory|group|option`, ones with triggers) in
 `Configuration`; both windows list them in a Favorites section above the mods (playable there).
 There are no categories: the library is the main window's mod → group → option tree, collapsed and filtered to
 the current context.
 
-**Persistence**: settings in `Configuration`; the plugin config dir also holds `alignments.json` and
-`seat-snap.json`. These files save via a temp file, and an unreadable
+**Persistence**: settings in `Configuration`; the plugin config dir also holds `alignments.json`,
+`seat-snap.json`, `pairing-tags.json` (player tags and the file hash cache), `recents.json` and
+`contact-observations.json`. These files save via a temp file, and an unreadable
 one is renamed to `.bad` on the next save rather than overwritten.
 
 **Freecam** (`Camera/`): see `PoseKit/Camera/README.md`.

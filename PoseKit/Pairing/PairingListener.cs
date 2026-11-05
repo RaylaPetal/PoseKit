@@ -159,6 +159,13 @@ public sealed class PairingListener : IDisposable
         state.Touch();
     }
 
+    public void RelayRole(string name, RoleHashes role)
+    {
+        if (state.Peer is not { } peer) return;
+        PairingSender.Send(PairingComposer.ComposeRoleRelay(peer, name, role));
+        state.Touch();
+    }
+
     /// Withdraws a relay the partner hasn't answered yet.
     public void CancelRelay(string name)
     {

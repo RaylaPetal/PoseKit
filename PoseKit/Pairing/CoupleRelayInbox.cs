@@ -14,7 +14,6 @@ public sealed record CoupleRelayRequest(PartnerIdentity Sender, string Name, Cap
 /// prompting.
 ///
 /// Every relay gets exactly one answer, since the sender waits for it before playing its own half.
-/// Role offers only come from partners on 3.0.0.0-3.0.0.4; this version queues library picks instead.
 /// </summary>
 public sealed class CoupleRelayInbox : IDisposable
 {
@@ -74,7 +73,7 @@ public sealed class CoupleRelayInbox : IDisposable
         Receive(new CoupleRelayRequest(sender, name, null, role));
         if (Pending == null) return;
 
-        // Role offers only come from 3.0.0.0-3.0.0.4, which wait for this receipt.
+        // 3.0.0.0-3.0.0.4 senders wait for this receipt; current senders ignore it.
         pairingListener.AnswerCoupleRelay(name, CoupleAnswer.Received);
         // Library clicks can arrive while neither PoseKit window is open.
         Plugin.ChatGui.Print($"[PoseKit] {sender.Name} wants to play \"{name}\" with you. Accept or decline in the library " +

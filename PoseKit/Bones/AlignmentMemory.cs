@@ -100,18 +100,25 @@ public sealed class AlignmentMemory
 
     public AlignmentEntry? TryGet(string key) => entries.GetValueOrDefault(key);
 
+    public IEnumerable<AlignmentEntry> Entries => entries.Values;
+
+    /// Raised after an entry is added, replaced or removed.
+    public event Action? Changed;
+
     /// Adds or replaces the entry for its key and saves.
     public void Record(AlignmentEntry entry)
     {
         entries[entry.Key] = entry;
         Save();
+        Changed?.Invoke();
     }
 
     /// Removes the entry for <paramref name="key"/>, if any, and saves.
     public void Forget(string key)
     {
-        if (entries.Remove(key))
-            Save();
+        if (!entries.Remove(key)) return;
+        Save();
+        Changed?.Invoke();
     }
 
     private void Load()

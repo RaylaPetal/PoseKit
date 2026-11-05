@@ -70,6 +70,10 @@ public sealed class Plugin : IDalamudPlugin
     public SeatReferenceService SeatReferences { get; } = new();
     public SeatPlacement SeatPlacement { get; init; }
     public SeatSnapMemory SeatSnapMemory { get; init; }
+    public PairingTagService PairingTags { get; init; }
+    public RecentPlays RecentPlays { get; init; }
+    public ContactObservations ContactObservations { get; init; }
+    public Bones.ContactObserver ContactObserver { get; init; }
 
     /// Poses claimed by unscanned mods, used only for conflict warnings.
     public Dictionary<PoseIdentifier, List<PenumbraPoseScanner.ExternalPoseClaim>> ExternalPoseClaims { get; private set; } = new();
@@ -143,6 +147,12 @@ public sealed class Plugin : IDalamudPlugin
         AutoAlign = new Bones.AutoAlignCoordinator(this);
         SeatPlacement = new SeatPlacement(this);
         SeatSnapMemory = new SeatSnapMemory(PluginInterface.GetPluginConfigDirectory());
+        PairingTags = new PairingTagService(PluginInterface.GetPluginConfigDirectory(), AlignmentMemory, PenumbraIpc.TryGetModDirectory);
+        if (PairingTags.LoadFailed)
+            ChatGui.PrintError("[PoseKit] Couldn't read your pairing tags, so they're off for now. The file is kept as pairing-tags.json.bad.");
+        RecentPlays = new RecentPlays(PluginInterface.GetPluginConfigDirectory());
+        ContactObservations = new ContactObservations(PluginInterface.GetPluginConfigDirectory());
+        ContactObserver = new Bones.ContactObserver(this);
 
         // Reply with this side's own pose state; send nothing when not in a pose.
         PairingListener.PartnerCaptureRequested += (sender, requestId, hint) =>
@@ -249,6 +259,7 @@ public sealed class Plugin : IDalamudPlugin
         CouplePresetCaptureService.Dispose();
         CoupleRelayInbox.Dispose();
         CoupleRelayOutbox.Dispose();
+        PairingTags.Dispose();
         AutoAlign.Dispose();
         BoneAlign.Dispose();
         PairingContextMenu.Dispose();
@@ -300,8 +311,10 @@ public sealed class Plugin : IDalamudPlugin
         CouplePresetCaptureService.Tick();
         CoupleRelayInbox.Tick();
         CoupleRelayOutbox.Tick();
+        PairingTags.Tick();
         BoneAlign.Tick();
         AutoAlign.Tick();
+        ContactObserver.Tick();
     }
 
     // A context this fresh is kept while the pose cycles or hands over between emotes.
@@ -393,6 +406,7 @@ public sealed class Plugin : IDalamudPlugin
         ExternalPoseClaims = PenumbraPoseScanner.ScanExternalConflicts();
         LibraryIndex = Library.LibraryIndex.Build(DiscoveredPoses);
         LibraryIndexVersion++;
+        PairingTags.Rebuild(LibraryIndex);
         Log.Debug($"[PoseKit] Library index: {LibraryIndex.Count} entries, {LibraryIndex.Count(e => e.IsCouple)} couple.");
     }
 

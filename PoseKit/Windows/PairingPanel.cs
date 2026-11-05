@@ -2,6 +2,7 @@ using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
+using PoseKit.Library;
 using PoseKit.Pairing;
 
 namespace PoseKit.Windows;
@@ -179,8 +180,27 @@ public static class PairingPanel
                     plugin.ApplyRelayRequest(request);
                 break;
             case 2: inbox.Deny(); break;
+            default:
+                // Looked up once per prompt, since finding a role hashes every option.
+                if (incoming.Role is not { } role) break;
+                if (!ReferenceEquals(swapChecked, incoming))
+                {
+                    swapChecked = incoming;
+                    swappable = PlayDispatch.FindSwappable(plugin, role);
+                }
+                if (swappable is { } scene && Single("Swap roles##PoseKitSwapCoupleRelay", compact))
+                {
+                    // Reversed, this side plays the other role and offers the partner the one it was
+                    // offered. Declining first keeps it to one answer per relay.
+                    inbox.Deny();
+                    PlayDispatch.OfferScene(plugin, scene.Mod, scene.Group, scene.Option, scene.Opposite, scene.Offered);
+                }
+                break;
         }
     }
+
+    private static CoupleRelayRequest? swapChecked;
+    private static (Penumbra.PoseModInfo Mod, Penumbra.PoseModGroup Group, Penumbra.PoseModOption Option, SceneRole Offered, SceneRole Opposite)? swappable;
 
     /// This side's couple preset or library role waiting on the partner.
     public static void DrawOutgoingRelay(Plugin plugin, bool compact)

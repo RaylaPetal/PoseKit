@@ -105,6 +105,44 @@ public static class PlayDispatch
         return true;
     }
 
+    /// One role of an option, identified so the partner's side can find it. See FindRole.
+    public static RoleHashes HashesFor(PoseModInfo mod, PoseModGroup group, PoseModOption option, PoseTriggerHint trigger) =>
+        new(ModDirectoryHash.Compute(mod.ModDirectory),
+            group.IsImplicit ? "0" : ModDirectoryHash.Compute(group.Name),
+            ModDirectoryHash.Compute(option.Name),
+            ModDirectoryHash.Compute(TriggerText(trigger)),
+            OptionKeyHash(option.Name));
+
+    /// Offers the partner their role of a scene; this side plays its own once they accept. The name
+    /// states their role because it is also what an older partner's prompt shows, and answers match
+    /// on it.
+    public static void OfferScene(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, SceneRole own, SceneRole theirs)
+    {
+        var title = SceneRoles.OfferTitle(option.Name is "" or "Default" ? mod.ModName : option.Name);
+        var name = $"{title} (you: {theirs.Label}, {TriggerButtonText(theirs.Trigger)})";
+        plugin.CoupleRelayOutbox.StartRole(name, HashesFor(mod, group, option, theirs.Trigger), () =>
+        {
+            // Selection is read when it plays, since a play may have just changed it.
+            var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+            PlayOptionTrigger(plugin, mod, group, option, own.Trigger, collectionId,
+                SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
+        });
+    }
+
+    /// The scene a received role belongs to and which side it is, when this side can offer it back
+    /// reversed. Null for a role this side doesn't have or can't read as a scene.
+    public static (PoseModInfo Mod, PoseModGroup Group, PoseModOption Option, SceneRole Offered, SceneRole Opposite)? FindSwappable(Plugin plugin, RoleHashes role)
+    {
+        if (FindRole(plugin, role) is not { } found) return null;
+        var (mod, group, option, trigger) = found;
+        if (SceneRoles.TryParse(option.Name, group.Name, mod.ModName, option.Triggers) is not { } scene ||
+            scene.OppositeOf(trigger) is not { } opposite)
+            return null;
+
+        var offered = scene.Dominant.Trigger == trigger ? scene.Dominant : scene.Other;
+        return (mod, group, option, offered, opposite);
+    }
+
     /// A preset click.
     public static void ClickPreset(Plugin plugin, NamedPose preset)
     {
@@ -132,6 +170,9 @@ public static class PlayDispatch
         PlayTrigger(plugin, trigger);
         plugin.SetPlayContext(mod.ModDirectory, mod.ModName, group.IsImplicit ? "" : group.Name, option.Name,
             TriggerText(trigger), trigger.PoseIdentifier);
+
+        var pairing = plugin.PairingState;
+        plugin.RecentPlays.Record(pairing.Active && !pairing.SoloPlayEnabled ? pairing.Peer : null, $"{mod.ModDirectory}|{group.Name}|{option.Name}");
     }
 
     /// The slash command (without "/") or the pose's display name.

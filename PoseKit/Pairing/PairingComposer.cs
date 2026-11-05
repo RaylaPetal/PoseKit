@@ -23,6 +23,7 @@ public static class PairingComposer
     private const string CoupleAnswerKeyword = "posekitcoupleanswer";
     private const string BoneAlignKeyword = "posekitalign";
     private const string RelayCancelKeyword = "posekitcouplecancel";
+    private const string RoleRelayKeyword = "posekitrole";
 
     public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
         $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
@@ -63,6 +64,12 @@ public static class PairingComposer
     /// Signals that this side started a Bone Align, so simultaneous aligns can tie-break.
     public static string ComposeBoneAlign(PartnerIdentity target) =>
         $"/tell {target.TellAddress} {BoneAlignKeyword}";
+
+    /// Asks the partner to play one role of a two-role animation. The sender waits for the answer
+    /// before playing its own role.
+    public static string ComposeRoleRelay(PartnerIdentity target, string name, RoleHashes role) =>
+        $"/tell {target.TellAddress} {RoleRelayKeyword} {role.ModDirectoryHash} {role.GroupNameHash} " +
+        $"{role.OptionNameHash} {role.TriggerHash} {role.OptionKeyHash} {name}";
 
     /// The one answer to a couple relay or role relay.
     public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, CoupleAnswer answer) =>

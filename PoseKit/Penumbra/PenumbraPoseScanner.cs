@@ -14,6 +14,9 @@ public sealed class PoseModOption
     public string Description { get; init; } = "";
 
     public required List<PoseTriggerHint> Triggers { get; init; }
+
+    /// This option's .pap files, relative to the mod's folder as meta.json has them.
+    public IReadOnlyList<string> AnimationFiles { get; init; } = [];
 }
 
 public sealed class PoseModGroup
@@ -36,6 +39,10 @@ public sealed class PoseModInfo
 {
     public required string ModDirectory { get; init; }
     public required string ModName { get; init; }
+
+    /// The mod's folder on disk.
+    public string ModPath { get; init; } = "";
+
     public bool Enabled { get; set; }
 
     /// Passed back into TrySetTemporarySettings. See PenumbraIpc.TryGetCurrentSettings.
@@ -86,6 +93,21 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// The .pap files of an option's game paths, as paths relative to the mod's folder.
+    private static List<string> OptionAnimationFiles(GroupFileDto group, int optionIndex)
+    {
+        var files = CombiningContainers(group) is { } containers
+            ? containers.Where((_, index) => (index & (1 << optionIndex)) != 0).SelectMany(container => container.Files ?? [])
+            : group.Options[optionIndex].Files ?? Enumerable.Empty<KeyValuePair<string, string>>();
+        return AnimationFilesOf(files);
+    }
+
+    private static List<string> AnimationFilesOf(IEnumerable<KeyValuePair<string, string>> files) =>
+        files.Where(file => file.Key.EndsWith(".pap", StringComparison.OrdinalIgnoreCase))
+            .Select(file => file.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     /// The game paths active for these selected options.
     private static IEnumerable<string> SelectedFileKeys(GroupFileDto group, IReadOnlyCollection<string> selected)
     {
@@ -125,6 +147,28 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
             .Where(dto => dto.Options != null)
             .Select(dto => new ModGroupInfo(dto.Name, dto.Options.Select(o => o.Name).ToList()))
             .ToList();
+    }
+
+    /// One option's .pap files, for a mod that may not be selected for scanning. Null if unreadable.
+    /// <param name="group">Empty for a mod's default files.</param>
+    public static List<string>? TryReadAnimationFiles(string modRoot, string modDirectory, string group, string option)
+    {
+        var metaPath = Path.Combine(modRoot, modDirectory, "meta.json");
+        if (!File.Exists(metaPath)) return null;
+
+        ModMetaDto? meta;
+        try { meta = JsonSerializer.Deserialize<ModMetaDto>(File.ReadAllText(metaPath), JsonOptions); }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, $"[PoseKit] Failed to parse {metaPath}.");
+            return null;
+        }
+
+        if (group.Length == 0) return AnimationFilesOf(meta?.DefaultData?.Files ?? []);
+
+        var dto = meta?.Groups?.FirstOrDefault(candidate => candidate.Name == group && candidate.Options != null);
+        var index = dto?.Options.FindIndex(candidate => candidate.Name == option) ?? -1;
+        return dto == null || index < 0 ? null : OptionAnimationFiles(dto, index);
     }
 
     public List<PoseModInfo> Scan()
@@ -187,7 +231,12 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                     Name = "Default",
                     MultiSelect = false,
                     IsImplicit = true,
-                    Options = [new PoseModOption { Name = "Default", Triggers = defaultTriggers }],
+                    Options = [new PoseModOption
+                    {
+                        Name = "Default",
+                        Triggers = defaultTriggers,
+                        AnimationFiles = AnimationFilesOf(meta?.DefaultData?.Files ?? []),
+                    }],
                     Selected = new HashSet<string> { "Default" },
                 });
             }
@@ -201,7 +250,13 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                 {
                     var opt = dto.Options[i];
                     var triggers = PoseNameHeuristics.Detect(dto.Name, opt.Name, OptionFileKeys(dto, i));
-                    options.Add(new PoseModOption { Name = opt.Name, Description = opt.Description ?? "", Triggers = triggers });
+                    options.Add(new PoseModOption
+                    {
+                        Name = opt.Name,
+                        Description = opt.Description ?? "",
+                        Triggers = triggers,
+                        AnimationFiles = OptionAnimationFiles(dto, i),
+                    });
                 }
 
                 groups.Add(new PoseModGroup
@@ -226,6 +281,7 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
             {
                 ModDirectory = modDirectory,
                 ModName = modName,
+                ModPath = modPath,
                 Enabled = modEnabled,
                 Priority = modPriority,
                 Groups = groups,

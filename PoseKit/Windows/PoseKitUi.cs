@@ -251,6 +251,54 @@ internal static class PoseKitUi
         return ImGui.Button($"{text}##PoseKitTab{label}");
     }
 
+    // Tells library sections apart on sight; the mods inside keep the theme's purple.
+    public static readonly Vector4 HeaderAdjust = new(0.46f, 0.50f, 0.60f, 1f);
+    public static readonly Vector4 HeaderPartnerPick = new(0.40f, 0.65f, 0.95f, 1f);
+    public static readonly Vector4 HeaderPresets = new(0.30f, 0.78f, 0.70f, 1f);
+    public static readonly Vector4 HeaderRecent = new(0.34f, 0.62f, 0.98f, 1f);
+    public static readonly Vector4 HeaderFavorites = new(0.95f, 0.72f, 0.22f, 1f);
+    public static readonly Vector4 HeaderFits = new(0.36f, 0.78f, 0.40f, 1f);
+    public static readonly Vector4 HeaderDoesntFit = new(0.82f, 0.36f, 0.36f, 1f);
+
+    /// A collapsing header filled with a dimmed <paramref name="color"/>. White text stays readable on
+    /// every fill, and brightening on hover keeps its hue.
+    public static bool TintedHeader(string label, Vector4 color, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags.None)
+    {
+        using (ImRaii.PushColor(ImGuiCol.Header, Shade(color, 0.48f))
+                   .Push(ImGuiCol.HeaderHovered, Shade(color, 0.58f))
+                   .Push(ImGuiCol.HeaderActive, Shade(color, 0.66f))
+                   .Push(ImGuiCol.Text, Vector4.One))
+            return ImGui.CollapsingHeader(label, flags);
+    }
+
+    private static Vector4 Shade(Vector4 color, float amount) =>
+        new(color.X * amount, color.Y * amount, color.Z * amount, 1f);
+
+    private static readonly Vector4 ChipFxF = new(0.86f, 0.33f, 0.62f, 1f);
+    private static readonly Vector4 ChipMxF = new(0.26f, 0.52f, 0.92f, 1f);
+    private static readonly Vector4 ChipEither = new(0.56f, 0.40f, 0.86f, 1f);
+    private static readonly Vector4 ChipNeutral = new(0.40f, 0.38f, 0.46f, 1f);
+
+    /// A filled pill for a pairing.
+    public static bool PairingChip(string id, Library.CouplePairing pairing)
+    {
+        var color = pairing switch
+        {
+            Library.CouplePairing.FxF => ChipFxF,
+            Library.CouplePairing.MxF => ChipMxF,
+            Library.CouplePairing.Either => ChipEither,
+            _ => ChipNeutral,
+        };
+        var hovered = Vector4.Lerp(color, Vector4.One, 0.15f);
+
+        using (ImRaii.PushColor(ImGuiCol.Button, color)
+                   .Push(ImGuiCol.ButtonHovered, hovered)
+                   .Push(ImGuiCol.ButtonActive, hovered)
+                   .Push(ImGuiCol.Text, Vector4.One))
+        using (ImRaii.PushStyle(ImGuiStyleVar.FrameRounding, 8f))
+            return ImGui.SmallButton($"{Library.DeclaredTags.TagText(pairing)}##{id}");
+    }
+
     public static bool ToggleButton(string label, bool on)
     {
         if (!on) return ImGui.Button(label);

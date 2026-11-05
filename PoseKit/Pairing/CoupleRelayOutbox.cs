@@ -4,8 +4,9 @@ using System;
 using PoseKit.Presets;
 
 /// <summary>
-/// Sending side of a couple preset: relays the partner's captured half and plays this side's half
-/// only once they accept, so both start together. See CoupleRelayInbox.
+/// Sending side of a couple play: relays the partner's half (a couple preset's captured half, or one
+/// role of a library scene) and plays this side's half only once they accept, so both start together.
+/// See CoupleRelayInbox.
 /// </summary>
 public sealed class CoupleRelayOutbox : IDisposable
 {
@@ -51,6 +52,16 @@ public sealed class CoupleRelayOutbox : IDisposable
         Plugin.ChatGui.Print($"[PoseKit] Asked {PartnerName} to play \"{preset.Name}\" with you.");
     }
 
+    /// Offers the partner one role of a library scene; <paramref name="playOwn"/> runs once they accept.
+    public void StartRole(string name, RoleHashes role, Action playOwn)
+    {
+        pending = (name, playOwn);
+        relaySentAt = Environment.TickCount64;
+        Changed?.Invoke();
+        pairingListener.RelayRole(name, role);
+        Plugin.ChatGui.Print($"[PoseKit] Asked {PartnerName} to play \"{name}\" with you.");
+    }
+
     /// Withdraws the relay on both sides.
     public void Cancel()
     {
@@ -64,18 +75,22 @@ public sealed class CoupleRelayOutbox : IDisposable
         if (pending is not { } waiting) return;
         if (pairingState.Peer is not { } peer || !peer.Equals(sender)) return;
         if (!string.Equals(waiting.Name.Trim(), name.Trim(), StringComparison.Ordinal)) return;
-        // Only role offers get a receipt, and this side no longer sends those.
+        // A role's receipt only says the prompt is showing; the real answer follows.
         if (answer == CoupleAnswer.Received) return;
 
         Clear();
-        if (answer == CoupleAnswer.Accepted)
+        switch (answer)
         {
-            Plugin.ChatGui.Print($"[PoseKit] {sender.Name} accepted \"{waiting.Name}\".");
-            waiting.PlayOwn();
-        }
-        else
-        {
-            Plugin.ChatGui.Print($"[PoseKit] {sender.Name} declined \"{waiting.Name}\".");
+            case CoupleAnswer.Accepted:
+                Plugin.ChatGui.Print($"[PoseKit] {sender.Name} accepted \"{waiting.Name}\".");
+                waiting.PlayOwn();
+                break;
+            case CoupleAnswer.Missing:
+                Plugin.ChatGui.Print($"[PoseKit] {sender.Name} doesn't have \"{waiting.Name}\", so nothing played.");
+                break;
+            default:
+                Plugin.ChatGui.Print($"[PoseKit] {sender.Name} declined \"{waiting.Name}\".");
+                break;
         }
     }
 
