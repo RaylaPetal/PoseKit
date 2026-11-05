@@ -72,6 +72,8 @@ public sealed class Plugin : IDalamudPlugin
     public SeatSnapMemory SeatSnapMemory { get; init; }
     public PairingTagService PairingTags { get; init; }
     public RecentPlays RecentPlays { get; init; }
+    public AnimationClaimIndex AnimationClaims { get; } = new();
+    public PlayVerifier PlayVerifier { get; init; }
     public ContactObservations ContactObservations { get; init; }
     public Bones.ContactObserver ContactObserver { get; init; }
 
@@ -151,6 +153,7 @@ public sealed class Plugin : IDalamudPlugin
         if (PairingTags.LoadFailed)
             ChatGui.PrintError("[PoseKit] Couldn't read your pairing tags, so they're off for now. The file is kept as pairing-tags.json.bad.");
         RecentPlays = new RecentPlays(PluginInterface.GetPluginConfigDirectory());
+        PlayVerifier = new PlayVerifier(PenumbraIpc);
         ContactObservations = new ContactObservations(PluginInterface.GetPluginConfigDirectory());
         ContactObserver = new Bones.ContactObserver(this);
 
@@ -315,6 +318,7 @@ public sealed class Plugin : IDalamudPlugin
         BoneAlign.Tick();
         AutoAlign.Tick();
         ContactObserver.Tick();
+        PlayVerifier.Tick();
     }
 
     // A context this fresh is kept while the pose cycles or hands over between emotes.
@@ -407,6 +411,7 @@ public sealed class Plugin : IDalamudPlugin
         LibraryIndex = Library.LibraryIndex.Build(DiscoveredPoses);
         LibraryIndexVersion++;
         PairingTags.Rebuild(LibraryIndex);
+        AnimationClaims.Rebuild(PenumbraIpc.TryGetModDirectory(), PenumbraIpc.TryGetModList()?.Keys.ToList() ?? []);
         Log.Debug($"[PoseKit] Library index: {LibraryIndex.Count} entries, {LibraryIndex.Count(e => e.IsCouple)} couple.");
     }
 

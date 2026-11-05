@@ -172,6 +172,7 @@ public static class PlayDispatch
             TriggerText(trigger), trigger.PoseIdentifier);
 
         var pairing = plugin.PairingState;
+        plugin.PlayVerifier.Queue(mod, option);
         plugin.RecentPlays.Record(pairing.Active && !pairing.SoloPlayEnabled ? pairing.Peer : null, $"{mod.ModDirectory}|{group.Name}|{option.Name}");
     }
 
@@ -196,14 +197,34 @@ public static class PlayDispatch
         return $"{optionLabel} ({TriggerButtonText(trigger)})";
     }
 
-    /// Selects the option before playing when it isn't selected yet.
-    public static Action? SelectOptionBeforePlay(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid? collectionId)
+    /// Makes this option the one that plays, when invoked. It's worked out then rather than here: the
+    /// main window calls this every frame, and a queued pick may play long after it's clicked.
+    public static Action? SelectOptionBeforePlay(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid? collectionId) =>
+        collectionId is not { } cid ? null : () => MakeExclusive(plugin, mod, group, option, cid);
+
+    /// Clears overlapping options in this mod and outranks other mods actively claiming its files. Only
+    /// temporary settings change, and nothing happens (so no redraw) when there's nothing to fix.
+    private static void MakeExclusive(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid collectionId)
     {
-        var alreadySelected = group.IsImplicit || group.Selected.Contains(option.Name);
-        return alreadySelected || collectionId is not { } cid
-            ? null
-            : () => ApplyGroupChange(plugin, mod, group,
-                group.MultiSelect ? new HashSet<string>(group.Selected) { option.Name } : [option.Name], cid);
+        var groups = mod.Groups.Select(candidate => new ExclusiveGroup(candidate.Name, !candidate.MultiSelect, candidate.IsImplicit,
+            candidate.Options.Select(o => new ExclusiveOption(o.Name, o.AnimationRedirects.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase))).ToList(),
+            candidate.Selected)).ToList();
+        var changes = ExclusivePlay.SelectionChanges(groups, group.Name, option.Name);
+        var byGroup = changes.ToDictionary(change => mod.Groups.First(candidate => candidate.Name == change.Key), change => change.Value);
+
+        var priority = mod.Priority;
+        if (plugin.PenumbraIpc.TryGetAllSettings(collectionId) is { } settings)
+        {
+            var claimants = plugin.AnimationClaims.ActiveClaimants(option.AnimationRedirects.Keys, mod.ModDirectory, settings);
+            priority = ExclusivePlay.RequiredPriority(mod.Priority, claimants.Select(claimant => claimant.Priority));
+        }
+
+        if (byGroup.Count == 0 && priority == mod.Priority) return;
+
+        var previous = mod.Priority;
+        mod.Priority = priority;
+        if (!ApplyGroupChanges(plugin, mod, byGroup, collectionId))
+            mod.Priority = previous;
     }
 
     public static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,

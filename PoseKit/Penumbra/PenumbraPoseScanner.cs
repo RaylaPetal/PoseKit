@@ -17,6 +17,10 @@ public sealed class PoseModOption
 
     /// This option's .pap files, relative to the mod's folder as meta.json has them.
     public IReadOnlyList<string> AnimationFiles { get; init; } = [];
+
+    /// Its animation game paths, with the files they can point to; several in a Combining group.
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> AnimationRedirects { get; init; } =
+        new Dictionary<string, IReadOnlySet<string>>();
 }
 
 public sealed class PoseModGroup
@@ -100,6 +104,23 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
             ? containers.Where((_, index) => (index & (1 << optionIndex)) != 0).SelectMany(container => container.Files ?? [])
             : group.Options[optionIndex].Files ?? Enumerable.Empty<KeyValuePair<string, string>>();
         return AnimationFilesOf(files);
+    }
+
+    private static IEnumerable<KeyValuePair<string, string>> OptionFiles(GroupFileDto group, int optionIndex) =>
+        CombiningContainers(group) is { } containers
+            ? containers.Where((_, index) => (index & (1 << optionIndex)) != 0).SelectMany(container => container.Files ?? [])
+            : group.Options[optionIndex].Files ?? Enumerable.Empty<KeyValuePair<string, string>>();
+
+    private static Dictionary<string, IReadOnlySet<string>> RedirectsOf(IEnumerable<KeyValuePair<string, string>> files)
+    {
+        var redirects = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (gamePath, file) in files)
+        {
+            if (!gamePath.EndsWith(".pap", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!redirects.TryGetValue(gamePath, out var set)) redirects[gamePath] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            set.Add(file);
+        }
+        return redirects.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<string> AnimationFilesOf(IEnumerable<KeyValuePair<string, string>> files) =>
@@ -196,6 +217,33 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
         return results;
     }
 
+    /// Every animation game path a mod's options and default files claim. A mod that can't be read
+    /// claims nothing.
+    public static List<(string Group, string Option, List<string> Paths)> TryReadAnimationClaims(string modRoot, string modDirectory)
+    {
+        var results = new List<(string, string, List<string>)>();
+        var metaPath = Path.Combine(modRoot, modDirectory, "meta.json");
+        if (!File.Exists(metaPath)) return results;
+
+        ModMetaDto? meta;
+        try { meta = JsonSerializer.Deserialize<ModMetaDto>(File.ReadAllText(metaPath), JsonOptions); }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return results; }
+
+        var defaults = RedirectsOf(meta?.DefaultData?.Files ?? []).Keys.ToList();
+        if (defaults.Count > 0) results.Add(("", "", defaults));
+
+        foreach (var dto in meta?.Groups ?? [])
+        {
+            if (dto.Options == null) continue;
+            for (var i = 0; i < dto.Options.Count; i++)
+            {
+                var paths = RedirectsOf(OptionFiles(dto, i)).Keys.ToList();
+                if (paths.Count > 0) results.Add((dto.Name, dto.Options[i].Name, paths));
+            }
+        }
+        return results;
+    }
+
     public List<PoseModInfo> Scan()
     {
         var results = new List<PoseModInfo>();
@@ -261,6 +309,7 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                         Name = "Default",
                         Triggers = defaultTriggers,
                         AnimationFiles = AnimationFilesOf(meta?.DefaultData?.Files ?? []),
+                        AnimationRedirects = RedirectsOf(meta?.DefaultData?.Files ?? []),
                     }],
                     Selected = new HashSet<string> { "Default" },
                 });
@@ -281,6 +330,7 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
                         Description = opt.Description ?? "",
                         Triggers = triggers,
                         AnimationFiles = OptionAnimationFiles(dto, i),
+                        AnimationRedirects = RedirectsOf(OptionFiles(dto, i)),
                     });
                 }
 

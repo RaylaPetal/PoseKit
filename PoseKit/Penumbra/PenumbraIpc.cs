@@ -48,6 +48,7 @@ public sealed class PenumbraIpc : IDisposable
     private readonly SetTemporaryModSettings setTemporaryModSettings = new(Plugin.PluginInterface);
     private readonly RemoveTemporaryModSettings removeTemporaryModSettings = new(Plugin.PluginInterface);
     private readonly RedrawObject redrawObject = new(Plugin.PluginInterface);
+    private readonly ResolvePlayerPaths resolvePlayerPaths = new(Plugin.PluginInterface);
 
     /// Mods PoseKit has set temporary settings on, so they can all be undone.
     private readonly HashSet<string> touchedModDirectories = new();
@@ -133,6 +134,13 @@ public sealed class PenumbraIpc : IDisposable
             return result;
         }
         catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] GetAllModSettings IPC call failed: {ex}"); return null; }
+    }
+
+    /// What each game path resolves to in the player's collection, in order. Null if it failed.
+    public string[]? TryResolvePlayerPaths(string[] gamePaths)
+    {
+        try { return resolvePlayerPaths.Invoke(gamePaths, []).Item1; }
+        catch (Exception ex) { Plugin.Log.Warning($"[PoseKit] ResolvePlayerPaths IPC call failed: {ex}"); return null; }
     }
 
     /// Replaces every group's selection at once, so pass all of them. Use the mod's current priority.

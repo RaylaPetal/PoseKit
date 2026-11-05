@@ -45,7 +45,10 @@ capabilities in `openspec/specs/`). Use the `/opsx:*` commands (explore, propose
   memory and seat-snap memory key off it.
 
 **Penumbra** (`Penumbra/`): scans selected mods' `meta.json` groups/options for `.pap` files to derive triggers.
-Playing selects options via *temporary* settings in the player's collection, never permanent ones.
+Playing selects options via *temporary* settings in the player's collection, never permanent ones. Each play is
+exclusive (`Library/ExclusivePlay.cs`): it clears other options in the mod overlapping its `.pap` game paths, raises the
+mod's temporary priority only above mods actively claiming them (`AnimationClaimIndex`), and `PlayVerifier` then checks
+what Penumbra resolves and reports a loss in chat.
 
 **Presets** (`Presets/`): `NamedPose` with offset, `PenumbraLink`, and an optional anchor (spot, furniture or
 partner) that recomputes the offset on replay. Couple presets carry the partner's half.
