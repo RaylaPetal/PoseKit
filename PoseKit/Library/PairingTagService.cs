@@ -18,6 +18,7 @@ public sealed class PairingTagService : IDisposable
     private readonly PairingTagStore store;
     private readonly AlignmentMemory alignments;
     private readonly Func<string?> modRoot;
+    private readonly Func<IEnumerable<string>?> installedMods;
 
     private CancellationTokenSource? hashing;
     private Task<HashResult>? hashTask;
@@ -27,15 +28,24 @@ public sealed class PairingTagService : IDisposable
     // that isn't selected still counts for the same animation in one that is.
     private Dictionary<string, string> otherAlignedKeys = new(StringComparer.Ordinal);
 
-    private sealed record HashResult(Dictionary<string, string> Keys, Dictionary<string, CachedFileHash> Cache);
+    // What installed mods that aren't selected say about their animations, so that GoonersLife+ can use
+    // the role codes Nightlife+ wrote for the same files without Nightlife+ being selected.
+    private List<(string? Key, CouplePairing? Declared, WordReading Words)> otherModEvidence = [];
+
+    private sealed record OtherModOption(string Id, CouplePairing? Declared, WordReading Words);
+
+    private sealed record HashResult(Dictionary<string, string> Keys, Dictionary<string, CachedFileHash> Cache, List<OtherModOption> OtherOptions);
+
+    private const string OtherModPrefix = "other:";
 
     /// Bumped whenever a state may have changed, for views that cache by it.
     public int Version { get; private set; }
 
     public bool LoadFailed => store.LoadFailed;
 
-    public PairingTagService(string configDirectory, AlignmentMemory alignments, Func<string?> modRoot)
+    public PairingTagService(string configDirectory, AlignmentMemory alignments, Func<string?> modRoot, Func<IEnumerable<string>?> installedMods)
     {
+        this.installedMods = installedMods;
         store = new PairingTagStore(configDirectory);
         this.alignments = alignments;
         this.modRoot = modRoot;
@@ -55,6 +65,7 @@ public sealed class PairingTagService : IDisposable
         hashing = new CancellationTokenSource();
         entries = newEntries;
         otherAlignedKeys = new Dictionary<string, string>(StringComparer.Ordinal);
+        otherModEvidence = [];
         Apply();
 
         var jobs = newEntries.Select(entry => new AnimationHashJob(entry.Id, entry.Mod.ModPath, entry.Option.AnimationFiles,
@@ -68,13 +79,19 @@ public sealed class PairingTagService : IDisposable
 
         // Read now: Penumbra can only be asked from the framework thread.
         var root = modRoot();
+        var selected = newEntries.Select(entry => entry.Mod.ModDirectory).ToHashSet(StringComparer.Ordinal);
+        var otherMods = (installedMods() ?? []).Where(mod => !selected.Contains(mod)).ToList();
         var cache = new Dictionary<string, CachedFileHash>(store.HashCache, StringComparer.OrdinalIgnoreCase);
         var token = hashing.Token;
         hashTask = Task.Run(() =>
         {
+            var otherOptions = new List<OtherModOption>();
             if (root != null)
+            {
                 jobs.AddRange(AlignedJobs(root, aligned));
-            return new HashResult(AnimationHasher.Compute(jobs, cache, token), cache);
+                jobs.AddRange(OtherModJobs(root, otherMods, otherOptions, token));
+            }
+            return new HashResult(AnimationHasher.Compute(jobs, cache, token), cache, otherOptions);
         }, token);
     }
 
@@ -87,6 +104,26 @@ public sealed class PairingTagService : IDisposable
                 yield return new AnimationHashJob(AlignedKey(option.ModDirectory, option.Group, option.Option),
                     System.IO.Path.Combine(root, option.ModDirectory), files,
                     AnimationHasher.NameKey(option.ModDirectory, option.Group, option.Option));
+        }
+    }
+
+    private static IEnumerable<AnimationHashJob> OtherModJobs(string root, List<string> mods, List<OtherModOption> options, CancellationToken token)
+    {
+        foreach (var mod in mods)
+        {
+            token.ThrowIfCancellationRequested();
+            foreach (var group in PenumbraPoseScanner.TryReadAnimatedOptions(root, mod).GroupBy(option => option.Group))
+            {
+                var list = group.ToList();
+                var words = NameGuess.UnifyGroup(group.Key, list.Select(option =>
+                    NameGuess.Read(option.Option, option.Group, mod, CoupleNames.IsCouple(option.Group, option.Option))).ToList());
+                for (var i = 0; i < list.Count; i++)
+                {
+                    var id = $"{OtherModPrefix}{mod}|{group.Key}|{list[i].Option}";
+                    options.Add(new OtherModOption(id, DeclaredTags.FromDescription(list[i].Description), words[i]));
+                    yield return new AnimationHashJob(id, System.IO.Path.Combine(root, mod), list[i].Files, AnimationHasher.NameKey(mod, group.Key, list[i].Option));
+                }
+            }
         }
     }
 
@@ -107,7 +144,9 @@ public sealed class PairingTagService : IDisposable
         var ids = entries.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
         foreach (var entry in entries)
             entry.AnimationKey = result.Keys.GetValueOrDefault(entry.Id);
-        otherAlignedKeys = result.Keys.Where(pair => !ids.Contains(pair.Key))
+        otherModEvidence = result.OtherOptions
+            .Select(option => (result.Keys.GetValueOrDefault(option.Id), option.Declared, option.Words)).ToList();
+        otherAlignedKeys = result.Keys.Where(pair => !ids.Contains(pair.Key) && !pair.Key.StartsWith(OtherModPrefix, StringComparison.Ordinal))
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
 
         Apply();
@@ -162,8 +201,10 @@ public sealed class PairingTagService : IDisposable
     private void Apply()
     {
         var (byOption, byAnimation) = AlignedParts();
-        var shared = DeclaredTags.SharedByFiles(entries.Select(entry => (entry.AnimationKey, entry.DeclaredState)));
-        var sharedWords = NameGuess.SharedByFiles(entries.Select(entry => (entry.AnimationKey, entry.OwnWords)));
+        var shared = DeclaredTags.SharedByFiles(entries.Select(entry => (entry.AnimationKey, entry.DeclaredState))
+            .Concat(otherModEvidence.Select(other => (other.Key, other.Declared))));
+        var sharedWords = NameGuess.SharedByFiles(entries.Select(entry => (entry.AnimationKey, entry.OwnWords))
+            .Concat(otherModEvidence.Select(other => (other.Key, other.Words))));
         foreach (var entry in entries)
         {
             var key = entry.AnimationKey;

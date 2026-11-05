@@ -171,6 +171,31 @@ public sealed class PenumbraPoseScanner(PenumbraIpc ipc, Configuration configura
         return dto == null || index < 0 ? null : OptionAnimationFiles(dto, index);
     }
 
+    /// Every animated option of a mod, for evidence about identical animations in selected mods. It may
+    /// be any installed mod, so one that can't be read is simply skipped.
+    public static List<(string Group, string Option, string Description, List<string> Files)> TryReadAnimatedOptions(string modRoot, string modDirectory)
+    {
+        var results = new List<(string, string, string, List<string>)>();
+        var metaPath = Path.Combine(modRoot, modDirectory, "meta.json");
+        if (!File.Exists(metaPath)) return results;
+
+        ModMetaDto? meta;
+        try { meta = JsonSerializer.Deserialize<ModMetaDto>(File.ReadAllText(metaPath), JsonOptions); }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return results; }
+
+        foreach (var dto in meta?.Groups ?? [])
+        {
+            if (dto.Options == null) continue;
+            for (var i = 0; i < dto.Options.Count; i++)
+            {
+                var files = OptionAnimationFiles(dto, i);
+                if (files.Count > 0)
+                    results.Add((dto.Name, dto.Options[i].Name, dto.Options[i].Description ?? "", files));
+            }
+        }
+        return results;
+    }
+
     public List<PoseModInfo> Scan()
     {
         var results = new List<PoseModInfo>();

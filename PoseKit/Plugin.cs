@@ -147,7 +147,7 @@ public sealed class Plugin : IDalamudPlugin
         AutoAlign = new Bones.AutoAlignCoordinator(this);
         SeatPlacement = new SeatPlacement(this);
         SeatSnapMemory = new SeatSnapMemory(PluginInterface.GetPluginConfigDirectory());
-        PairingTags = new PairingTagService(PluginInterface.GetPluginConfigDirectory(), AlignmentMemory, PenumbraIpc.TryGetModDirectory);
+        PairingTags = new PairingTagService(PluginInterface.GetPluginConfigDirectory(), AlignmentMemory, PenumbraIpc.TryGetModDirectory, () => PenumbraIpc.TryGetModList()?.Keys);
         if (PairingTags.LoadFailed)
             ChatGui.PrintError("[PoseKit] Couldn't read your pairing tags, so they're off for now. The file is kept as pairing-tags.json.bad.");
         RecentPlays = new RecentPlays(PluginInterface.GetPluginConfigDirectory());

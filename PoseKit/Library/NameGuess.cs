@@ -8,7 +8,7 @@ namespace PoseKit.Library;
 /// <summary>How far an animation's words can be trusted, which decides their rank against other evidence.</summary>
 public enum WordConfidence
 {
-    /// Nothing tells, so the default applies: no penis named means it suits either couple.
+    /// Nothing tells, so the default applies: a couple scene is MxF unless something says otherwise.
     None,
 
     /// Words that only hint, or a list group's name.
@@ -27,9 +27,10 @@ public readonly record struct WordReading(CouplePairing State, WordConfidence Co
 
 /// <summary>
 /// Reads an animation's pairing from the words in its names, so that every animation has a tag. The
-/// rule is simple: an animation involving a penis is MxF, and anything else suits either couple, since
-/// feet or fisting need no penis. Acts that exclude one (scissoring) are FxF. Word lists come from the
-/// removed automatic categories.
+/// rule is simple: a couple scene is MxF unless its name shows no penis is needed, since most are
+/// penetration under names that don't say so ("Hard Dog", "MinMaxing"). Only a named act such as feet,
+/// fisting or kissing makes one M/F x F, and acts that exclude a penis (scissoring) are FxF. Word lists
+/// come from the removed automatic categories.
 /// </summary>
 public static class NameGuess
 {
@@ -43,7 +44,7 @@ public static class NameGuess
 
     private static readonly Regex PenisAct = new(
         @"blow ?job|\bbj\b|hand ?job|foot[- ]?job|thigh ?job|tit ?(job|fuck)|titty|boob ?job|paizuri|(deep ?)?throat(ed)?\b|throat ?fuck|face ?fuck|" +
-        @"\bcock|\bdick|\bpenis|\bjerk|\bcbt\b|reach ?around|\bcum\b|cum ?pump|frott|ball ?(kick|torture|bust)|cum ?shot|creampie|bukkake|spitroast|\broe ?job|giving head|" +
+        @"\bcock|\bdick|\bpenis|\bjerk|\bcbt\b|reach ?around|sword ?fight|chest ?grind|\bdp\b|double pen|\bwhore\b|\bcum\b|cum ?pump|frott|ball ?(kick|torture|bust)|cum ?shot|creampie|bukkake|spitroast|\broe ?job|giving head|" +
         @"on your knees|\bwhistle\b", Options);
 
     private static readonly Regex NoPenisAct = new(
@@ -52,7 +53,7 @@ public static class NameGuess
 
     private static readonly Regex Penetration = new(
         @"missionary|cowgirl|cowboy|dogg(y|ie)|\bfuck|\bsex\b|\bbreed|mating|nelson|\bpound|\bslam|pile ?driver|riding|\bride\b|\banal\b|" +
-        @"plap|thrust|penetrat|congress|\bfilled|\bwall bang|ramming|railing|vaginal|\bpinned", Options);
+        @"plap|thrust|penetrat|congress|cow ?rid|\bfilled|\bwall bang|ramming|railing|vaginal|\bpinned", Options);
 
     // A man in the giving role of a sized option: "Giver (Hum): Big M", "Big M Giving".
     private static readonly Regex MaleGiver = new(
@@ -69,6 +70,19 @@ public static class NameGuess
     // Role options that say outright, in brackets that otherwise hold credits.
     private static readonly Regex PleasingPenis = new(@"partner'?s penis", Options);
     private static readonly Regex PleasingPussy = new(@"partner'?s pussy", Options);
+
+    // Lists of sex scenes, whose entries are couples even without a role marker.
+    private static readonly Regex SexGroup = new(
+        @"nsfw-(standing|sitting|laying|threesome|hroth)|(standing|sitting|laying|threesome) animation list|hrothnroe", Options);
+
+    // Lists where a couple's unnamed scene is as likely to be play as sex, so it isn't assumed MxF.
+    private static readonly Regex NoPenisAssumed = new(@"cuddl|snuggl|teas|bdsm|kink|masturbat", Options);
+
+    private static readonly Regex FaceRiding = new(@"face ?(sit|rid)", Options);
+
+    private static readonly Regex Tease = new(@"\bteas", Options);
+
+    private static readonly Regex HugRoles = new(@"\bhugg(er|ed)\b", Options);
 
     private static readonly Regex IdleGroup = new(@"\bidle|party pack|dirty.?danc", Options);
 
@@ -92,7 +106,7 @@ public static class NameGuess
 
     private static readonly Regex AnyCouple = new(
         @"cuddl|snuggl|(?<![a-z])hug|\bkiss|make ?out|making out|embrac|spoon|glomp|kabedon|\bfist|finger|paddl|spank|\btoys?\b|\bdildo|strap.?on|" +
-        @"\btie (you|her|him|them|me) up\b|leash|\bchok|grind|grope|\b69\b|foot ?(worship|work)|feets? (in|on|worship|licker|haver)|massag", Options);
+        @"\btie (you|her|him|them|me) up\b|leash|\bchok|grind|grope|\b69\b|curl(s|ed)? up|belly rub|eat(s|ing)? ass|\brim(ming|job)?\b|face ?(sit|rid)|mage hand|human seat|foot ?(worship|work)|feets? (in|on|worship|licker|haver)|massag", Options);
 
     // Groups collecting many animations ("Oral Animation List* 285 - 307", "Nsfw-Oral"), whose names
     // describe the list. Any other group or mod name is the name of the animation itself.
@@ -101,10 +115,10 @@ public static class NameGuess
     // More than two people: an act-free name can't say who's doing what, and a penis is the norm.
     private static readonly Regex Group = new(@"threesome|3 ?sum|4 ?some|foursome|gang ?bang|orgy|\bdom&sub-[3-9]", Options);
 
-    private static readonly Regex SoloTag = new(@"\[(solo|[a-z]+-solo|solo-[a-z]+|hands?|hand/toy|toys?|p\+hands)\]", Options);
+    private static readonly Regex SoloTag = new(@"\[(solo|[a-z]+[-_]solo|solo[-_][a-z]+|hands?|hand/toy|toys?|p\+hands)\]", Options);
 
     private static readonly Regex SoloWords = new(
-        @"\bidle|\bdanc(e|ing)\b|\bsolo\b|masturbat|\bpose ?pack|\bwalk\b|\bstance\b|\btwerk|\bsignboard|\bweapon skills?|\bexpression\b|\bteleport\b", Options);
+        @"\bidle|\bdanc(e|ing)\b|\bsolo\b|\bteas|masturbat|\bpose ?pack|\bwalk\b|\bstance\b|\btwerk|\bsignboard|\bweapon skills?|\bexpression\b|\bteleport\b", Options);
 
     /// <param name="animation">The option's name, or the mod's for one with only default files.</param>
     /// <param name="group">The option group's name.</param>
@@ -121,7 +135,7 @@ public static class NameGuess
         if (PleasingPussy.IsMatch(animation)) return new WordReading(CouplePairing.FxF, WordConfidence.Strong);
         if (IdleGroup.IsMatch(group) && !NamedRole.IsMatch(animation)) return new WordReading(CouplePairing.Solo, WordConfidence.Reliable);
 
-        var couple = namedAsCouple || RoleWords.IsMatch(animation) || PairedEmotes.IsMatch(animation);
+        var couple = namedAsCouple || RoleWords.IsMatch(animation) || PairedEmotes.IsMatch(animation) || SexGroup.IsMatch(group);
         var own = Noise.Replace(animation, " ");
         if (Named(own, couple) is { } fromOwn) return fromOwn;
 
@@ -132,13 +146,16 @@ public static class NameGuess
         var modText = Noise.Replace(mod, " ");
         if (Named(modText, couple) is { } fromMod) return fromMod;
 
-        if (AnyCouple.IsMatch(own)) return new WordReading(CouplePairing.Either, WordConfidence.Weak);
+        if (AnyCouple.IsMatch(own) || HugRoles.IsMatch(animation)) return new WordReading(CouplePairing.Either, WordConfidence.Weak);
         var parents = groupIsList ? $"{groupText} {modText}" : modText;
         if (Act(parents) is { } fromParents) return new WordReading(fromParents, WordConfidence.Weak);
-        if (AnyCouple.IsMatch(parents) || AnyCouple.IsMatch(groupText)) return new WordReading(CouplePairing.Either, WordConfidence.Weak);
+        // A list's name says nothing about a one-person animation in it, in any pack.
+        if ((couple || !groupIsList) && AnyCouple.IsMatch(parents + " " + groupText)) return new WordReading(CouplePairing.Either, WordConfidence.Weak);
+        if (couple && Tease.IsMatch(own)) return new WordReading(CouplePairing.Either, WordConfidence.Weak);
         if (Penetration.IsMatch(parents)) return new WordReading(CouplePairing.MxF, WordConfidence.Weak);
         if (!couple && SoloWords.IsMatch(parents)) return new WordReading(CouplePairing.Solo, WordConfidence.Weak);
-        return new WordReading(couple ? CouplePairing.Either : CouplePairing.Solo, WordConfidence.None);
+        if (!couple) return new WordReading(CouplePairing.Solo, WordConfidence.None);
+        return new WordReading(NoPenisAssumed.IsMatch(group) ? CouplePairing.Either : CouplePairing.MxF, WordConfidence.None);
     }
 
     /// What one animation's name says, or null when it says nothing reliable.
@@ -148,7 +165,7 @@ public static class NameGuess
         if (!couple && BoundAlone.IsMatch(text) && !PenisAct.IsMatch(text)) return new WordReading(CouplePairing.Solo, WordConfidence.Reliable);
         if (Group.IsMatch(text)) return new WordReading(CouplePairing.MxF, WordConfidence.Reliable);
         if (Act(text) is { } act) return new WordReading(act, WordConfidence.Strong);
-        if (Penetration.IsMatch(text))
+        if (Penetration.IsMatch(text) && !FaceRiding.IsMatch(text))
             return Device.IsMatch(text)
                 ? new WordReading(CouplePairing.Either, WordConfidence.Reliable)
                 : new WordReading(CouplePairing.MxF, WordConfidence.Reliable);

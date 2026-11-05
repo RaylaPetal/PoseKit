@@ -419,7 +419,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
                 PairingSource.Author => "Declared by the mod's author. Click to change it.",
                 PairingSource.IdenticalAnimation => "Declared by the mod's author for the same animation in another mod. Click to change it.",
                 PairingSource.Name => "Stated in the animation's name. Click to change it.",
-                _ => "Nothing in its name says otherwise. Click to change it.",
+                _ => "Assumed from its name, which doesn't say for sure. Click to change it.",
             });
         }
         OpenTagMenuOnRightClick();
