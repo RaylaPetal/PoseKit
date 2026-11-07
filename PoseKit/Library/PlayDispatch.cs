@@ -161,13 +161,14 @@ public static class PlayDispatch
             plugin.PlayPreset(preset);
     }
 
+    /// <param name="joinPartner">False when something else places the character, such as a seat placement.</param>
     public static void PlayOptionTrigger(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option,
-        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null)
+        PoseTriggerHint trigger, Guid? collectionId, Action? beforePlay = null, bool joinPartner = true)
     {
         beforePlay?.Invoke();
         EnsureModEnabled(plugin, mod, collectionId);
         CapturePenumbraContext(plugin, mod, group, option);
-        PlayTrigger(plugin, trigger);
+        PlayTrigger(plugin, trigger, joinPartner ? JointPlayAnchor(plugin) : null);
         plugin.SetPlayContext(mod.ModDirectory, mod.ModName, group.IsImplicit ? "" : group.Name, option.Name,
             TriggerText(trigger), trigger.PoseIdentifier);
 
@@ -287,11 +288,28 @@ public static class PlayDispatch
         plugin.LastPlayedPenumbraContext = link;
     }
 
-    private static void PlayTrigger(Plugin plugin, PoseTriggerHint trigger)
+    /// While paired, every play is a joint one (a solo play goes through the bypass), so the character
+    /// stands on the partner's spot facing their way: couple animations are made with both on one
+    /// origin. The offset is only drawn on this player's screen, so each side moves itself; when
+    /// SimpleHeels shares offsets with others, only one side may move or they'd swap places.
+    private static PresetAnchor? JointPlayAnchor(Plugin plugin)
+    {
+        var pairing = plugin.PairingState;
+        if (!pairing.Active || pairing.SoloPlayEnabled || pairing.Peer is not { } peer) return null;
+
+        var offsetsShared = plugin.Configuration.BridgeOffsetToSimpleHeels && plugin.SimpleHeelsBridge.IsLoaded;
+        if (offsetsShared && Plugin.ObjectTable.LocalPlayer is { } localPlayer &&
+            string.CompareOrdinal(PartnerIdentity.FromCharacter(localPlayer).TellAddress, peer.TellAddress) > 0)
+            return null;
+
+        return PresetAnchor.FromPartner(new PartnerAnchor { Partner = peer });
+    }
+
+    private static void PlayTrigger(Plugin plugin, PoseTriggerHint trigger, PresetAnchor? anchor)
     {
         if (trigger.SlashCommand is { } command)
-            plugin.PoseTrigger.TriggerCommand(command);
+            plugin.PoseTrigger.TriggerCommand(command, PoseOffset.Zero, anchor);
         else if (trigger.PoseIdentifier is { } identifier)
-            plugin.PoseTrigger.Trigger(identifier, PoseOffset.Zero);
+            plugin.PoseTrigger.Trigger(identifier, PoseOffset.Zero, anchor);
     }
 }

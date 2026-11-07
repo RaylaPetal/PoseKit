@@ -30,7 +30,7 @@ public static class SeatPanel
             beforePlay?.Invoke();
             var mode = plugin.SeatSnapMemory.TryGet(key) ?? context.DefaultSnapMode(trigger);
             plugin.SeatPlacement.Begin(seat, key, mode,
-                () => PlayDispatch.PlayOptionTrigger(plugin, entry.Mod, entry.Group, entry.Option, trigger, collectionId),
+                () => PlayDispatch.PlayOptionTrigger(plugin, entry.Mod, entry.Group, entry.Option, trigger, collectionId, joinPartner: false),
                 (entry.Mod.ModDirectory, entry.Mod.ModName, group, entry.Option.Name, triggerText, trigger.PoseIdentifier));
         };
     }

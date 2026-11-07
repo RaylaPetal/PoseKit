@@ -126,13 +126,17 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     }
 
     /// Plays an emote command with no offset.
-    public void TriggerCommand(string emoteCommand)
+    public void TriggerCommand(string emoteCommand) => TriggerCommand(emoteCommand, PoseOffset.Zero, null);
+
+    /// An emote with an offset, such as standing on a partner's spot facing their way.
+    public void TriggerCommand(string emoteCommand, PoseOffset offset, PresetAnchor? anchor)
     {
         cyclingTarget = null;
         partnerTracking = null;
         boneCorrection = PoseOffset.Zero;
         OffsetGeneration++;
         ChatCommand.Execute($"/{emoteCommand} motion");
+        if (anchor != null) ApplyOffset(ResolveOffset(offset, anchor));
     }
 
     /// Re-enters a sit/groundsit/doze variant that ended without the player moving. Fallback for
@@ -286,7 +290,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         var partner = PartnerAnchor.TryFindLive(anchor.Partner);
         if (localPlayer == null || partner == null)
         {
-            NotifyPartnerAnchorFallback(tracking, $"Can't find {anchor.Partner.Name} nearby to position this preset around them.");
+            NotifyPartnerAnchorFallback(tracking, $"Can't find {anchor.Partner.Name} nearby to line you up with them.");
             return baseOffset;
         }
 
@@ -340,7 +344,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         tracking.LastCorrection = PoseOffset.Zero;
         NotifyPartnerAnchorFallback(tracking,
-            $"Too far from {tracking.Anchor.Partner.Name} to position this preset around them — move closer.");
+            $"Too far from {tracking.Anchor.Partner.Name} to line you up with them — move closer.");
     }
 
     private static void NotifyPartnerAnchorFallback(PartnerTracking tracking, string reason)

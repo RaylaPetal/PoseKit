@@ -49,6 +49,9 @@ Playing selects options via *temporary* settings in the player's collection, nev
 exclusive (`Library/ExclusivePlay.cs`): it clears other options in the mod overlapping its `.pap` game paths, raises the
 mod's temporary priority only above mods actively claiming them (`AnimationClaimIndex`), and `PlayVerifier` then checks
 what Penumbra resolves and reports a loss in chat.
+While paired (and not solo), every play is joint: `PlayDispatch.JointPlayAnchor` passes a zero partner anchor, so the
+character stands on the partner's spot facing their way, tracked live. Offsets are drawn only on each player's screen,
+so both sides move themselves; with SimpleHeels sharing offsets, only the side whose "Name@World" sorts first moves.
 
 **Presets** (`Presets/`): `NamedPose` with offset, `PenumbraLink`, and an optional anchor (spot, furniture or
 partner) that recomputes the offset on replay. Couple presets carry the partner's half.
