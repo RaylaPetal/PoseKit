@@ -3,8 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace PoseKit.Penumbra;
 
-/// <summary>Either a direct slash-emote command to trigger, or a sit/groundsit/doze PoseIdentifier to
-/// cycle to — never both.</summary>
+/// <summary>Either a direct slash-emote command to trigger, or a sit/groundsit/doze/standing-idle
+/// PoseIdentifier to cycle to — never both.</summary>
 public readonly record struct PoseTriggerHint(string? SlashCommand, PoseIdentifier? PoseIdentifier);
 
 /// <summary>
@@ -13,7 +13,8 @@ public readonly record struct PoseTriggerHint(string? SlashCommand, PoseIdentifi
 /// Sources, in order:
 /// 1. A "(/command)" hint in the option or group name.
 /// 2. Sit/groundsit/doze file patterns (j_pose/s_pose/l_pose, plus jmn/sit/bed_liedown_loop for pose 0).
-/// 3. A reverse lookup of the emote sheet for plain emotes.
+/// 3. Standing idles (emote/poseNN, plus resident/idle for idle 0), played as pose mode 0.
+/// 4. A reverse lookup of the emote sheet for plain emotes.
 /// </summary>
 public static class PoseNameHeuristics
 {
@@ -32,7 +33,13 @@ public static class PoseNameHeuristics
         ("/emote/jmn.pap", new PoseIdentifier(1, 0)),              // GroundSit
         ("/emote/sit.pap", new PoseIdentifier(2, 0)),              // Sit
         ("/emote/bed_liedown_loop.pap", new PoseIdentifier(3, 0)), // Doze
+        ("/bt_common/resident/idle.pap", new PoseIdentifier(0, 0)), // Standing idle 0
     ];
+
+    // Standing idles live under bt_common; weapon-stance folders hold battle idles, which /cpose doesn't
+    // reach. The leading "/" keeps j_pose/s_pose/l_pose out.
+    private static readonly Regex StandingIdleFile =
+        new(@"/bt_common/emote/pose0([1-6])_(?:loop|start)\.pap$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <param name="groupName">Also checked for the "(/command)" hint.</param>
     public static List<PoseTriggerHint> Detect(string groupName, string optionName, IEnumerable<string> gamePaths)
@@ -74,6 +81,13 @@ public static class PoseNameHeuristics
             {
                 if (!normalized.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase)) continue;
                 AddPose(pose);
+                isBasePose = true;
+            }
+
+            // Idle files skip the emote lookup too: the idle is only reachable through /cpose.
+            if (StandingIdleFile.Match(normalized) is { Success: true } idle)
+            {
+                AddPose(new PoseIdentifier(0, byte.Parse(idle.Groups[1].Value)));
                 isBasePose = true;
             }
 

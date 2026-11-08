@@ -24,7 +24,7 @@ public interface ILibraryContext
     bool PresetFits(NamedPose preset);
 }
 
-/// <summary>Anywhere the character isn't chair-seated or in bed: groundsits, dozes and emotes play where they stand.</summary>
+/// <summary>Anywhere the character isn't chair-seated or in bed: groundsits, dozes, idles and emotes play where they stand.</summary>
 public sealed class StandingContext : ILibraryContext
 {
     public static readonly StandingContext Instance = new();
@@ -36,6 +36,7 @@ public sealed class StandingContext : ILibraryContext
     [
         new("Ground sits", LibraryIndex.IsGroundSit),
         new("Doze poses", LibraryIndex.IsDoze),
+        new("Idle stances", LibraryIndex.IsIdle),
         new("Emotes & dances", LibraryIndex.IsEmote),
     ];
 

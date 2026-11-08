@@ -281,7 +281,8 @@ public sealed class Plugin : IDalamudPlugin
         UpdatePlayContext(currentPose);
 
         // Clear the offset once the character leaves the pose, unless a freecam restore is pending.
-        if (PoseTrigger.HasAppliedOffset && currentPose == null && lastKnownPoseForFreecamRestore == null)
+        // A held standing idle reads as no pose but keeps its offset until it ends.
+        if (PoseTrigger.HasAppliedOffset && currentPose == null && lastKnownPoseForFreecamRestore == null && !PoseTrigger.HoldsIdle)
         {
             PoseTrigger.ClearOffset(localPlayer);
             LoadedPreset = null;
@@ -339,7 +340,8 @@ public sealed class Plugin : IDalamudPlugin
 
         if (currentPose is not { } pose)
         {
-            if (previous != null && !fresh)
+            // An idle play stands up from a seat pose and then lives with no looping pose.
+            if (previous != null && !fresh && !PoseTrigger.IsCycling && !PoseTrigger.HoldsIdle)
                 CurrentPlayContext = null;
             return;
         }

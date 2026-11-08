@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using PoseKit.Furniture;
@@ -12,7 +13,8 @@ namespace PoseKit;
 /// <summary>
 /// Plays a pose and applies its offset once it's active. Sit/groundsit/doze set the selected pose
 /// and cycle "/cpose" until the right variant is reached; other emotes use their normal command,
-/// so emote unlocks and server checks still apply.
+/// so emote unlocks and server checks still apply. Standing idles (pose mode 0) step "/cpose" while
+/// standing, more slowly, and hold their offset while the character stays on the idle.
 /// </summary>
 public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine offsetEngine, SimpleHeelsBridge simpleHeelsBridge, AnywherePose anywherePose)
 {
@@ -21,6 +23,32 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     private (PoseIdentifier Pose, PoseOffset Offset, PresetAnchor? Anchor, bool Silent)? cyclingTarget;
     private int attempts;
     private long nextAttemptTime;
+
+    /// Set while stepping "/cpose" into a standing idle.
+    private sealed class IdleCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent)
+    {
+        public PoseIdentifier Pose { get; } = pose;
+        public PoseOffset Offset { get; } = offset;
+        public PresetAnchor? Anchor { get; } = anchor;
+        public bool Silent { get; } = silent;
+        public int Steps { get; set; }
+
+        /// False until the first check, which redraws instead of stepping when already on the idle.
+        public bool Checked { get; set; }
+
+        /// Set once the toggle that stands up from a groundsit, sit or doze was sent.
+        public long? StandUpDeadline { get; set; }
+    }
+
+    private IdleCycle? idleCycle;
+    private long nextIdleStepTime;
+
+    /// The idle reached by the last idle play and where the character stood. Its offset lasts while both
+    /// hold, since standing reads as "no pose" and would otherwise clear it at once.
+    private (byte Idle, Vector3 Position)? idleHold;
+
+    /// True while an idle play's offset is held.
+    public bool HoldsIdle => idleHold != null;
 
     /// Null unless the applied offset is partner-anchored.
     private PartnerTracking? partnerTracking;
@@ -36,8 +64,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// True when an offset is applied through either OffsetEngine or the SimpleHeels bridge.
     public bool HasAppliedOffset { get; private set; }
 
-    /// True while cycling into a sit/groundsit/doze variant.
-    public bool IsCycling => cyclingTarget != null;
+    /// True while cycling into a sit/groundsit/doze variant or a standing idle.
+    public bool IsCycling => cyclingTarget != null || idleCycle != null;
 
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
@@ -50,8 +78,18 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         partnerTracking = null;
         boneCorrection = PoseOffset.Zero;
         OffsetGeneration++;
+        idleCycle = null;
+        idleHold = null;
         switch (pose.EmoteModeId)
         {
+            case PoseIdentifier.StandingIdleMode:
+                cyclingTarget = null;
+                // Drop a seat pose's offset now: left in place, the plugin would clear it on standing up,
+                // and this play's context with it.
+                if (HasAppliedOffset) ClearOffset(Plugin.ObjectTable.LocalPlayer);
+                idleCycle = new IdleCycle(pose, offset, anchor, silent);
+                nextIdleStepTime = Environment.TickCount64;
+                break;
             case 1: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.GroundSit, "/groundsit"); break;
             case 2: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.Sit, "/sit"); break;
             case 3: EnterPoseCycle(pose, offset, anchor, silent, EmoteController.PoseType.Doze, "/doze"); break;
@@ -120,6 +158,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         offsetEngine.Reset(localPlayer);
         simpleHeelsBridge.Clear();
         HasAppliedOffset = false;
+        idleHold = null;
         partnerTracking = null;
         boneCorrection = PoseOffset.Zero;
         OffsetGeneration++;
@@ -132,6 +171,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     public void TriggerCommand(string emoteCommand, PoseOffset offset, PresetAnchor? anchor)
     {
         cyclingTarget = null;
+        idleCycle = null;
+        idleHold = null;
         partnerTracking = null;
         boneCorrection = PoseOffset.Zero;
         OffsetGeneration++;
@@ -196,6 +237,8 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     public void Tick()
     {
         TickPartnerTracking();
+        TickIdleHold();
+        TickIdleCycle();
 
         if (cyclingTarget is not { } target || Environment.TickCount64 < nextAttemptTime) return;
 
@@ -217,6 +260,118 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute("/cpose");
         if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
         else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
+    }
+
+    // Standing /cpose plays a transition first; Oathbound found the idle state dependable after this.
+    private const int IdleStepDelayMs = 700;
+    // One full cycle of the 7 standing idles.
+    private const int MaxIdleSteps = 7;
+    private const int StandUpTimeoutMs = 3000;
+    // Walking moves the real position; draw offsets don't, so partner tracking never trips this.
+    private const float IdleHoldMoveThreshold = 0.1f;
+
+    /// Stands up from a seat pose if needed, then steps "/cpose" until the target idle is active.
+    private void TickIdleCycle()
+    {
+        if (idleCycle is not { } cycle || Environment.TickCount64 < nextIdleStepTime) return;
+
+        var localPlayer = Plugin.ObjectTable.LocalPlayer;
+        var character = (Character*)(localPlayer?.Address ?? 0);
+        if (character == null)
+        {
+            idleCycle = null;
+            return;
+        }
+
+        var name = cycle.Pose.DisplayName;
+        var now = Environment.TickCount64;
+        if (PoseIdentifier.FromCharacter(character) is { } loop)
+        {
+            if (loop.EmoteModeId is not (1 or 2 or 3))
+            {
+                FailIdle($"Stop the current emote first to play {name}.");
+                return;
+            }
+            if (cycle.StandUpDeadline is not { } deadline)
+            {
+                // These emotes toggle: sending them again while in them stands the character up.
+                ChatCommand.Execute(loop.EmoteModeId switch { 1 => "/groundsit", 2 => "/sit", _ => "/doze" });
+                cycle.StandUpDeadline = now + StandUpTimeoutMs;
+            }
+            else if (now > deadline)
+            {
+                FailIdle($"Couldn't stand up to play {name}.");
+                return;
+            }
+            nextIdleStepTime = now + CposeAttemptDelayMs;
+            return;
+        }
+
+        if (character->Mode != CharacterModes.Normal)
+        {
+            // Getting up passes through other modes for a moment.
+            if (cycle.StandUpDeadline is { } deadline && now <= deadline)
+            {
+                nextIdleStepTime = now + CposeAttemptDelayMs;
+                return;
+            }
+            FailIdle($"Idles play only while standing, not mounted or busy. Couldn't play {name}.");
+            return;
+        }
+
+        if (character->IsWeaponDrawn)
+        {
+            FailIdle($"Sheathe your weapon to play {name}.");
+            return;
+        }
+
+        if (character->EmoteController.CPoseState == cycle.Pose.CPoseState)
+        {
+            if (!cycle.Checked && cycle.StandUpDeadline == null)
+            {
+                // Already on it: redraw so the newly selected option shows, then check again in case the
+                // redraw reset the idle.
+                cycle.Checked = true;
+                ChatCommand.Execute("/penumbra redraw self");
+                nextIdleStepTime = now + IdleStepDelayMs;
+                return;
+            }
+
+            idleCycle = null;
+            ApplyOffset(ResolveOffset(cycle.Offset, cycle.Anchor, cycle.Silent));
+            idleHold = (cycle.Pose.CPoseState, localPlayer!.Position);
+            return;
+        }
+
+        cycle.Checked = true;
+        if (cycle.Steps >= MaxIdleSteps)
+        {
+            FailIdle($"Couldn't reach {name}: still on Idle {character->EmoteController.CPoseState} after a full /cpose cycle.");
+            return;
+        }
+
+        ChatCommand.Execute("/cpose");
+        cycle.Steps++;
+        nextIdleStepTime = now + IdleStepDelayMs;
+    }
+
+    private void FailIdle(string message)
+    {
+        idleCycle = null;
+        Plugin.ChatGui.PrintError($"[PoseKit] {message}");
+    }
+
+    /// Ends the hold once the character walks, changes idle or leaves standing; the plugin then clears the
+    /// offset as it does when a pose ends.
+    private void TickIdleHold()
+    {
+        if (idleHold is not { } hold) return;
+
+        var localPlayer = Plugin.ObjectTable.LocalPlayer;
+        var current = PoseIdentifier.StandingIdle((Character*)(localPlayer?.Address ?? 0));
+        if (localPlayer == null || current?.CPoseState != hold.Idle ||
+            Vector3.Distance(localPlayer.Position, hold.Position) > IdleHoldMoveThreshold)
+            idleHold = null;
     }
 
     /// Adds the anchor correction. Computed when the offset is applied, not when triggered, since

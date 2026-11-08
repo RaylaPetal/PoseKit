@@ -34,6 +34,11 @@ capabilities in `openspec/specs/`). Use the `/opsx:*` commands (explore, propose
 **Poses and offsets**
 - `PoseIdentifier` names a pose by emote mode (1 groundsit, 2 chair sit, 3 doze) and CPose state, or an emote.
   `PoseTrigger` plays it (cycling `/cpose` for sit variants) and owns the applied offset.
+- Standing idles are pose mode 0 (`bt_common/emote/poseNN`, `resident/idle` = Idle 0). `PoseTrigger` stands up from
+  a seat pose, then steps `/cpose` every 700 ms (one full cycle at most) while standing with the weapon sheathed.
+  `FromCharacter` stays null while standing (its callers mean "in a looping pose"); `StandingIdle` reads the idle.
+  An idle play's offset is held (`HoldsIdle`) until the character walks or changes idle, since `Plugin` otherwise
+  clears offsets whenever no looping pose is active.
 - `OffsetEngine` hooks `SetDrawOffset`/`SetDrawRotation`; the offset position is in the character's *drawn*
   frame (actual rotation + rotation offset), so world deltas must be rotated by the inverse of that facing.
   Optionally bridged to SimpleHeels instead.

@@ -77,10 +77,12 @@ public static class LibraryIndex
     public const uint GroundSitMode = 1;
     public const uint ChairSitMode = 2;
     public const uint DozeMode = 3;
+    public const uint StandingIdleMode = PoseIdentifier.StandingIdleMode;
 
     public static bool IsGroundSit(PoseTriggerHint trigger) => trigger.PoseIdentifier?.EmoteModeId == GroundSitMode;
     public static bool IsChairSit(PoseTriggerHint trigger) => trigger.PoseIdentifier?.EmoteModeId == ChairSitMode;
     public static bool IsDoze(PoseTriggerHint trigger) => trigger.PoseIdentifier?.EmoteModeId == DozeMode;
+    public static bool IsIdle(PoseTriggerHint trigger) => trigger.PoseIdentifier?.EmoteModeId == StandingIdleMode;
     public static bool IsEmote(PoseTriggerHint trigger) => trigger.SlashCommand != null;
 
     /// Every option with at least one trigger, in scan order.
