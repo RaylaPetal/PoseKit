@@ -200,8 +200,14 @@ public static class PresetButtonsPanel
             if (ImGui.RadioButton("Rotate##PoseKitGizmoRotate", mode == OffsetGizmoMode.Rotate) && mode != OffsetGizmoMode.Rotate)
                 SetGizmoMode(configuration, OffsetGizmoMode.Rotate);
         }
-        if (!rotationAvailable && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip("Rotation offset unavailable — hook didn't resolve this game version.");
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+        {
+            var holdKey = configuration.OffsetGizmoRotateKey;
+            if (!rotationAvailable)
+                ImGui.SetTooltip("Rotation offset unavailable — hook didn't resolve this game version.");
+            else if (holdKey != GizmoHoldKey.None)
+                ImGui.SetTooltip($"Or hold {OffsetGizmo.HoldKeyName(holdKey)} to rotate while Move is selected.");
+        }
     }
 
     private static readonly float[] QuickTurnDegrees = [-90f, 180f, 90f];

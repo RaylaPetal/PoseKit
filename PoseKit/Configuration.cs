@@ -65,6 +65,10 @@ public class Configuration : IPluginConfiguration
 
     public PoseKit.Windows.OffsetGizmoMode OffsetGizmoMode { get; set; } = PoseKit.Windows.OffsetGizmoMode.Move;
 
+    /// Held to rotate with the gizmo without leaving the character for the radio buttons; never
+    /// changes OffsetGizmoMode. None turns it off for players who type capitals mid-pose and mind.
+    public PoseKit.Windows.GizmoHoldKey OffsetGizmoRotateKey { get; set; } = PoseKit.Windows.GizmoHoldKey.Shift;
+
     public PoseKit.Library.LibraryTypeFilter LibraryTypeFilter { get; set; } = PoseKit.Library.LibraryTypeFilter.All;
 
     public CharacterPoseConfig GetOrCreateCharacterConfig(uint homeWorldId, string characterName)

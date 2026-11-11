@@ -70,6 +70,24 @@ public class ConfigWindow : Window, IDisposable
                 ? "SimpleHeels detected."
                 : "SimpleHeels not detected — install and enable it to sync your pose offset to nearby players.");
 
+            PoseKitUi.SectionHeader("Gizmo");
+            var holdKey = configuration.OffsetGizmoRotateKey;
+            ImGui.SetNextItemWidth(ImGui.GetFontSize() * 7f);
+            if (ImGui.BeginCombo("Rotate hold key##PoseKitGizmoHoldKey", OffsetGizmo.HoldKeyName(holdKey)))
+            {
+                foreach (var key in new[] { GizmoHoldKey.Shift, GizmoHoldKey.Ctrl, GizmoHoldKey.Alt, GizmoHoldKey.None })
+                {
+                    if (ImGui.Selectable(OffsetGizmo.HoldKeyName(key), key == holdKey) && key != holdKey)
+                    {
+                        configuration.OffsetGizmoRotateKey = key;
+                        configuration.Save();
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            PoseKitUi.TextWrappedDisabled("While held, the gizmo rotates instead of moving. Move/Rotate still picks " +
+                                           "what it does otherwise. None turns this off.");
+
             PoseKitUi.SectionHeader("Quick Library");
             var neverShowChip = configuration.NeverShowLibraryChip;
             if (ImGui.Checkbox("Never show library chip", ref neverShowChip))

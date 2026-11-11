@@ -26,6 +26,32 @@ public static unsafe class OffsetGizmo
 
     private static bool takingMouse;
 
+    /// The mode a drag started in. Kept while ImGuizmo is using a handle, so pressing or releasing
+    /// the hold key mid-drag doesn't swap the operation under it and make the character jump.
+    private static bool rotateLatched;
+
+    /// True while the configured hold key is down. ImGui's IO modifiers are refreshed every frame
+    /// from the OS key state, even while the game rather than a PoseKit window has focus.
+    public static bool HoldKeyDown(GizmoHoldKey key)
+    {
+        var io = ImGui.GetIO();
+        return key switch
+        {
+            GizmoHoldKey.Shift => io.KeyShift,
+            GizmoHoldKey.Ctrl => io.KeyCtrl,
+            GizmoHoldKey.Alt => io.KeyAlt,
+            _ => false,
+        };
+    }
+
+    public static string HoldKeyName(GizmoHoldKey key) => key switch
+    {
+        GizmoHoldKey.Shift => "Shift",
+        GizmoHoldKey.Ctrl => "Ctrl",
+        GizmoHoldKey.Alt => "Alt",
+        _ => "None",
+    };
+
     public static void Draw(Plugin plugin)
     {
         var configuration = plugin.Configuration;
@@ -36,7 +62,10 @@ public static unsafe class OffsetGizmo
         if (!TryGetCamera(out var view, out var projection)) return;
 
         var engine = plugin.OffsetEngine;
-        var rotate = configuration.OffsetGizmoMode == OffsetGizmoMode.Rotate && engine.RotationHookResolved;
+        if (!ImGuizmo.IsUsing())
+            rotateLatched = engine.RotationHookResolved &&
+                            (configuration.OffsetGizmoMode == OffsetGizmoMode.Rotate || HoldKeyDown(configuration.OffsetGizmoRotateKey));
+        var rotate = rotateLatched;
         var offset = engine.DesiredOffset;
         var obj = (GameObject*)localPlayer.Address;
 
@@ -119,3 +148,5 @@ public static unsafe class OffsetGizmo
 }
 
 public enum OffsetGizmoMode { Move, Rotate }
+
+public enum GizmoHoldKey { None, Shift, Ctrl, Alt }
