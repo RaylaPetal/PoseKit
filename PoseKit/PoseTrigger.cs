@@ -417,6 +417,13 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     // Keeps a moving partner from sending a SimpleHeels command every frame.
     private const long BridgeReapplyIntervalMs = 250;
 
+    // Covers a half that starts a beat later and a seat play's /cpose cycling (about 2 s).
+    private const long PartnerSettleGraceMs = 5000;
+
+    // Inside a looping pose the partner's real position stays put (their offsets only move where
+    // they're drawn), so more than this means they walked off. Well above jitter, below a step.
+    private const float PartnerSettledMoveThreshold = 0.5f;
+
     /// Keeps the preset's own offset separate from the partner correction, so the correction can be
     /// recomputed as the partner moves.
     private sealed class PartnerTracking(PartnerAnchor anchor, PoseOffset baseOffset, bool silent)
@@ -429,6 +436,22 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         public PoseOffset LastCorrection { get; set; } = PoseOffset.Zero;
 
         public (Vector3 PartnerPosition, float PartnerRotation, Vector3 OwnPosition, float OwnRotation)? LastTransforms { get; set; }
+
+        /// True once a correction has been applied, so losing range later freezes rather than
+        /// dropping back to the plain offset.
+        public bool HasCorrection { get; set; }
+
+        /// When the partner was first found, which starts the settle grace period. A partner who
+        /// loads late still gets the full period.
+        public long? FoundTick { get; set; }
+
+        /// The partner's real position once seen still in a looping pose; null while settling.
+        public Vector3? SettledPosition { get; set; }
+
+        /// Set when the partner leaves their pose or walks off. The last correction stays applied
+        /// and is never recomputed for this play: the player stays where they're drawn instead of
+        /// following. Kept rather than discarded so preset updates can still subtract it.
+        public bool Frozen { get; set; }
 
         /// At most one fallback notice per play.
         public bool NoticeShown { get; set; }
@@ -457,12 +480,19 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// Re-applies the partner correction when either character moves.
     private void TickPartnerTracking()
     {
-        if (partnerTracking is not { } tracking || PartnerTrackingPaused) return;
+        if (partnerTracking is not { } tracking || tracking.Frozen || PartnerTrackingPaused) return;
 
         var localPlayer = Plugin.ObjectTable.LocalPlayer;
         if (localPlayer == null) return;
         var partner = PartnerAnchor.TryFindLive(tracking.Anchor.Partner);
         if (partner == null) return;
+
+        // Checked before recomputing, so the frame the partner starts walking doesn't drag us along.
+        if (PartnerLeftPose(tracking, partner))
+        {
+            tracking.Frozen = true;
+            return;
+        }
 
         if (tracking.LastTransforms is { } last &&
             Vector3.Distance(partner.Position, last.PartnerPosition) <= PartnerTrackPositionThreshold &&
@@ -486,6 +516,30 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         tracking.LastApplyTick = Environment.TickCount64;
     }
 
+    /// Follows the partner freely while they settle into their pose (a seat snap moves their real
+    /// position), then reports true once they leave it or walk off. A partner never seen in a loop
+    /// within the grace period counts as left: their half isn't a looping pose to stay matched to.
+    private static bool PartnerLeftPose(PartnerTracking tracking, IPlayerCharacter partner)
+    {
+        var now = Environment.TickCount64;
+        tracking.FoundTick ??= now;
+        var inLoop = PoseIdentifier.FromCharacter(partner) != null;
+
+        if (tracking.SettledPosition is { } settled)
+            return !inLoop || Vector3.Distance(partner.Position, settled) > PartnerSettledMoveThreshold;
+
+        // Settle only once they're also still, so a slide into a seat lands before the spot is taken.
+        var still = tracking.LastTransforms is { } last &&
+                    Vector3.Distance(partner.Position, last.PartnerPosition) <= PartnerTrackPositionThreshold;
+        if (inLoop && still)
+        {
+            tracking.SettledPosition = partner.Position;
+            return false;
+        }
+
+        return now - tracking.FoundTick.Value >= PartnerSettleGraceMs;
+    }
+
     private void RecomputePartnerCorrection(PartnerTracking tracking, IPlayerCharacter localPlayer, IPlayerCharacter partner)
     {
         tracking.LastTransforms = (partner.Position, partner.Rotation, localPlayer.Position, localPlayer.Rotation);
@@ -494,6 +548,16 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         if (correction is { } c)
         {
             tracking.LastCorrection = c;
+            tracking.HasCorrection = true;
+            return;
+        }
+
+        // Out of range after lining up: keep the drawn spot rather than snapping back to the real one.
+        if (tracking.HasCorrection)
+        {
+            tracking.Frozen = true;
+            NotifyPartnerAnchorFallback(tracking,
+                $"{tracking.Anchor.Partner.Name} moved too far away to keep you lined up with them.", "Staying where you are.");
             return;
         }
 
@@ -502,11 +566,11 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
             $"Too far from {tracking.Anchor.Partner.Name} to line you up with them — move closer.");
     }
 
-    private static void NotifyPartnerAnchorFallback(PartnerTracking tracking, string reason)
+    private static void NotifyPartnerAnchorFallback(PartnerTracking tracking, string reason, string outcome = "Playing with just the offset.")
     {
         if (tracking.Silent || tracking.NoticeShown) return;
         tracking.NoticeShown = true;
-        Plugin.ChatGui.PrintError($"[PoseKit] {reason} Playing with just the offset.");
+        Plugin.ChatGui.PrintError($"[PoseKit] {reason} {outcome}");
     }
 
     /// Field-wise, so Subtract is its exact inverse.
