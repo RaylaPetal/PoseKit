@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>3.0.1.8</Version>
+    <Version>3.0.1.9</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>Rayla Petal</Author>
     <Name>PoseKit</Name>
@@ -10,7 +10,12 @@
         auto-discover Penumbra pose mods, and manually resync emote timing with a partner.</Description>
     <RepoUrl>https://github.com/RaylaPetal/PoseKit</RepoUrl>
     <Tags>pose;emote;offset;penumbra</Tags>
+    <IconUrl>https://raw.githubusercontent.com/RaylaPetal/PoseKit/master/PoseKit/images/icon.png</IconUrl>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Packed next to the plugin so the installer shows it for dev builds too; images/icon.svg is the source. -->
+    <Content Include="images\icon.png" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
   <ItemGroup>
     <!-- Built from source: the published Penumbra.Api package references an assembly name the
          published Luna package doesn't provide. -->

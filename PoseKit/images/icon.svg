@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#3a2a5c"/>
+      <stop offset="1" stop-color="#120d1c"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9d7ee0"/>
+      <stop offset="0.5" stop-color="#c7a6ff"/>
+      <stop offset="1" stop-color="#9d7ee0"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f1ff"/>
+      <stop offset="1" stop-color="#c3b2e6"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9cc0"/>
+      <stop offset="1" stop-color="#d9558a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#c7a6ff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#c7a6ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <ellipse cx="256" cy="410" rx="190" ry="70" fill="url(#glow)"/>
+
+  <!-- rotation ring: back half behind the figure -->
+  <path d="M100 410 A156 44 0 0 1 412 410" fill="none" stroke="#4b3779" stroke-width="12"/>
+
+  <!-- mannequin -->
+  <g stroke="url(#body)" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- back leg -->
+    <path d="M236 292 L206 350 L226 408" stroke-width="30"/>
+    <!-- arm on hip -->
+    <path d="M224 186 L184 232 L228 262" stroke-width="24"/>
+    <!-- front leg -->
+    <path d="M266 292 L284 352 L300 410" stroke-width="30"/>
+    <!-- raised arm -->
+    <path d="M290 184 L336 142 L352 84" stroke-width="24"/>
+  </g>
+  <!-- torso and pelvis -->
+  <path d="M218 172 Q256 160 296 172 L280 254 Q256 262 234 254 Z" fill="url(#body)" stroke="url(#body)" stroke-width="10" stroke-linejoin="round"/>
+  <ellipse cx="251" cy="285" rx="34" ry="22" fill="url(#body)"/>
+  <!-- neck and head -->
+  <path d="M258 168 L260 146" stroke="url(#body)" stroke-width="18" stroke-linecap="round"/>
+  <ellipse cx="262" cy="116" rx="26" ry="31" fill="url(#body)" transform="rotate(10 262 116)"/>
+  <!-- wooden-mannequin joints -->
+  <g fill="#8f78c4">
+    <circle cx="206" cy="350" r="10"/>
+    <circle cx="284" cy="352" r="10"/>
+    <circle cx="184" cy="232" r="9"/>
+    <circle cx="336" cy="142" r="9"/>
+    <circle cx="251" cy="262" r="7"/>
+  </g>
+
+  <!-- rotation ring: front half with arrowheads -->
+  <path d="M112 422 A156 44 0 0 0 400 422" fill="none" stroke="url(#ring)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M104 382 L128 424 L86 426 Z" fill="#a98be8"/>
+  <path d="M408 382 L384 424 L426 426 Z" fill="#a98be8"/>
+
+  <!-- sparkle by the raised hand -->
+  <path d="M396 70 Q400 92 420 96 Q400 100 396 122 Q392 100 372 96 Q392 92 396 70 Z" fill="url(#accent)"/>
+  <circle cx="420" cy="140" r="7" fill="#ff9cc0"/>
+</svg>

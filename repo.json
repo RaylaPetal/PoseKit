@@ -8,6 +8,7 @@
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "Punchline": "Offset, save, and replay poses; auto-discover Penumbra animation mods.",
+    "IconUrl": "https://raw.githubusercontent.com/RaylaPetal/PoseKit/master/PoseKit/images/icon.png",
     "RepoUrl": "https://github.com/RaylaPetal/PoseKit",
     "Tags": [
       "pose",
