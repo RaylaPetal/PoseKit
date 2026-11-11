@@ -173,7 +173,7 @@ public static class PlayDispatch
             TriggerText(trigger), trigger.PoseIdentifier);
 
         var pairing = plugin.PairingState;
-        plugin.PlayVerifier.Queue(mod, option);
+        plugin.PlayVerifier.Queue(mod, option, () => ReapplyOption(plugin, mod, group, option));
         plugin.RecentPlays.Record(pairing.Active && !pairing.SoloPlayEnabled ? pairing.Peer : null, $"{mod.ModDirectory}|{group.Name}|{option.Name}");
     }
 
@@ -204,9 +204,13 @@ public static class PlayDispatch
         collectionId is not { } cid ? null : () => MakeExclusive(plugin, mod, group, option, cid);
 
     /// Clears overlapping options in this mod and outranks other mods actively claiming its files. Only
-    /// temporary settings change, and nothing happens (so no redraw) when there's nothing to fix.
-    private static void MakeExclusive(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid collectionId)
+    /// temporary settings change, and nothing happens (so no redraw) when there's nothing to fix, unless
+    /// <paramref name="force"/> re-sends them anyway.
+    private static void MakeExclusive(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option, Guid collectionId, bool force = false)
     {
+        var settings = plugin.PenumbraIpc.TryGetAllSettings(collectionId);
+        if (settings != null) SyncFromPenumbra(mod, settings);
+
         var groups = mod.Groups.Select(candidate => new ExclusiveGroup(candidate.Name, !candidate.MultiSelect, candidate.IsImplicit,
             candidate.Options.Select(o => new ExclusiveOption(o.Name, o.AnimationRedirects.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase))).ToList(),
             candidate.Selected)).ToList();
@@ -214,18 +218,48 @@ public static class PlayDispatch
         var byGroup = changes.ToDictionary(change => mod.Groups.First(candidate => candidate.Name == change.Key), change => change.Value);
 
         var priority = mod.Priority;
-        if (plugin.PenumbraIpc.TryGetAllSettings(collectionId) is { } settings)
+        if (settings != null)
         {
             var claimants = plugin.AnimationClaims.ActiveClaimants(option.AnimationRedirects.Keys, mod.ModDirectory, settings);
             priority = ExclusivePlay.RequiredPriority(mod.Priority, claimants.Select(claimant => claimant.Priority));
         }
 
-        if (byGroup.Count == 0 && priority == mod.Priority) return;
+        if (byGroup.Count == 0 && priority == mod.Priority && !force) return;
 
         var previous = mod.Priority;
         mod.Priority = priority;
         if (!ApplyGroupChanges(plugin, mod, byGroup, collectionId))
             mod.Priority = previous;
+    }
+
+    /// Replaces the cached enabled state, priority and selections with Penumbra's. The cache only knows
+    /// PoseKit's own changes, so after something else resets the mod (another plugin removing temporary
+    /// settings, a manual edit) it would claim the option is already on and nothing would be sent.
+    private static void SyncFromPenumbra(PoseModInfo mod,
+        IReadOnlyDictionary<string, (bool Enabled, int Priority, Dictionary<string, List<string>> Selections)> settings)
+    {
+        // A mod missing from the list has never been configured, so it's off.
+        if (!settings.TryGetValue(mod.ModDirectory, out var live))
+        {
+            mod.Enabled = false;
+            return;
+        }
+
+        mod.Enabled = live.Enabled;
+        mod.Priority = live.Priority;
+        foreach (var candidate in mod.Groups)
+        {
+            if (candidate.IsImplicit) continue;
+            candidate.Selected = live.Selections.TryGetValue(candidate.Name, out var selected) ? [.. selected] : [];
+        }
+    }
+
+    /// Re-sends this option's settings whatever the cache says, for when Penumbra isn't serving its files.
+    private static void ReapplyOption(Plugin plugin, PoseModInfo mod, PoseModGroup group, PoseModOption option)
+    {
+        if (plugin.PenumbraIpc.TryGetLocalPlayerCollectionId() is not { } collectionId) return;
+        MakeExclusive(plugin, mod, group, option, collectionId, force: true);
+        EnsureModEnabled(plugin, mod, collectionId);
     }
 
     public static bool ApplyGroupChange(Plugin plugin, PoseModInfo mod, PoseModGroup changedGroup,
