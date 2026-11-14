@@ -43,6 +43,9 @@ public sealed class ChangelogWindow : Window, IDisposable
             "Standing idles can be played too: they show up as Idle triggers and keep their offset until you move.",
             "Hold Shift (or Ctrl or Alt, in Settings) to make the gizmo rotate while Move is selected.",
         ]),
+        ("Fixes", [
+            "Unlocking and moving after a locked pose no longer leaves your character sunk into the ground or running in circles.",
+        ]),
     ];
 
     private readonly Configuration configuration;
