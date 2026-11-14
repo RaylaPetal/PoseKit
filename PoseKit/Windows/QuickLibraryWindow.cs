@@ -60,6 +60,10 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         if (context is FurnitureContextBase furniture)
             SeatPanel.Draw(plugin, furniture);
 
+        // Above Adjust rather than inside it, so a collapsed Adjust group can't hide the way out.
+        if (plugin.PoseLock.IsLocked)
+            PresetButtonsPanel.DrawUnlockButton(plugin, "PoseKitLibraryUnlock");
+
         // The main window's gizmo and Bone Align (with its quick turns), so a pose can be adjusted
         // without opening it.
         if (PoseKitUi.TintedHeader("Adjust##PoseKitLibraryAdjust", PoseKitUi.HeaderAdjust, ImGuiTreeNodeFlags.DefaultOpen))

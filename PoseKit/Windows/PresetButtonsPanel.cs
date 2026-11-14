@@ -176,6 +176,17 @@ public static class PresetButtonsPanel
     }
 
     /// Shows or hides the gizmo on the character's root, and picks move or rotate.
+    public const string UnlockTooltip = "Lets your character move again. The pose keeps playing until you move.";
+
+    /// Shown only while the pose lock holds the character, in the main window header and the quick library.
+    public static void DrawUnlockButton(Plugin plugin, string id)
+    {
+        if (ImGui.Button($"Unlock##{id}"))
+            plugin.UnlockMovement();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(UnlockTooltip);
+    }
+
     public static void DrawGizmoToggle(Plugin plugin)
     {
         var configuration = plugin.Configuration;

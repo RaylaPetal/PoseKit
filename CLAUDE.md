@@ -95,6 +95,11 @@ one is renamed to `.bad` on the next save rather than overwritten.
 
 **Freecam** (`Camera/`): see `PoseKit/Camera/README.md`.
 
+**Movement lock**: `MovementSuppression` owns the movement-blocking hooks and the game's ForceDisableMovement
+counter, held per owner; freecam and `PoseLock` each acquire it, so neither releases the other. `PoseLock` arms
+on `PoseTrigger.Played`, locks once the pose is reached, and releases on Unlock, pose end, a player-typed pose
+(outside an 8 s grace after a play), combat, zone change, logout or unload. Unlock never ends the pose.
+
 ## Conventions
 
 - Match the existing style: `///` comments on members that explain *why*, not restating the code; LF line

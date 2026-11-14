@@ -12,37 +12,36 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.0.1.0";
+    public const string ChangelogId = "3.0.2.0";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
-        ("Quick Library", [
-            "A small on-screen chip opens a compact animation library. By default it's shown while you're paired; Settings can hide it when solo, or never show it at all (/posekit lib still opens the library).",
-            "Laid out like the main window, just smaller: your mods (collapsed), then each animation, then its roles and variants with small play buttons. Search and the Solo/Couple filter open what matches.",
-            "It only shows what you can play right now: ground sits, dozes and emotes while standing, sit poses while seated, doze poses while lying down. It opens by itself when you sit or lie down (you can turn that off in Settings).",
-            "The Adjust section has the gizmo and Bone Align (parts, gap, auto-align, quick turns, Align and Remember), so you rarely need the main window.",
-            "Rescan your mods right from the library header.",
+        ("Movement lock", [
+            "While a pose PoseKit played is going, your movement keys no longer move you, so one stray key can't end a pose you spent time placing and aligning.",
+            "Press Unlock (in the main window header or the quick library) or type /posekit unlock to move again. The pose keeps playing until you actually move.",
+            "The lock lets go by itself when the pose ends, when you type an emote of your own, in combat, on zone change and on logout. Emotes you type yourself are never locked.",
+            "Don't want it? Turn off \"Lock movement while posing\" in Settings.",
         ]),
-        ("Favorites", [
-            "Click the star next to any animation you can play, in the main window or the library, to make it a favorite.",
-            "Favorites get their own section above your mods, ready to play without digging through long lists, each showing which mod it comes from.",
+        ("Freecam", [
+            "Freecam moves the moment you press a key, instead of a second or two later.",
+            "Movement eases in and out smoothly instead of jumping, and it's a bit slower so placing the camera is easier.",
         ]),
-        ("Posing", [
-            "Doze anywhere: doze poses play where you stand, and others see them. Beds and chairs still place you on them.",
-            "Gizmo: drag handles on your character to move or turn your offset.",
-            "Bone Align turns you to face your partner's direction before lining you up, since couple animations are made with both characters facing the same way. Turn off \"Face partner's direction\" to keep your own facing.",
-            "Nudging a remembered animation by hand saves the new placement to Bone Align's memory.",
+        ("Library tags", [
+            "Every library animation gets a colored FxF, MxF or M/F x F chip. Click a chip to correct it; your fix follows the animation's files.",
+            "Tags come from your own corrections, the body parts Bone Align recorded, the animation's name and the mod author's codes. While paired, PoseKit also notices which parts touch and suggests a tag in the chip's menu.",
+            "The library filter gains FxF and MxF, sorting animations into Fits and a collapsed Doesn't fit.",
         ]),
-        ("Pairing", [
-            "Target a player and pair with them straight from the library or the main window, or right-click a player in the world, in chat, in your party or friend list and choose \"Pair with PoseKit\".",
-            "Invites you receive pop up as a notification you can accept right there.",
-            "PoseKit's pairing tells no longer clutter your chat: they're hidden, and you get a short [PoseKit] line for what matters (invites, pairing, accepts, declines).",
-            "The library pairs like the main window: your pick is queued with a single tell, your partner picks theirs, and both play. With Override on (next to Gizmo in the library), your second pick plays both. When your partner picks, the library shows their pick so you can play your part.",
-            "Tells are spaced out so the game no longer drops them, and the library has an Unpair button on the \"Paired with\" line.",
+        ("Playing together", [
+            "A Recent list per partner (or solo) sits above your mods in the quick library.",
+            "Scenes whose names state both roles get Play together: your partner gets the other role with Accept, Swap and Decline.",
+            "While paired, animations play on your partner's spot facing their way, since couple animations share one origin. Bone Align still refines it afterwards.",
+            "If your partner walks off or leaves their pose, you stay put instead of being dragged along.",
         ]),
-        ("Fixes", [
-            "Mods saved by newer Penumbra versions could show options without a play button; they play again.",
-            "Dropdowns no longer snap back open when you collapse them.",
+        ("Playing", [
+            "Playing an animation now makes it the one that plays: PoseKit turns off other options in the same mod that use the same files, and outranks other mods only when they really claim them. Your saved Penumbra settings never change.",
+            "After a play, PoseKit checks what Penumbra is serving and tells you in chat if another mod won.",
+            "Standing idles can be played too: they show up as Idle triggers and keep their offset until you move.",
+            "Hold Shift (or Ctrl or Alt, in Settings) to make the gizmo rotate while Move is selected.",
         ]),
     ];
 

@@ -67,6 +67,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
     /// True while cycling into a sit/groundsit/doze variant or a standing idle.
     public bool IsCycling => cyclingTarget != null || idleCycle != null;
 
+    /// Raised for every pose or emote PoseKit plays, so the pose lock can tell PoseKit's poses from
+    /// ones the player typed.
+    public event Action? Played;
+
     public void Trigger(NamedPose pose) => Trigger(pose.Pose, pose.Offset, pose.Anchor);
 
     /// <param name="silent">Suppresses the anchor-not-found notice, for a partner's relayed half.</param>
@@ -80,6 +84,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         OffsetGeneration++;
         idleCycle = null;
         idleHold = null;
+        Played?.Invoke();
         switch (pose.EmoteModeId)
         {
             case PoseIdentifier.StandingIdleMode:
@@ -176,6 +181,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         partnerTracking = null;
         boneCorrection = PoseOffset.Zero;
         OffsetGeneration++;
+        Played?.Invoke();
         ChatCommand.Execute($"/{emoteCommand} motion");
         if (anchor != null) ApplyOffset(ResolveOffset(offset, anchor));
     }

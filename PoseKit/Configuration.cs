@@ -60,6 +60,10 @@ public class Configuration : IPluginConfiguration
     /// Opens the quick library each time the character sits or lies down.
     public bool OpenLibraryWhenSeated { get; set; } = true;
 
+    /// Holds the character still during a pose PoseKit started, since one stray movement key ends a
+    /// pose that may have taken placing, offsetting and aligning to set up.
+    public bool LockMovementWhilePosing { get; set; } = true;
+
     /// A move/rotate gizmo on the character's root, shown below the live-offset sliders' toggle.
     public bool ShowOffsetGizmo { get; set; }
 

@@ -19,6 +19,7 @@ public sealed unsafe class FreeCamService : IDisposable
 {
     private delegate nint CalculateView(SceneCamera* camera);
     private readonly FreeCamMotion motion = new();
+    private readonly MovementSuppression suppression;
     private FreeCamInput? input;
     private Hook<CalculateView>? viewHook;
     private Hook<GameCamera.Delegates.Update>? updateHook;
@@ -48,8 +49,9 @@ public sealed unsafe class FreeCamService : IDisposable
     /// pose might end during freecam.
     public bool MovementKeyHeld { get; private set; }
 
-    public FreeCamService()
+    public FreeCamService(MovementSuppression suppression)
     {
+        this.suppression = suppression;
         Plugin.Condition.ConditionChange += OnConditionChange;
         Plugin.ClientState.TerritoryChanged += OnTerritoryChanged;
         Plugin.ClientState.Logout += OnLogout;
@@ -77,7 +79,7 @@ public sealed unsafe class FreeCamService : IDisposable
             if (viewHook != null) { viewHook.Dispose(); viewHook = null; }
             if (updateHook != null) { updateHook.Dispose(); updateHook = null; }
             // Create all hooks before acquiring input or changing the live camera.
-            input = new FreeCamInput();
+            input = new FreeCamInput(suppression);
             // ScanText follows an initial E8/E9 and returns the function target, not
             // the call site. Applying another relative displacement creates an invalid pointer.
             var loadAddress = Plugin.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 17 48 8D 4D E0");
@@ -171,7 +173,7 @@ public sealed unsafe class FreeCamService : IDisposable
     }
 
     // Navigation pauses during text entry, plugin UI interaction, or lost window focus.
-    private static bool NavigationPaused()
+    internal static bool NavigationPaused()
     {
         var framework = GameFramework.Instance();
         var atk = RaptureAtkModule.Instance();
@@ -190,11 +192,11 @@ public sealed unsafe class FreeCamService : IDisposable
         if (paused || framework == null || input == null) return;
         var data = (InputData*)framework->UIModule->GetUIInputData();
         moveInput = new Vector3(
-            (input.IsHeld(data, InputId.MOVE_RIGHT) || input.IsHeld(data, InputId.MOVE_STRIFE_R) ? 1 : 0) -
-            (input.IsHeld(data, InputId.MOVE_LEFT) || input.IsHeld(data, InputId.MOVE_STRIFE_L) ? 1 : 0),
-            (input.RawUp || input.IsHeld(data, InputId.JUMP) ? 1 : 0) -
-            (input.RawDown || input.IsHeld(data, InputId.MOVE_DESCENT) ? 1 : 0),
-            (input.IsHeld(data, InputId.MOVE_FORE) ? 1 : 0) - (input.IsHeld(data, InputId.MOVE_BACK) ? 1 : 0));
+            (input.IsDown(data, InputId.MOVE_RIGHT) || input.IsDown(data, InputId.MOVE_STRIFE_R) ? 1 : 0) -
+            (input.IsDown(data, InputId.MOVE_LEFT) || input.IsDown(data, InputId.MOVE_STRIFE_L) ? 1 : 0),
+            (input.RawUp || input.IsDown(data, InputId.JUMP) ? 1 : 0) -
+            (input.RawDown || input.IsDown(data, InputId.MOVE_DESCENT) ? 1 : 0),
+            (input.IsDown(data, InputId.MOVE_FORE) ? 1 : 0) - (input.IsDown(data, InputId.MOVE_BACK) ? 1 : 0));
     }
 
     private string? InvalidSessionReason()
@@ -249,14 +251,13 @@ public sealed unsafe class FreeCamService : IDisposable
             var matrix = (Matrix4x4*)&current->ViewMatrix;
             NativeCameraView.Validate((nint)current->RenderCamera, matrix);
             // Advance by the time since the last render, not the Framework tick, so each drawn
-            // frame moves by exactly its own duration. Step and Ease clamp long hitches.
+            // frame moves by exactly its own duration. Step clamps long hitches.
             var raw = Math.Clamp((float)frameClock.Elapsed.TotalSeconds, 0f, MaxFrameSeconds);
             frameClock.Restart();
             frameSeconds = frameSeconds <= 0f ? raw : frameSeconds + (raw - frameSeconds) * FrameAverageWeight;
             // DirH runs opposite to FreeCamMotion's convention.
             motion.Step(moveInput, -camera->DirH, camera->DirV, frameSeconds);
-            motion.Ease(frameSeconds);
-            var position = motion.RenderPosition;
+            var position = motion.Position;
             var forward = FreeCamMotion.Forward(-camera->DirH, camera->DirV);
             current->Position = position;
             current->LookAtVector = position + forward;
@@ -321,13 +322,7 @@ public sealed unsafe class FreeCamService : IDisposable
     private void UpdateMovementKeyHeld()
     {
         if (input == null) return;
-        var framework = GameFramework.Instance();
-        if (framework == null) return;
-        var data = (InputData*)framework->UIModule->GetUIInputData();
-        MovementKeyHeld = input.IsHeld(data, InputId.MOVE_FORE) || input.IsHeld(data, InputId.MOVE_BACK) ||
-            input.IsHeld(data, InputId.MOVE_LEFT) || input.IsHeld(data, InputId.MOVE_RIGHT) ||
-            input.IsHeld(data, InputId.MOVE_STRIFE_L) || input.IsHeld(data, InputId.MOVE_STRIFE_R) ||
-            input.IsHeld(data, InputId.JUMP) || input.IsHeld(data, InputId.MOVE_DESCENT);
+        MovementKeyHeld = suppression.IsMovementKeyDown();
     }
 
     public void Dispose()

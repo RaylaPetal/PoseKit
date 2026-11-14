@@ -115,6 +115,14 @@ public class ConfigWindow : Window, IDisposable
             }
             PoseKitUi.TextWrappedDisabled("Opens the library each time you sit or lie down. Closing it keeps it " +
                                            "closed until you sit or lie down again.");
+            var lockMovement = configuration.LockMovementWhilePosing;
+            if (ImGui.Checkbox("Lock movement while posing", ref lockMovement))
+            {
+                configuration.LockMovementWhilePosing = lockMovement;
+                configuration.Save();
+            }
+            PoseKitUi.TextWrappedDisabled("While a pose PoseKit played is going, movement keys don't move you, so " +
+                                           "the pose can't end by accident. Unlock in PoseKit or with /posekit unlock.");
             PoseKitUi.SectionHeader("Penumbra Mods to Scan for Poses");
             PoseKitUi.TextWrappedDisabled("Disabled mods are listed too — PoseKit enables one temporarily when you play a pose from it.");
 

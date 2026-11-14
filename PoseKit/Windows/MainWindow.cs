@@ -92,9 +92,12 @@ public class MainWindow : Window, IDisposable
         const string resyncLabel = "Resync##PoseKitHeaderResync";
         const string settingsLabel = "Settings##PoseKitHeaderSettings";
         var freecamLabel = plugin.FreeCam.Enabled ? "Freecam on##PoseKitHeaderFreecam" : "Freecam##PoseKitHeaderFreecam";
+        const string unlockLabel = "Unlock##PoseKitHeaderUnlock";
+        var locked = plugin.PoseLock.IsLocked;
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         const float donateGap = 14f;
         var toolsWidth = PoseKitUi.ButtonWidth(resyncLabel) + PoseKitUi.ButtonWidth(freecamLabel) + PoseKitUi.ButtonWidth(settingsLabel) + spacing * 2
+                         + (locked ? PoseKitUi.ButtonWidth(unlockLabel) + spacing : 0)
                          + donateGap + PoseKitUi.KofiButtonWidth();
         var toolsX = ImGui.GetWindowContentRegionMax().X - toolsWidth;
         PoseKitUi.SameLineIfFits(toolsWidth);
@@ -106,6 +109,11 @@ public class MainWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Restart every nearby player's emote together, on your screen.");
         ImGui.SameLine();
+        if (locked)
+        {
+            PresetButtonsPanel.DrawUnlockButton(plugin, "PoseKitHeaderUnlock");
+            ImGui.SameLine();
+        }
         if (PoseKitUi.ToggleButton(freecamLabel, plugin.FreeCam.Enabled))
             plugin.FreeCam.Toggle();
         if (ImGui.IsItemHovered())

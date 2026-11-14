@@ -54,6 +54,8 @@ public sealed class Plugin : IDalamudPlugin
 
     public EmoteSyncCommand EmoteSync { get; init; }
     public FreeCamService FreeCam { get; init; }
+    public MovementSuppression MovementSuppression { get; init; }
+    public PoseLock PoseLock { get; init; }
 
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
@@ -125,12 +127,14 @@ public sealed class Plugin : IDalamudPlugin
         PairingState = new PairingState();
 
         EmoteSync = new EmoteSyncCommand();
-        FreeCam = new FreeCamService();
+        MovementSuppression = new MovementSuppression();
+        FreeCam = new FreeCamService(MovementSuppression);
         OffsetEngine = new OffsetEngine();
 
         PresetManager = new PresetManager(Configuration);
         SimpleHeelsBridge = new SimpleHeelsBridge();
         PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge, new AnywherePose());
+        PoseLock = new PoseLock(Configuration, MovementSuppression, PoseTrigger, FreeCam);
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
@@ -225,6 +229,7 @@ public sealed class Plugin : IDalamudPlugin
                           "/posekit lib → Toggle the quick library.\n" +
                           "/posekit changelog → Show what's new.\n" +
                           "/posekit tfc → Toggle freecam.\n" +
+                          "/posekit unlock → Let your character move during a PoseKit pose.\n" +
                           "/posekit sync [delay <seconds>] → Resync nearby players' emotes."
         });
 
@@ -242,7 +247,9 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         PenumbraIpc.Dispose();
+        PoseLock.Dispose();
         FreeCam.Dispose();
+        MovementSuppression.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.Draw -= DrawOffsetGizmo;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
@@ -309,6 +316,7 @@ public sealed class Plugin : IDalamudPlugin
 
         OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
+        PoseLock.Tick(currentPose);
         PairingSender.Tick();
         PairingListener.Tick();
         CoupleQueueService.Tick();
@@ -393,6 +401,15 @@ public sealed class Plugin : IDalamudPlugin
         PoseTrigger.RestorePose(droppedPose);
         freecamRestoreAttempts++;
         nextFreecamRestoreAttemptTime = Environment.TickCount64 + FreecamRestoreAttemptDelayMs;
+    }
+
+    /// Frees movement during a PoseKit pose without ending it; shared by the command and both windows.
+    public void UnlockMovement()
+    {
+        if (PoseLock.Unlock())
+            ChatGui.Print("[PoseKit] Movement unlocked. Move to end the pose.");
+        else
+            ChatGui.Print("[PoseKit] Movement isn't locked.");
     }
 
     /// Applies an edit to the scan selection; saves and rescans only if it changed something.
@@ -611,6 +628,12 @@ public sealed class Plugin : IDalamudPlugin
                 FreeCam.Toggle();
                 ChatGui.Print($"[PoseKit] {FreeCam.Status}");
             }
+            return;
+        }
+
+        if (string.Equals(splitArgs[0], "unlock", StringComparison.OrdinalIgnoreCase))
+        {
+            UnlockMovement();
             return;
         }
 
