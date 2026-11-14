@@ -106,7 +106,7 @@ public sealed class PoseLock : IDisposable
     private void Engage(PoseIdentifier? currentPose)
     {
         armedAt = null;
-        if (!suppression.Acquire(Owner)) return;
+        if (!suppression.Acquire(Owner, holdCounter: false)) return;
         IsLocked = true;
         lockedPose = currentPose;
         hinted = false;

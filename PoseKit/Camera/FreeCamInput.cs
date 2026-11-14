@@ -80,7 +80,7 @@ internal sealed unsafe class FreeCamInput : IDisposable
     public void Enable()
     {
         if (Active) return;
-        if (!suppression.Acquire(Owner))
+        if (!suppression.Acquire(Owner, holdCounter: true))
             throw new InvalidOperationException("Movement suppression cannot be acquired.");
         try
         {

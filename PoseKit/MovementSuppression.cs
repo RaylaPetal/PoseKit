@@ -11,7 +11,9 @@ namespace PoseKit;
 /// <summary>
 /// Keeps the character from moving while any holder (freecam, the pose lock) needs it. One shared set
 /// of hooks and one counter contribution, so holders can't release each other's suppression in the
-/// wrong order.
+/// wrong order. Movement keys are blocked for every holder; the game's ForceDisableMovement counter is
+/// held only for holders that ask for it, since taking it while the character is moving can leave the
+/// game's movement desynced (sinking, running in circles) until relog.
 /// </summary>
 public sealed unsafe class MovementSuppression : IDisposable
 {
@@ -20,7 +22,8 @@ public sealed unsafe class MovementSuppression : IDisposable
     private delegate int AxisQuery(InputData* data, uint axis);
 
     private readonly List<Hook<InputQuery>> queries = new();
-    private readonly HashSet<string> holders = new();
+    /// Owner to whether it also holds the ForceDisableMovement counter.
+    private readonly Dictionary<string, bool> holders = new();
     private Hook<AxisQuery>? axisHook;
     private Hook<InputManager.Delegates.GetInputStatus>? statusHook;
     private Hook<InputQuery>? downHook;
@@ -97,39 +100,52 @@ public sealed unsafe class MovementSuppression : IDisposable
             IsDown(data, InputId.JUMP) || IsDown(data, InputId.MOVE_DESCENT);
     }
 
+    /// Blocks movement keys for this owner; <paramref name="holdCounter"/> also holds the game's
+    /// ForceDisableMovement counter, which only freecam needs (it starts from a stationary character).
     /// Idempotent per owner. False when suppression isn't available or the counter looks wrong.
-    public bool Acquire(string owner)
+    public bool Acquire(string owner, bool holdCounter)
     {
         if (!Available) return false;
-        if (holders.Contains(owner)) return true;
-        if (holders.Count == 0)
+        if (holders.ContainsKey(owner)) return true;
+        if (holdCounter && !ownsCounter)
         {
             if (movementCounter == null || *movementCounter < 0 || *movementCounter >= 100) return false;
             ++*movementCounter;
             ownsCounter = true;
+        }
+        if (holders.Count == 0)
+        {
             foreach (var hook in queries) hook.Enable();
             axisHook!.Enable();
             statusHook!.Enable();
         }
-        holders.Add(owner);
+        holders[owner] = holdCounter;
         return true;
     }
 
     public void Release(string owner)
     {
-        if (!holders.Remove(owner) || holders.Count > 0) return;
-        ReleaseAll();
+        if (!holders.Remove(owner)) return;
+        if (holders.Count == 0)
+        {
+            ReleaseAll();
+            return;
+        }
+        if (!holders.ContainsValue(true)) ReleaseCounter();
+    }
+
+    private void ReleaseCounter()
+    {
+        // Remove this plugin's contribution only; never reset a shared counter to zero.
+        if (!ownsCounter) return;
+        ownsCounter = false;
+        if (movementCounter != null && *movementCounter > 0) --*movementCounter;
     }
 
     private void ReleaseAll()
     {
         holders.Clear();
-        // Remove this plugin's contribution only; never reset a shared counter to zero.
-        if (ownsCounter)
-        {
-            ownsCounter = false;
-            if (movementCounter != null && *movementCounter > 0) --*movementCounter;
-        }
+        ReleaseCounter();
         foreach (var hook in queries) TryCleanup(hook.Disable);
         if (axisHook != null) TryCleanup(axisHook.Disable);
         if (statusHook != null) TryCleanup(statusHook.Disable);
