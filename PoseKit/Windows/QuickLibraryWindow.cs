@@ -113,10 +113,11 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             var queue = plugin.CoupleQueueService;
             if (queue.QueuedSelectionName is { } mine)
             {
+                // Each on its own line: wrapped text continued on the same line would start at the right edge and
+                // wrap one character per line.
                 ImGui.PushTextWrapPos(ImGui.GetContentRegionMax().X - 4);
                 ImGui.TextColored(PoseKitUi.Accent, $"You queued: {mine}");
-                ImGui.SameLine(0, 6);
-                ImGui.TextColored(PoseKitUi.Muted, $"· waiting for {peer.Name}");
+                ImGui.TextColored(PoseKitUi.Muted, $"Waiting for {peer.Name} to pick.");
                 ImGui.PopTextWrapPos();
             }
 
@@ -543,15 +544,14 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             ImGui.SetTooltip($"{Presets.PresetDescriptions.Summary(preset)}\n\n{Presets.PresetDescriptions.AnchorDetail(preset)}");
         PoseKitUi.DrawPickBadge(pick);
 
-        ImGui.PushTextWrapPos(ImGui.GetContentRegionMax().X - 4);
-        ImGui.SameLine(0, RowItemSpacing);
-        ImGui.TextColored(preset.PartnerHalf != null ? PoseKitUi.Info : PoseKitUi.Muted, Presets.PresetDescriptions.Type(preset));
-        ImGui.SameLine(0, 6);
-        ImGui.TextColored(PoseKitUi.Muted, "·");
-        ImGui.SameLine(0, 6);
+        // Short pieces, each moved to the next line when it doesn't fit, never wrapped mid-word at the window edge.
+        var type = Presets.PresetDescriptions.Type(preset);
+        var anchor = Presets.PresetDescriptions.Anchor(preset);
         var anchored = preset.Anchor is { IsSet: true };
-        ImGui.TextColored(anchored ? PoseKitUi.Accent : PoseKitUi.Muted, Presets.PresetDescriptions.Anchor(preset));
-        ImGui.PopTextWrapPos();
+        PoseKitUi.SameLineIfFits(ImGui.CalcTextSize(type).X + RowItemSpacing);
+        ImGui.TextColored(preset.PartnerHalf != null ? PoseKitUi.Info : PoseKitUi.Muted, type);
+        PoseKitUi.SameLineIfFits(ImGui.CalcTextSize(anchor).X + 6);
+        ImGui.TextColored(anchored ? PoseKitUi.Accent : PoseKitUi.Muted, anchor);
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(Presets.PresetDescriptions.AnchorDetail(preset));
     }

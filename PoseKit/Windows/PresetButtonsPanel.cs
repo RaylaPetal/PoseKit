@@ -476,13 +476,9 @@ public static class PresetButtonsPanel
         var animation = PresetDescriptions.Animation(namedPose);
         if (showMod && PresetDescriptions.ModName(namedPose) is { } mod)
             animation = $"{mod}: {animation}";
+        // Its own line: a long name continued after the anchor would wrap from the right edge, a letter per line.
         if (animation is { Length: > 0 })
-        {
-            ImGui.SameLine(0, 6);
-            ImGui.TextColored(PoseKitUi.Muted, "·");
-            ImGui.SameLine(0, 6);
             PoseKitUi.TextWrappedDisabled(animation);
-        }
 
         var status = pick switch
         {
