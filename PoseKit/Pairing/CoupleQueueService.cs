@@ -54,6 +54,9 @@ public sealed class CoupleQueueService : IDisposable
         queuedAt = Environment.TickCount64;
         PairingTransport.Send(PairingComposer.ComposeQueueSignal(displayName));
         pairingState.Touch();
+        Echo(PartnerSelectionName is { } theirs
+            ? $"Playing {displayName} together with {partner.Name}'s {theirs}."
+            : $"Queued {displayName}. It plays once {partner.Name} picks theirs.");
         Changed?.Invoke();
         TryPlayIfBothReady();
     }
@@ -76,6 +79,9 @@ public sealed class CoupleQueueService : IDisposable
 
     private void OnQueueSignalReceived(PartnerIdentity sender, string name)
     {
+        Echo(QueuedSelectionName is { } mine
+            ? $"{sender.Name} picked {name}. Playing {mine} together."
+            : $"{sender.Name} picked {name}. Pick yours to play together.");
         PartnerSelectionName = name;
         partnerSelectionFrom = sender;
         Changed?.Invoke();
@@ -109,10 +115,17 @@ public sealed class CoupleQueueService : IDisposable
         Changed?.Invoke();
     }
 
+    /// Picks are the main thing pairing does, so each step says so in chat (local only, never sent).
+    private static void Echo(string text) => Plugin.ChatGui.Print($"[PoseKit] {text}");
+
     public void Tick()
     {
         if (queuedPlay == null) return;
         if (Environment.TickCount64 - queuedAt > QueueTimeoutMs)
+        {
+            var partner = pairingState.Peer?.Name ?? "Your partner";
+            if (QueuedSelectionName is { } mine) Echo($"Your pick {mine} expired: {partner} didn't pick within a minute.");
             ClearQueue();
+        }
     }
 }

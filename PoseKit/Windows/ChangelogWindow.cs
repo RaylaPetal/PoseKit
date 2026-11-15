@@ -29,11 +29,13 @@ public sealed class ChangelogWindow : Window, IDisposable
             "Partners you've paired with are remembered. Pair again from the pairing panel from anywhere in the game, no targeting needed; they still accept as usual.",
             "Forget a partner in the same list. Pairing with them again then needs them nearby.",
             "If your partner is offline when you pick something, you're told right away instead of it silently going nowhere.",
+            "Each pick now says what's happening in chat: queued and waiting, your partner's pick, playing together, or expired. The quick library shows your queued pick too.",
         ]),
         ("Presets", [
             "Fixed: a preset's anchor (spot, furniture or partner) was lost the next time PoseKit loaded. Presets saved before this update lost theirs; save them again to anchor them.",
             "The main window groups presets by the mod they play from, and each one says whether it's solo or a couple, where it lands (hover for what that means) and what it plays.",
             "In the quick library, each preset gets its own row saying the same.",
+            "The quick library opens with every section closed each time, even ones you opened earlier in the session; a search still opens what matches.",
         ]),
         ("Support and Discord", [
             "The main window's header now has Ko-fi, Patreon and Discord buttons, and this window has a \"Join the Discord\" button below, for updates and help.",

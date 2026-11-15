@@ -109,8 +109,18 @@ public sealed class QuickLibraryWindow : Window, IDisposable
             PairingPanel.DrawIncomingRelay(plugin, compact: true);
             PairingPanel.DrawOutgoingRelay(plugin, compact: true);
 
-            // The partner picked and this side hasn't: their animation's options, to play along.
+            // This side's pick, waiting for the partner's.
             var queue = plugin.CoupleQueueService;
+            if (queue.QueuedSelectionName is { } mine)
+            {
+                ImGui.PushTextWrapPos(ImGui.GetContentRegionMax().X - 4);
+                ImGui.TextColored(PoseKitUi.Accent, $"You queued: {mine}");
+                ImGui.SameLine(0, 6);
+                ImGui.TextColored(PoseKitUi.Muted, $"· waiting for {peer.Name}");
+                ImGui.PopTextWrapPos();
+            }
+
+            // The partner picked and this side hasn't: their animation's options, to play along.
             if (queue.PartnerSelectionName is { } theirs && queue.QueuedSelectionName == null &&
                 PoseKitUi.TintedHeader($"{peer.Name} picked: {theirs}##PoseKitLibraryPartnerPick", PoseKitUi.HeaderPartnerPick))
             {
