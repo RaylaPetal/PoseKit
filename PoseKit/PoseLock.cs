@@ -44,6 +44,9 @@ public sealed class PoseLock : IDisposable
 
     private void OnPlayed()
     {
+        // Let go while PoseKit changes pose: the held emote-cancel guard could block the transition.
+        // The lock re-engages once the new pose is reached.
+        Release();
         lastPlayAt = Environment.TickCount64;
         if (configuration.LockMovementWhilePosing && !Plugin.Condition[ConditionFlag.InCombat])
             armedAt = lastPlayAt;
@@ -72,7 +75,10 @@ public sealed class PoseLock : IDisposable
         if (!IsLocked)
         {
             if (armedAt is not { } armed) return;
-            if (inPose && !poseTrigger.IsCycling) Engage(currentPose);
+            if (inPose && !poseTrigger.IsCycling)
+            {
+                if (freeCam.CharacterStill) Engage(currentPose);
+            }
             else if (!poseTrigger.IsCycling && now - armed > PlayGraceMs) armedAt = null;
             return;
         }
@@ -106,7 +112,7 @@ public sealed class PoseLock : IDisposable
     private void Engage(PoseIdentifier? currentPose)
     {
         armedAt = null;
-        if (!suppression.Acquire(Owner, holdCounter: false)) return;
+        if (!suppression.Acquire(Owner)) return;
         IsLocked = true;
         lockedPose = currentPose;
         hinted = false;

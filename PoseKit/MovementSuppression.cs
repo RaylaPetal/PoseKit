@@ -9,24 +9,27 @@ using GameFramework = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework
 namespace PoseKit;
 
 /// <summary>
-/// Keeps the character from moving while any holder (freecam, the pose lock) needs it. One shared set
-/// of hooks and one counter contribution, so holders can't release each other's suppression in the
-/// wrong order. Movement keys are blocked for every holder; the game's ForceDisableMovement counter is
-/// held only for holders that ask for it, since taking it while the character is moving can leave the
-/// game's movement desynced (sinking, running in circles) until relog.
+/// Keeps the character still while any holder (freecam, the pose lock) needs it, with the set freecam
+/// proved in-game: movement inputs blocked, the game's ForceDisableMovement counter held, and the
+/// emote controller's cancel check answering "don't cancel". All three are needed: the counter is what
+/// stops movement, and without the cancel guard a key press half-cancels the emote under the counter,
+/// leaving the character sunk and running in circles after release. One shared set and one counter
+/// contribution, so holders can't release each other's suppression in the wrong order.
 /// </summary>
 public sealed unsafe class MovementSuppression : IDisposable
 {
     [return: MarshalAs(UnmanagedType.U1)]
     private delegate bool InputQuery(InputData* data, InputId id);
     private delegate int AxisQuery(InputData* data, uint axis);
+    [return: MarshalAs(UnmanagedType.U1)]
+    private delegate bool CancelEmoteDelegate(EmoteController* emoteController, nint unknown);
 
     private readonly List<Hook<InputQuery>> queries = new();
-    /// Owner to whether it also holds the ForceDisableMovement counter.
-    private readonly Dictionary<string, bool> holders = new();
+    private readonly HashSet<string> holders = new();
     private Hook<AxisQuery>? axisHook;
     private Hook<InputManager.Delegates.GetInputStatus>? statusHook;
     private Hook<InputQuery>? downHook;
+    private Hook<CancelEmoteDelegate>? cancelEmoteHook;
     private int* movementCounter;
     private bool ownsCounter;
 
@@ -56,6 +59,9 @@ public sealed unsafe class MovementSuppression : IDisposable
             if (address == 0) throw new InvalidOperationException("Gameplay input support is unavailable.");
             statusHook = Plugin.GameInteropProvider.HookFromAddress<InputManager.Delegates.GetInputStatus>(address,
                 (manager, code) => !(Active && Blocks(code)) && statusHook!.Original(manager, code));
+            // EmoteController's cancel-emote check; only enabled while held.
+            var cancelEmoteAddress = Plugin.SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 7B 08 45 33 C0");
+            cancelEmoteHook = Plugin.GameInteropProvider.HookFromAddress<CancelEmoteDelegate>(cancelEmoteAddress, (_, _) => false);
             Available = true;
         }
         catch (Exception ex)
@@ -100,55 +106,45 @@ public sealed unsafe class MovementSuppression : IDisposable
             IsDown(data, InputId.JUMP) || IsDown(data, InputId.MOVE_DESCENT);
     }
 
-    /// Blocks movement keys for this owner; <paramref name="holdCounter"/> also holds the game's
-    /// ForceDisableMovement counter, which only freecam needs (it starts from a stationary character).
-    /// Idempotent per owner. False when suppression isn't available or the counter looks wrong.
-    public bool Acquire(string owner, bool holdCounter)
+    /// Idempotent per owner. Callers must only acquire from a stationary character: taking the counter
+    /// mid-movement can leave the game's movement desynced. False when unavailable or the counter looks wrong.
+    public bool Acquire(string owner)
     {
         if (!Available) return false;
-        if (holders.ContainsKey(owner)) return true;
-        if (holdCounter && !ownsCounter)
+        if (holders.Contains(owner)) return true;
+        if (holders.Count == 0)
         {
             if (movementCounter == null || *movementCounter < 0 || *movementCounter >= 100) return false;
             ++*movementCounter;
             ownsCounter = true;
-        }
-        if (holders.Count == 0)
-        {
             foreach (var hook in queries) hook.Enable();
             axisHook!.Enable();
             statusHook!.Enable();
+            cancelEmoteHook!.Enable();
         }
-        holders[owner] = holdCounter;
+        holders.Add(owner);
         return true;
     }
 
     public void Release(string owner)
     {
-        if (!holders.Remove(owner)) return;
-        if (holders.Count == 0)
-        {
-            ReleaseAll();
-            return;
-        }
-        if (!holders.ContainsValue(true)) ReleaseCounter();
-    }
-
-    private void ReleaseCounter()
-    {
-        // Remove this plugin's contribution only; never reset a shared counter to zero.
-        if (!ownsCounter) return;
-        ownsCounter = false;
-        if (movementCounter != null && *movementCounter > 0) --*movementCounter;
+        if (!holders.Remove(owner) || holders.Count > 0) return;
+        ReleaseAll();
     }
 
     private void ReleaseAll()
     {
         holders.Clear();
-        ReleaseCounter();
+        // Remove this plugin's contribution only; never reset a shared counter to zero.
+        if (ownsCounter)
+        {
+            ownsCounter = false;
+            if (movementCounter != null && *movementCounter > 0) --*movementCounter;
+        }
         foreach (var hook in queries) TryCleanup(hook.Disable);
         if (axisHook != null) TryCleanup(axisHook.Disable);
         if (statusHook != null) TryCleanup(statusHook.Disable);
+        if (cancelEmoteHook != null) TryCleanup(cancelEmoteHook.Disable);
     }
 
     public void Dispose()
@@ -163,8 +159,10 @@ public sealed unsafe class MovementSuppression : IDisposable
         queries.Clear();
         if (axisHook != null) TryCleanup(axisHook.Dispose);
         if (statusHook != null) TryCleanup(statusHook.Dispose);
+        if (cancelEmoteHook != null) TryCleanup(cancelEmoteHook.Dispose);
         axisHook = null;
         statusHook = null;
+        cancelEmoteHook = null;
         downHook = null;
         movementCounter = null;
     }

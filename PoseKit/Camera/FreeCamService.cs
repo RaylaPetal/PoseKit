@@ -43,6 +43,11 @@ public sealed unsafe class FreeCamService : IDisposable
     private float dirH, dirV, distance, interpDistance, fov;
     private Vector3 scenePosition, sceneLookAt;
     public bool Enabled { get; private set; }
+
+    /// Still for a moment and not autorunning: the only state movement suppression may be taken from,
+    /// since holding the game's movement counter mid-movement desyncs it.
+    public bool CharacterStill => stationarySeconds >= 0.25f &&
+        (InputManager.Addresses.IsAutoRunning.Value == 0 || !InputManager.IsAutoRunning());
     public string Status { get; private set; } = "Freecam disabled.";
 
     /// Whether a movement key is physically held, to tell a real move apart from other reasons a

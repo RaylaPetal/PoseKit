@@ -95,12 +95,14 @@ one is renamed to `.bad` on the next save rather than overwritten.
 
 **Freecam** (`Camera/`): see `PoseKit/Camera/README.md`.
 
-**Movement lock**: `MovementSuppression` owns the movement-blocking hooks and the game's ForceDisableMovement
-counter, held per owner; freecam and `PoseLock` each acquire it, so neither releases the other. Only freecam holds
-the counter (it starts from a stationary character): taking it mid-movement desyncs the game's movement until relog,
-so the pose lock blocks movement keys only. `PoseLock` arms
-on `PoseTrigger.Played`, locks once the pose is reached, and releases on Unlock, pose end, a player-typed pose
-(outside an 8 s grace after a play), combat, zone change, logout or unload. Unlock never ends the pose.
+**Movement lock**: `MovementSuppression` holds the character with freecam's proven set: movement inputs blocked,
+the game's ForceDisableMovement counter (what actually stops movement; input hooks alone don't) and the emote
+controller's cancel check forced to "don't cancel" (without it a key press half-cancels the emote under the counter,
+leaving the character sunk and circling). Held per owner, so freecam and `PoseLock` never release each other, and
+acquired only from a still character (`FreeCamService.CharacterStill`). `PoseLock` arms on `PoseTrigger.Played`
+(releasing any current lock so PoseKit's own transitions aren't blocked), locks once the pose is reached and the
+character is still, and releases on Unlock, pose end, a player-typed pose (outside an 8 s grace after a play),
+combat, zone change, logout or unload. Unlock never ends the pose.
 
 ## Conventions
 
