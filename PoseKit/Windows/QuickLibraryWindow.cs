@@ -42,9 +42,10 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
     private bool Searching => search.Trim().Length > 0;
 
-    /// While searching or filtering, a new search or filter opens everything once; null otherwise.
+    /// A new search opens what matches once; null otherwise. Filters alone never open anything: the
+    /// filter is saved, so opening on it would expand the whole library every session.
     private string? ExpandReason(LibraryTypeFilter filter) =>
-        Searching || filter != LibraryTypeFilter.All ? $"{search.Trim()}|{filter}" : null;
+        Searching ? $"{search.Trim()}|{filter}" : null;
 
     public override void Draw()
     {
@@ -200,7 +201,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
         PoseKitUi.OpenOnce("library|presets", ExpandReason(filter));
         var title = context.PresetsTitle == "Presets" ? "Presets" : $"Presets · {context.PresetsTitle}";
-        if (PoseKitUi.TintedHeader($"{title}  ({presets.Count})##PoseKitLibraryPresets", PoseKitUi.HeaderPresets, ImGuiTreeNodeFlags.DefaultOpen))
+        if (PoseKitUi.TintedHeader($"{title}  ({presets.Count})##PoseKitLibraryPresets", PoseKitUi.HeaderPresets))
         {
             var rowRight = ImGui.GetCursorScreenPos().X + ImGui.GetContentRegionAvail().X;
             for (var i = 0; i < presets.Count; i++)
@@ -210,8 +211,8 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         return true;
     }
 
-    /// The Favorites section (every starred animation playable here, open by default), then the mods,
-    /// collapsed, each listing its animations.
+    /// The Favorites section (every starred animation playable here), then the mods, each listing its
+    /// animations. Everything starts collapsed; a search opens what matches.
     private bool DrawTree(ILibraryContext context, LibraryTypeFilter filter)
     {
         var tree = view.GetTree(plugin.LibraryIndex, plugin.LibraryIndexVersion, plugin.PairingTags.Version, plugin.Configuration, context, search, filter);
@@ -224,7 +225,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         if (favorites.Count > 0)
         {
             PoseKitUi.OpenOnce("library|favorites", expandReason);
-            if (PoseKitUi.TintedHeader($"Favorites  ({favorites.Count})##PoseKitLibraryFavorites", PoseKitUi.HeaderFavorites, ImGuiTreeNodeFlags.DefaultOpen))
+            if (PoseKitUi.TintedHeader($"Favorites  ({favorites.Count})##PoseKitLibraryFavorites", PoseKitUi.HeaderFavorites))
             {
                 ImGui.PushID("PoseKitFavorites");
                 foreach (var row in favorites)
@@ -239,7 +240,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
         if (LibraryBuckets.SectionsActive(filter))
         {
-            DrawSection($"Fits {filter}", "Fits", PoseKitUi.HeaderFits, tree, collectionId, expandReason, ImGuiTreeNodeFlags.DefaultOpen);
+            DrawSection($"Fits {filter}", "Fits", PoseKitUi.HeaderFits, tree, collectionId, expandReason, ImGuiTreeNodeFlags.None);
             DrawSection("Doesn't fit", "DoesntFit", PoseKitUi.HeaderDoesntFit, view.DoesntFit, collectionId, null, ImGuiTreeNodeFlags.None,
                 "Tagged as something else. They can still be played, and you can click a tag to correct it.");
             return anyRecent || tree.Count + view.DoesntFit.Count > 0;
@@ -295,7 +296,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
 
         PoseKitUi.OpenOnce("library|recent", expandReason);
         var title = partner is { } peer ? $"Recent with {peer.Name}" : "Recent";
-        if (PoseKitUi.TintedHeader($"{title}  ({rows.Count})###PoseKitLibraryRecent", PoseKitUi.HeaderRecent, ImGuiTreeNodeFlags.DefaultOpen))
+        if (PoseKitUi.TintedHeader($"{title}  ({rows.Count})###PoseKitLibraryRecent", PoseKitUi.HeaderRecent))
         {
             ImGui.PushID("PoseKitRecent");
             foreach (var row in rows)
@@ -309,16 +310,15 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         return true;
     }
 
-    /// An option group with its options under it. Collapsed by default unless it has a single option,
-    /// so a long pack reads as a list of animations rather than a wall of roles.
+    /// An option group with its options under it, collapsed by default so a long pack reads as a list
+    /// of animations rather than a wall of roles.
     private void DrawAnimation(LibraryView.Animation animation, Penumbra.PoseModInfo mod, Guid? collectionId, string? expandReason, string section)
     {
         ImGui.PushID(animation.Group.Name);
         PoseKitUi.OpenOnce($"library|{section}|animation|{mod.ModDirectory}|{animation.Group.Name}", expandReason);
 
         // The node only carries the arrow and the click; the name is drawn beside it so it can wrap.
-        var flags = ImGuiTreeNodeFlags.SpanAvailWidth | ImGuiTreeNodeFlags.AllowItemOverlap |
-                    (animation.Rows.Count == 1 ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+        var flags = ImGuiTreeNodeFlags.SpanAvailWidth | ImGuiTreeNodeFlags.AllowItemOverlap;
         var open = ImGui.TreeNodeEx("##PoseKitLibraryAnimation", flags);
         ImGui.SameLine();
         ImGui.PushTextWrapPos(0);

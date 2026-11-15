@@ -46,6 +46,7 @@ public sealed class ChangelogWindow : Window, IDisposable
         ("Fixes", [
             "Unlocking and moving after a locked pose no longer leaves your character sunk into the ground or running in circles.",
             "The movement lock holds you still again (in 3.0.2.2 you could still walk while locked). It takes hold once you've stopped moving.",
+            "The quick library opens with everything collapsed, even with a type filter on; a search still opens what matches.",
         ]),
     ];
 
