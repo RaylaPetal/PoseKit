@@ -30,6 +30,11 @@ public sealed class ChangelogWindow : Window, IDisposable
             "Forget a partner in the same list. Pairing with them again then needs them nearby.",
             "If your partner is offline when you pick something, you're told right away instead of it silently going nowhere.",
         ]),
+        ("Presets", [
+            "Fixed: a preset's anchor (spot, furniture or partner) was lost the next time PoseKit loaded. Presets saved before this update lost theirs; save them again to anchor them.",
+            "The main window groups presets by the mod they play from, and each one says whether it's solo or a couple, where it lands (hover for what that means) and what it plays.",
+            "In the quick library, each preset gets its own row saying the same.",
+        ]),
         ("Support and Discord", [
             "The main window's header now has Ko-fi, Patreon and Discord buttons, and this window has a \"Join the Discord\" button below, for updates and help.",
         ]),

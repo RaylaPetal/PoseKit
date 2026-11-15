@@ -204,9 +204,8 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         var title = context.PresetsTitle == "Presets" ? "Presets" : $"Presets · {context.PresetsTitle}";
         if (PoseKitUi.TintedHeader($"{title}  ({presets.Count})##PoseKitLibraryPresets", PoseKitUi.HeaderPresets))
         {
-            var rowRight = ImGui.GetCursorScreenPos().X + ImGui.GetContentRegionAvail().X;
-            for (var i = 0; i < presets.Count; i++)
-                DrawPresetChip(presets[i], i > 0, rowRight);
+            foreach (var preset in presets)
+                DrawPresetRow(preset);
             ImGui.Spacing();
         }
         return true;
@@ -519,17 +518,31 @@ public sealed class QuickLibraryWindow : Window, IDisposable
     }
 
     /// A preset as a chip in the preset color; a couple preset says so.
-    private void DrawPresetChip(Presets.NamedPose preset, bool sameLine, float rowRight)
+    /// One preset per row: its play button, then what it is and where it lands in words, so a spot or partner anchor
+    /// is visible without hovering. The tooltip adds the animation and what the anchor does.
+    private void DrawPresetRow(Presets.NamedPose preset)
     {
         var pick = PoseKitUi.GetPickState(plugin, preset.Name);
-        var text = preset.PartnerHalf != null ? $"{preset.Name}  · couple" : preset.Name;
-        if (sameLine) SameLineIfFits(ImGui.CalcTextSize(text).X + ImGui.GetStyle().FramePadding.X * 2, rowRight);
         using (pick == PoseKitUi.PickState.None ? PoseKitUi.PushPresetButtonStyle() : null)
         using (PoseKitUi.PushPickButtonStyle(pick))
         {
-            if (ImGui.SmallButton($"{text}##PoseKitLibraryPreset{preset.GetHashCode()}"))
+            if (ImGui.SmallButton($"{preset.Name}##PoseKitLibraryPreset{preset.GetHashCode()}"))
                 PlayDispatch.ClickPreset(plugin, preset);
         }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip($"{Presets.PresetDescriptions.Summary(preset)}\n\n{Presets.PresetDescriptions.AnchorDetail(preset)}");
         PoseKitUi.DrawPickBadge(pick);
+
+        ImGui.PushTextWrapPos(ImGui.GetContentRegionMax().X - 4);
+        ImGui.SameLine(0, RowItemSpacing);
+        ImGui.TextColored(preset.PartnerHalf != null ? PoseKitUi.Info : PoseKitUi.Muted, Presets.PresetDescriptions.Type(preset));
+        ImGui.SameLine(0, 6);
+        ImGui.TextColored(PoseKitUi.Muted, "·");
+        ImGui.SameLine(0, 6);
+        var anchored = preset.Anchor is { IsSet: true };
+        ImGui.TextColored(anchored ? PoseKitUi.Accent : PoseKitUi.Muted, Presets.PresetDescriptions.Anchor(preset));
+        ImGui.PopTextWrapPos();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(Presets.PresetDescriptions.AnchorDetail(preset));
     }
 }

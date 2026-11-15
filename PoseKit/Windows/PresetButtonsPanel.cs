@@ -352,7 +352,8 @@ public static class PresetButtonsPanel
         }
     }
 
-    /// Presets grouped by pose. A new search or filter opens every group once.
+    /// Presets grouped by the mod they play from, like the library; emotes and poses without a mod go last.
+    /// A new search or filter opens every group once.
     private static void DrawLibrary(Plugin plugin)
     {
         var all = plugin.PresetManager.Presets;
@@ -364,8 +365,9 @@ public static class PresetButtonsPanel
 
         var filtering = IsFiltering;
         var groups = all.Where(Matches)
-            .GroupBy(p => p.Pose)
-            .OrderBy(g => g.Key.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(p => PresetDescriptions.ModName(p) ?? "")
+            .OrderBy(g => g.Key.Length == 0)
+            .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (groups.Count == 0)
         {
@@ -376,15 +378,19 @@ public static class PresetButtonsPanel
         foreach (var group in groups)
         {
             var presets = group.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            var title = group.Key.Length > 0 ? group.Key : "Emotes and poses";
             PoseKitUi.OpenOnce($"presetgroup|{group.Key}", filtering ? $"{presetSearch}|{typeFilter}|{anchorFilter}" : null);
-            if (!ImGui.CollapsingHeader($"{group.Key.DisplayName}  ({presets.Count})##PoseKitPresetGroup{group.Key.GetHashCode()}",
-                    ImGuiTreeNodeFlags.DefaultOpen))
+            if (!ImGui.CollapsingHeader($"{title}  ({presets.Count})##PoseKitPresetGroup{group.Key}", ImGuiTreeNodeFlags.DefaultOpen))
                 continue;
 
             ImGui.Indent();
-            foreach (var namedPose in presets)
-                DrawPresetEntry(plugin, namedPose);
+            for (var i = 0; i < presets.Count; i++)
+            {
+                if (i > 0) ImGui.Separator();
+                DrawPresetEntry(plugin, presets[i], showMod: false);
+            }
             ImGui.Unindent();
+            ImGui.Spacing();
         }
     }
 
@@ -437,8 +443,9 @@ public static class PresetButtonsPanel
         }
     }
 
-    /// One preset row. Also used by PairingPanel to show the partner's pick.
-    public static void DrawPresetEntry(Plugin plugin, NamedPose namedPose)
+    /// One preset card: name, type and Delete, then where it lands and what it plays. Also used by PairingPanel to show
+    /// the partner's pick, where there's no mod heading, so it names the mod too.
+    public static void DrawPresetEntry(Plugin plugin, NamedPose namedPose, bool showMod = true)
     {
         var pick = PoseKitUi.GetPickState(plugin, namedPose.Name);
         using (PoseKitUi.PushPickButtonStyle(pick))
@@ -447,11 +454,7 @@ public static class PresetButtonsPanel
                 PlayDispatch.ClickPreset(plugin, namedPose);
         }
         PoseKitUi.DrawPickBadge(pick);
-
-        if (namedPose.PartnerHalf != null)
-            DrawEntryTag("Couple", PoseKitUi.Info);
-        if (AnchorTag(namedPose) is { } anchorTag)
-            DrawEntryTag(anchorTag, PoseKitUi.Muted);
+        DrawEntryTag(PresetDescriptions.Type(namedPose), namedPose.PartnerHalf != null ? PoseKitUi.Info : PoseKitUi.Muted);
 
         // Right-aligned, unless the row is already too full to leave room for it.
         var deleteLabel = $"Delete##PoseKitDeletePreset{namedPose.GetHashCode()}";
@@ -464,10 +467,21 @@ public static class PresetButtonsPanel
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip($"Delete the \"{namedPose.Name}\" preset");
 
-        if (namedPose.Penumbra is { ModName.Length: > 0 } link)
+        // Where it lands, with what that means on hover, then what it plays.
+        var anchored = namedPose.Anchor is { IsSet: true };
+        ImGui.TextColored(anchored ? PoseKitUi.Accent : PoseKitUi.Muted, PresetDescriptions.Anchor(namedPose));
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(PresetDescriptions.AnchorDetail(namedPose));
+
+        var animation = PresetDescriptions.Animation(namedPose);
+        if (showMod && PresetDescriptions.ModName(namedPose) is { } mod)
+            animation = $"{mod}: {animation}";
+        if (animation is { Length: > 0 })
         {
-            var animation = link.OptionName is "" or "Default" ? link.ModName : $"{link.ModName} — {link.OptionName}";
-            PoseKitUi.TextWrappedDisabled($"Animation: {animation}");
+            ImGui.SameLine(0, 6);
+            ImGui.TextColored(PoseKitUi.Muted, "·");
+            ImGui.SameLine(0, 6);
+            PoseKitUi.TextWrappedDisabled(animation);
         }
 
         var status = pick switch
@@ -480,12 +494,6 @@ public static class PresetButtonsPanel
         if (status != null)
             PoseKitUi.TextWrappedDisabled(status);
     }
-
-    private static string? AnchorTag(NamedPose preset) =>
-        preset.Anchor?.Spot is { } spot ? $"Spot: {spot.ZoneName}"
-        : preset.Anchor?.Furniture is { } furniture ? $"Furniture: {furniture.FurnitureName}"
-        : preset.Anchor?.Partner is { } partner ? $"Partner: {partner.Partner.Name}"
-        : null;
 
     /// Wraps to a new line when it wouldn't fit next to the delete button.
     private static void DrawEntryTag(string text, Vector4 color)
