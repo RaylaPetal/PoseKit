@@ -1,0 +1,33 @@
+{
+  "protocolVersion": 1,
+  "socketAuth": {
+    "baseString": "posekit-socket-v1\n{deviceKeyId}\n{nonce}",
+    "timeoutSeconds": 10,
+    "ping": "ping",
+    "pong": "pong",
+    "pingIntervalSeconds": 30
+  },
+  "deviceKeyId": "lowercase hex SHA-256 of the UTF-8 JSON {\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":<x>,\"y\":<y>} (keys sorted, no spaces; x and y base64url without padding)",
+  "inboxId": {
+    "input": "posekit-inbox-v1|{Name Surname}@{World}",
+    "hash": "lowercase hex SHA-256 of the UTF-8 input"
+  },
+  "peerMessage": {
+    "hkdfInfo": "posekit-relay-message-v1",
+    "hkdfSalt": "the two 16-byte pairing nonces, the lower deviceKeyId's first",
+    "aead": "AES-256-GCM, 12-byte nonce, 16-byte tag appended to the ciphertext",
+    "aad": "posekit-frame-v1\n{fromDeviceKeyId}\n{toDeviceKeyId}\n{seq}\n{sentAt}",
+    "maxAgeSeconds": 120
+  },
+  "limits": {
+    "frameCiphertextMaxChars": 10944,
+    "inviteBodyMaxChars": 2048,
+    "heldFramesPerSender": 32,
+    "holdSeconds": 120,
+    "timestampToleranceSeconds": 120,
+    "deviceBurstFrames": 20,
+    "deviceBurstWindowSeconds": 10,
+    "deviceHourlyFrames": 600
+  },
+  "deliveryResults": ["delivered", "held", "offline", "refused", "over_limit", "over_budget"]
+}

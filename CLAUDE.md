@@ -61,12 +61,24 @@ so both sides move themselves; with SimpleHeels sharing offsets, only the side w
 **Presets** (`Presets/`): `NamedPose` with offset, `PenumbraLink`, and an optional anchor (spot, furniture or
 partner) that recomputes the offset on replay. Couple presets carry the partner's half.
 
-**Pairing** (`Pairing/`): a session-only protocol over `/tell` with `posekit…` keywords. Each keyword exists in
-both `PairingComposer` (send) and `PairingListener` (parse; sender taken from the chat sender, never the text),
-and `StartsWith` order matters for keywords that prefix others. Mod/group/option names travel as hashes
-(`ModDirectoryHash`). Relays (couple presets, library roles) are answered exactly once; `CoupleRelayOutbox` plays
-this side only after `Accepted`. New messages must degrade gracefully for older versions that ignore them.
-Picks normally go through `CoupleQueueService` (both pick, then both play); "override" and "solo" change that.
+**Pairing** (`Pairing/`, `Relay/`): a session-only protocol carried by PoseKit's own Cloudflare relay
+(`PoseKit.Relay/`, a Worker with Durable Objects only; deploy with `npm run deploy`). PoseKit sends no tells.
+- Each install has a P-256 device key (`Relay/DeviceIdentity`, BouncyCastle because Wine's CNG can't make EC keys) and
+  keeps one socket to its relay hub (`RelaySocket`, `RelayService`), registering the logged-in character's inbox
+  (a hash of `Name@World`).
+- Invite and accept are unsealed `InviteBody` JSON sent to a character's inbox. They're trusted only if the claimed
+  character is nearby and targeting this player within 10 s (`PairingListener.Verified`), or is a remembered partner
+  on the same device key (`RememberedPartners`). Pair and Accept target the partner automatically. The inviter's
+  sealed `posekitpair confirm` completes pairing on the accepting side.
+- Every other message is a `posekit…` protocol line from `PairingComposer`, sealed to the partner's key
+  (`PeerCrypto`, `PeerMessenger`) and sent by `PairingTransport`; received lines go through `PairingListener`'s
+  parser with the session partner as sender. `StartsWith` order matters for keywords that prefix others.
+  Mod/group/option names travel as hashes (`ModDirectoryHash`).
+- Tells from older versions are hidden; a legacy invite prints "ask them to update". Protocol constants and test
+  vectors in `PoseKit.Relay/protocol/` keep the C# client and the Worker in step.
+- Relays (couple presets, library roles) are answered exactly once; `CoupleRelayOutbox` plays this side only after
+  `Accepted`. Picks normally go through `CoupleQueueService` (both pick, then both play); "override" and "solo"
+  change that.
 
 **Bones** (`Bones/`): `BoneAlignService` samples bones and corrects the bone layer; `AlignmentMemory` persists
 results per animation in `alignments.json`; `AutoAlignCoordinator` re-aligns remembered animations and saves
@@ -88,7 +100,7 @@ click path shared with the main window. The main window must keep working as bef
 There are no categories: the library is the main window's mod → group → option tree, collapsed and filtered to
 the current context.
 
-**Persistence**: settings in `Configuration`; the plugin config dir also holds `alignments.json`,
+**Persistence**: settings in `Configuration` (including the relay device key and remembered partners); the plugin config dir also holds `alignments.json`,
 `seat-snap.json`, `pairing-tags.json` (player tags and the file hash cache), `recents.json` and
 `contact-observations.json`. These files save via a temp file, and an unreadable
 one is renamed to `.bad` on the next save rather than overwritten.

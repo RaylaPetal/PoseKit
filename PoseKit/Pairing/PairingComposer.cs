@@ -4,16 +4,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using PoseKit.Presets;
 
-/// <summary>Builds pairing tells; sending is PairingSender's job.
+/// <summary>Builds pairing protocol lines; PairingTransport seals and sends them through the relay.
 ///
 /// Free text always goes last, '|'-joined, so it can contain spaces without escaping. The parser only
 /// splits the fixed leading fields.
 /// </summary>
 public static class PairingComposer
 {
-    private const string InviteKeyword = "posekitpair invite";
-    private const string AcceptKeyword = "posekitpair accept";
     private const string UnpairKeyword = "posekitpair unpair";
+    private const string ConfirmKeyword = "posekitpair confirm";
     private const string QueueKeyword = "posekitqueue";
     private const string OverrideToggleKeyword = "posekitoverride";
     private const string ForceSelectKeyword = "posekitforcequeue";
@@ -25,59 +24,56 @@ public static class PairingComposer
     private const string RelayCancelKeyword = "posekitcouplecancel";
     private const string RoleRelayKeyword = "posekitrole";
 
-    public static string ComposeInvite(PartnerIdentity target, string inviteId) =>
-        $"/tell {target.TellAddress} {InviteKeyword} {inviteId}";
+    /// The inviter's first sealed line: tells the accepting side both derived the same pair key.
+    public static string ComposeConfirm() => ConfirmKeyword;
 
-    public static string ComposeAccept(PartnerIdentity target, string inviteId) =>
-        $"/tell {target.TellAddress} {AcceptKeyword} {inviteId}";
+    public static string ComposeUnpair() =>
+        $"{UnpairKeyword}";
 
-    public static string ComposeUnpair(PartnerIdentity target) =>
-        $"/tell {target.TellAddress} {UnpairKeyword}";
-
-    public static string ComposeQueueSignal(PartnerIdentity target, string name) =>
-        $"/tell {target.TellAddress} {QueueKeyword} {name}";
+    public static string ComposeQueueSignal(string name) =>
+        $"{QueueKeyword} {name}";
 
     /// Asks the partner to capture their own pose state. Only the anchor kind (and furniture item)
     /// is sent, so the partner anchors its own position. A partner anchor is sent as kind 0, since
     /// the partner is the root and is captured unanchored.
-    public static string ComposeCoupleCaptureRequest(PartnerIdentity target, string requestId, PresetAnchor? anchorHint)
+    public static string ComposeCoupleCaptureRequest(string requestId, PresetAnchor? anchorHint)
     {
         var anchorKind = anchorHint?.Spot != null ? 1 : anchorHint?.Furniture != null ? 2 : 0;
         var entryId = anchorHint?.Furniture?.EntryId ?? 0u;
         var ic = CultureInfo.InvariantCulture;
-        return $"/tell {target.TellAddress} {CoupleCaptureKeyword} {requestId} {anchorKind} " +
+        return $"{CoupleCaptureKeyword} {requestId} {anchorKind} " +
                $"{entryId.ToString(ic)} {anchorHint?.Furniture?.FurnitureName ?? ""}";
     }
 
     /// The reply to a capture request, tagged with its request id.
-    public static string ComposeCoupleCaptureReply(PartnerIdentity target, string requestId,
+    public static string ComposeCoupleCaptureReply(string requestId,
         PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
-        $"/tell {target.TellAddress} {CoupleCaptureReplyKeyword} {requestId} " +
+        $"{CoupleCaptureReplyKeyword} {requestId} " +
         $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName: null)}";
 
     /// Relays a couple preset's partner half. The sender waits for the answer before playing.
-    public static string ComposeCoupleRelay(PartnerIdentity target, string presetName,
+    public static string ComposeCoupleRelay(string presetName,
         PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, PenumbraLink? penumbra) =>
-        $"/tell {target.TellAddress} {CoupleRelayKeyword} " +
+        $"{CoupleRelayKeyword} " +
         $"{ComposeCapturedStateTail(pose, offset, anchor, penumbra, presetName)}";
 
     /// Signals that this side started a Bone Align, so simultaneous aligns can tie-break.
-    public static string ComposeBoneAlign(PartnerIdentity target) =>
-        $"/tell {target.TellAddress} {BoneAlignKeyword}";
+    public static string ComposeBoneAlign() =>
+        $"{BoneAlignKeyword}";
 
     /// Asks the partner to play one role of a two-role animation. The sender waits for the answer
     /// before playing its own role.
-    public static string ComposeRoleRelay(PartnerIdentity target, string name, RoleHashes role) =>
-        $"/tell {target.TellAddress} {RoleRelayKeyword} {role.ModDirectoryHash} {role.GroupNameHash} " +
+    public static string ComposeRoleRelay(string name, RoleHashes role) =>
+        $"{RoleRelayKeyword} {role.ModDirectoryHash} {role.GroupNameHash} " +
         $"{role.OptionNameHash} {role.TriggerHash} {role.OptionKeyHash} {name}";
 
     /// The one answer to a couple relay or role relay.
-    public static string ComposeCoupleAnswer(PartnerIdentity target, string presetName, CoupleAnswer answer) =>
-        $"/tell {target.TellAddress} {CoupleAnswerKeyword} {(int)answer} {presetName}";
+    public static string ComposeCoupleAnswer(string presetName, CoupleAnswer answer) =>
+        $"{CoupleAnswerKeyword} {(int)answer} {presetName}";
 
     /// Withdraws an unanswered couple or role relay. Older versions ignore it.
-    public static string ComposeRelayCancel(PartnerIdentity target, string name) =>
-        $"/tell {target.TellAddress} {RelayCancelKeyword} {name}";
+    public static string ComposeRelayCancel(string name) =>
+        $"{RelayCancelKeyword} {name}";
 
     /// Wire format for a captured pose state: fixed fields first, then furniture name, mod name and
     /// optional preset name joined by '|'. Mod, group and option travel as hashes; the mod name is
@@ -117,13 +113,13 @@ public static class PairingComposer
         return $"{tokens} {string.Join('|', compoundParts)}";
     }
 
-    public static string ComposeOverrideToggle(PartnerIdentity target, bool enabled) =>
-        $"/tell {target.TellAddress} {OverrideToggleKeyword} {(enabled ? "on" : "off")}";
+    public static string ComposeOverrideToggle(bool enabled) =>
+        $"{OverrideToggleKeyword} {(enabled ? "on" : "off")}";
 
     /// Names what the partner should play under mutual override. For a mod pose it also carries the
     /// mod, group, option and trigger hashes ("0" when not applicable), since one option can have
     /// several triggers.
-    public static string ComposeForceSelection(PartnerIdentity target, string name,
+    public static string ComposeForceSelection(string name,
         PenumbraLink? penumbra = null, string? triggerText = null)
     {
         var modDirectoryHash = penumbra?.ModDirectory is { Length: > 0 } dir ? ModDirectoryHash.Compute(dir) : "0";
@@ -131,6 +127,6 @@ public static class PairingComposer
             ? (ModDirectoryHash.Compute(group), ModDirectoryHash.Compute(penumbra!.OptionName))
             : ("0", "0");
         var triggerHash = penumbra != null && triggerText is { Length: > 0 } t ? ModDirectoryHash.Compute(t) : "0";
-        return $"/tell {target.TellAddress} {ForceSelectKeyword} {modDirectoryHash} {groupNameHash} {optionNameHash} {triggerHash} {name}";
+        return $"{ForceSelectKeyword} {modDirectoryHash} {groupNameHash} {optionNameHash} {triggerHash} {name}";
     }
 }

@@ -60,6 +60,15 @@ public class Configuration : IPluginConfiguration
     /// Opens the quick library each time the character sits or lies down.
     public bool OpenLibraryWhenSeated { get; set; } = true;
 
+    /// This install's relay key (P-256, base64url). Plaintext like Oathbound's under Wine: it only authenticates
+    /// pairing traffic, and losing it just means pairing by targeting again. See Relay.DeviceIdentity.
+    public string RelayDeviceKeyD { get; set; } = "";
+    public string RelayDeviceKeyX { get; set; } = "";
+    public string RelayDeviceKeyY { get; set; } = "";
+
+    /// Partners paired with before, trusted by device key so pairing again needs no targeting. See Pairing.RememberedPartners.
+    public List<Pairing.RememberedPartner> RememberedPartners { get; set; } = new();
+
     /// Holds the character still during a pose PoseKit started, since one stray movement key ends a
     /// pose that may have taken placing, offsetting and aligning to set up.
     public bool LockMovementWhilePosing { get; set; } = true;

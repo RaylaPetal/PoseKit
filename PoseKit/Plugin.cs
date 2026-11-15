@@ -56,6 +56,7 @@ public sealed class Plugin : IDalamudPlugin
     public FreeCamService FreeCam { get; init; }
     public MovementSuppression MovementSuppression { get; init; }
     public PoseLock PoseLock { get; init; }
+    public Relay.RelayService Relay { get; init; }
 
     public OffsetEngine OffsetEngine { get; init; }
     public PresetManager PresetManager { get; init; }
@@ -135,10 +136,11 @@ public sealed class Plugin : IDalamudPlugin
         SimpleHeelsBridge = new SimpleHeelsBridge();
         PoseTrigger = new PoseTrigger(Configuration, OffsetEngine, SimpleHeelsBridge, new AnywherePose());
         PoseLock = new PoseLock(Configuration, MovementSuppression, PoseTrigger, FreeCam);
+        Relay = new Relay.RelayService(Configuration);
         PenumbraIpc = new PenumbraIpc();
         PenumbraPoseScanner = new PenumbraPoseScanner(PenumbraIpc, Configuration);
 
-        PairingListener = new PairingListener(PairingState);
+        PairingListener = new PairingListener(PairingState, Relay, Configuration);
         PairingContextMenu = new PairingContextMenu(ContextMenu, PairingState, PairingListener);
         PairingInviteNotifier = new PairingInviteNotifier(NotificationManager, PairingState, PairingListener);
         CoupleQueueService = new CoupleQueueService(PairingState, PairingListener);
@@ -248,6 +250,7 @@ public sealed class Plugin : IDalamudPlugin
         Framework.Update -= OnFrameworkUpdate;
         PenumbraIpc.Dispose();
         PoseLock.Dispose();
+        Relay.Dispose();
         FreeCam.Dispose();
         MovementSuppression.Dispose();
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
@@ -317,7 +320,7 @@ public sealed class Plugin : IDalamudPlugin
         OffsetEngine.Tick(localPlayer);
         PoseTrigger.Tick();
         PoseLock.Tick(currentPose);
-        PairingSender.Tick();
+        Relay.Tick();
         PairingListener.Tick();
         CoupleQueueService.Tick();
         CouplePresetCaptureService.Tick();

@@ -123,6 +123,7 @@ public sealed class QuickLibraryWindow : Window, IDisposable
         }
         else if (PairingTargets.TryGetTargetedIdentity(localPlayer) is { } target)
         {
+            PairingPanel.DrawRelayStatus(plugin);
             if (PoseKitUi.WideButton($"Pair with {target.Name}##PoseKitLibraryPairTarget"))
                 plugin.PairingListener.InitiatePairing(target);
             if (ImGui.IsItemHovered())

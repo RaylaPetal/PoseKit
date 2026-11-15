@@ -13,3 +13,7 @@ openspec/
 .claude/
 .cline/
 .clinerules/
+
+# Relay worker tooling.
+node_modules/
+.wrangler/

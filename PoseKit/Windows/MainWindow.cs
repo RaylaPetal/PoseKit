@@ -98,7 +98,7 @@ public class MainWindow : Window, IDisposable
         const float donateGap = 14f;
         var toolsWidth = PoseKitUi.ButtonWidth(resyncLabel) + PoseKitUi.ButtonWidth(freecamLabel) + PoseKitUi.ButtonWidth(settingsLabel) + spacing * 2
                          + (locked ? PoseKitUi.ButtonWidth(unlockLabel) + spacing : 0)
-                         + donateGap + PoseKitUi.KofiButtonWidth();
+                         + donateGap + SupportLinks.Width;
         var toolsX = ImGui.GetWindowContentRegionMax().X - toolsWidth;
         PoseKitUi.SameLineIfFits(toolsWidth);
         if (ImGui.GetCursorPosX() < toolsX)
@@ -123,7 +123,7 @@ public class MainWindow : Window, IDisposable
             plugin.ToggleConfigUi();
 
         ImGui.SameLine(0, donateGap);
-        PoseKitUi.KofiButton();
+        SupportLinks.Draw();
     }
 
     /// While freecam is on, its controls replace the color legend.

@@ -28,23 +28,27 @@ public static class PairingPanel
 
         ImGui.TextColored(PoseKitUi.Muted, "NO ACTIVE PAIRING");
         ImGui.TextWrapped("Pair with a partner to queue poses and play couple presets together.");
+        DrawRelayStatus(plugin);
         ImGui.Spacing();
 
-        // The same target pairing as the quick library; typing a name still works for anyone.
+        // The same target pairing as the quick library. A first pairing needs the partner nearby, since their
+        // client checks that this character is the one targeting them.
         if (PairingTargets.TryGetTargetedIdentity(Plugin.ObjectTable.LocalPlayer) is { } targeted)
         {
             if (PoseKitUi.WideButton($"Pair with {targeted.Name}##PoseKitPairTarget"))
                 plugin.PairingListener.InitiatePairing(targeted);
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip($"Send a PoseKit pairing invite to {targeted}.");
-            ImGui.Spacing();
-            ImGui.TextColored(PoseKitUi.Muted, "Or invite by name:");
         }
         else
         {
-            PoseKitUi.TextWrappedDisabled("Target a player to pair with them, or invite by name:");
+            PoseKitUi.TextWrappedDisabled("Target a player standing near you to pair with them.");
         }
 
+        DrawRememberedPartners(plugin);
+
+        ImGui.Spacing();
+        ImGui.TextColored(PoseKitUi.Muted, "Or invite a remembered partner by name:");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##PoseKitInviteAddress", "Name Surname@World", ref inviteAddress, 64);
 
@@ -112,6 +116,52 @@ public static class PairingPanel
         ImGui.Spacing();
         if (PoseKitUi.WideButton("Unpair##PoseKitUnpair"))
             plugin.PairingListener.Unpair();
+    }
+
+    /// Whether PoseKit can reach the pairing service, shown only when it can't, so a working connection stays quiet.
+    public static void DrawRelayStatus(Plugin plugin)
+    {
+        var relay = plugin.Relay;
+        var (text, color) = relay.OverBudget
+            ? ("Pairing service busy for today.", PoseKitUi.Bad)
+            : relay.State switch
+            {
+                Relay.RelaySocketState.Connected => ("", PoseKitUi.Good),
+                Relay.RelaySocketState.Connecting => ("Connecting to the pairing service...", PoseKitUi.Muted),
+                _ => ("Pairing service unavailable. Retrying...", PoseKitUi.Bad),
+            };
+        if (text.Length == 0) return;
+        ImGui.TextColored(color, text);
+    }
+
+    /// Partners paired with before: pair again from anywhere, or forget them so the next pairing needs targeting.
+    private static void DrawRememberedPartners(Plugin plugin)
+    {
+        var partners = Pairing.RememberedPartners.All(plugin.Configuration).ToList();
+        if (partners.Count == 0) return;
+
+        PoseKitUi.SectionHeader("Pair again");
+        foreach (var partner in partners)
+        {
+            var id = partner.Identity;
+            ImGui.PushID($"PoseKitRemembered{id}");
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextUnformatted(id.ToString());
+            var forget = "Forget";
+            var pair = "Pair again";
+            var width = PoseKitUi.ButtonWidth(pair) + PoseKitUi.ButtonWidth(forget) + ImGui.GetStyle().ItemSpacing.X;
+            ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - width);
+            if (ImGui.Button(pair))
+                plugin.PairingListener.InitiatePairing(id);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"Invite {id.Name} from anywhere; they still need to accept.");
+            ImGui.SameLine();
+            if (ImGui.Button(forget))
+                Pairing.RememberedPartners.Forget(plugin.Configuration, id);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Forget this partner. Pairing with them again will need them nearby.");
+            ImGui.PopID();
+        }
     }
 
     // The invite and relay prompts below are shared by this panel (full) and the quick library's

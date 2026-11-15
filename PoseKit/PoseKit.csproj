@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>3.0.2.4</Version>
+    <Version>3.1.0.0</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>Rayla Petal</Author>
     <Name>PoseKit</Name>
     <Punchline>Offset, save, and replay poses; auto-discover Penumbra animation mods.</Punchline>
-    <Description>Animation Assistance Plugin, offset your character's pose, save named presets and replay them, 
-        auto-discover Penumbra pose mods, and manually resync emote timing with a partner.</Description>
+    <Description>Animation Assistance Plugin, offset your character's pose, save named presets and replay them,
+        auto-discover Penumbra pose mods, and manually resync emote timing with a partner. Partner pairing uses
+        PoseKit's own end-to-end encrypted relay instead of game tells; the relay sees which characters are online
+        with PoseKit and when messages are sent, never their contents.</Description>
     <RepoUrl>https://github.com/RaylaPetal/PoseKit</RepoUrl>
     <Tags>pose;emote;offset;penumbra</Tags>
     <IconUrl>https://raw.githubusercontent.com/RaylaPetal/PoseKit/master/PoseKit/images/icon.png</IconUrl>
@@ -15,6 +17,10 @@
   <ItemGroup>
     <!-- Packed next to the plugin so the installer shows it for dev builds too; images/icon.svg is the source. -->
     <Content Include="images\icon.png" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- P-256 keys for the pairing relay. Not the BCL's ECDsa/ECDiffieHellman: Wine's CNG shim can't generate EC keys. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
   </ItemGroup>
   <ItemGroup>
     <!-- Built from source: the published Penumbra.Api package references an assembly name the

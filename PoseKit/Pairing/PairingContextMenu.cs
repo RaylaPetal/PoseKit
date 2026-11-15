@@ -7,7 +7,8 @@ using Dalamud.Plugin.Services;
 
 /// <summary>
 /// Adds "Pair with PoseKit" to the game's player context menu, in the world and on player names in
-/// chat, the party list and the friend list. Sends the same invite as the pairing panel.
+/// chat, the party list and the friend list, for players nearby or remembered. Sends the same invite as the pairing
+/// panel.
 /// </summary>
 public sealed class PairingContextMenu : IDisposable
 {
@@ -33,6 +34,8 @@ public sealed class PairingContextMenu : IDisposable
             if (args.MenuType != ContextMenuType.Default || args.Target is not MenuTargetDefault target) return;
             if (!PairingTargets.CanInvite(state)) return;
             if (TryGetInvitee(target) is not { } invitee) return;
+            // A stranger who isn't nearby can't be verified by targeting, so they can't be paired with.
+            if (!listener.CanReach(invitee)) return;
 
             args.AddMenuItem(new MenuItem
             {

@@ -52,7 +52,7 @@ public sealed class CoupleQueueService : IDisposable
         QueuedSelectionName = displayName;
         queuedPlay = play;
         queuedAt = Environment.TickCount64;
-        PairingSender.Send(PairingComposer.ComposeQueueSignal(partner, displayName));
+        PairingTransport.Send(PairingComposer.ComposeQueueSignal(displayName));
         pairingState.Touch();
         Changed?.Invoke();
         TryPlayIfBothReady();
@@ -68,7 +68,7 @@ public sealed class CoupleQueueService : IDisposable
             return;
         }
 
-        PairingSender.Send(PairingComposer.ComposeForceSelection(partner, forcedDisplayName, penumbra, triggerText));
+        PairingTransport.Send(PairingComposer.ComposeForceSelection(forcedDisplayName, penumbra, triggerText));
         pairingState.Touch();
         ClearQueue();
         ownPlay();

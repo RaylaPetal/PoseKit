@@ -25,7 +25,7 @@ Save any pose, including its position, as a named preset and replay it with one 
 Presets can remember *where* they happened: a spot in the world, a piece of furniture, or your partner. When you play them again, you land right back in place.
 
 ### 💞 Pairing
-Pair up with someone to play together.
+Pair up with someone to play together. Target them and press Pair the first time; after that you can pair again from anywhere. Both of you need PoseKit 3.1 or newer.
 
 ### 🦴 Bone Align
 Pick a body part on you and one on your partner, press **Align**, and PoseKit aligns the body parts for you.
@@ -60,9 +60,22 @@ Unlock the camera and fly around freely.
 
 ---
 
+## 🔒 Pairing and privacy
+
+Pairing messages travel through PoseKit's own relay on Cloudflare, never as game chat: PoseKit sends no tells.
+Messages between partners are end-to-end encrypted, so the relay can't read what you pick, offer or play.
+What the relay does see: that a character is online with PoseKit (it routes invites by a hash of the character's
+name and world), when messages are sent, and how big they are. Nothing is stored beyond a 2-minute hold for a partner
+who briefly lost connection.
+
+A first pairing is verified in the game itself: your partner's PoseKit only trusts an invite from a character
+standing next to them and targeting them. Partners you've paired with before are remembered by their device key.
+
+---
+
 ## ☕ Support PoseKit
 
-**[Ko-fi](https://ko-fi.com/raylapetal)**
+**[Ko-fi](https://ko-fi.com/raylapetal)** · **[Patreon](https://www.patreon.com/RaylaPetal)** · **[Discord](https://discord.gg/87eMbV4FU9)**
 
 ---
 

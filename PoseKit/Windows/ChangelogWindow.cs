@@ -12,41 +12,26 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.0.2.0";
+    public const string ChangelogId = "3.1.0.0";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
-        ("Movement lock", [
-            "While a pose PoseKit played is going, your movement keys no longer move you, so one stray key can't end a pose you spent time placing and aligning.",
-            "Press Unlock (in the main window header or the quick library) or type /posekit unlock to move again. The pose keeps playing until you actually move.",
-            "The lock lets go by itself when the pose ends, when you type an emote of your own, in combat, on zone change and on logout. Emotes you type yourself are never locked.",
-            "Don't want it? Turn off \"Lock movement while posing\" in Settings.",
+        ("Pairing without tells", [
+            "Pairing no longer sends any tells. Invites, picks, offers and answers travel through PoseKit's own relay, so they arrive instantly, nothing is dropped for being sent too fast, and Do Not Disturb or your /r target are no longer affected.",
+            "Messages between you and your partner are end-to-end encrypted: the relay can't read what you pick or play. It only sees that a character is online with PoseKit and when messages are sent.",
+            "Both of you need this version to pair. If a partner on an older PoseKit invites you, their invite is hidden and you see a line asking them to update.",
         ]),
-        ("Freecam", [
-            "Freecam moves the moment you press a key, instead of a second or two later.",
-            "Movement eases in and out smoothly instead of jumping, and it's a bit slower so placing the camera is easier.",
+        ("Pairing for the first time", [
+            "Stand near your partner, target them and press Pair (or right-click them and choose \"Pair with PoseKit\"). Their PoseKit only trusts an invite from the character standing next to them and targeting them, so nobody can pretend to be you.",
+            "Pressing Pair or Accept targets your partner for you.",
         ]),
-        ("Library tags", [
-            "Every library animation gets a colored FxF, MxF or M/F x F chip. Click a chip to correct it; your fix follows the animation's files.",
-            "Tags come from your own corrections, the body parts Bone Align recorded, the animation's name and the mod author's codes. While paired, PoseKit also notices which parts touch and suggests a tag in the chip's menu.",
-            "The library filter gains FxF and MxF, sorting animations into Fits and a collapsed Doesn't fit.",
+        ("Pairing again", [
+            "Partners you've paired with are remembered. Pair again from the pairing panel from anywhere in the game, no targeting needed; they still accept as usual.",
+            "Forget a partner in the same list. Pairing with them again then needs them nearby.",
+            "If your partner is offline when you pick something, you're told right away instead of it silently going nowhere.",
         ]),
-        ("Playing together", [
-            "A Recent list per partner (or solo) sits above your mods in the quick library.",
-            "Scenes whose names state both roles get Play together: your partner gets the other role with Accept, Swap and Decline.",
-            "While paired, animations play on your partner's spot facing their way, since couple animations share one origin. Bone Align still refines it afterwards.",
-            "If your partner walks off or leaves their pose, you stay put instead of being dragged along.",
-        ]),
-        ("Playing", [
-            "Playing an animation now makes it the one that plays: PoseKit turns off other options in the same mod that use the same files, and outranks other mods only when they really claim them. Your saved Penumbra settings never change.",
-            "After a play, PoseKit checks what Penumbra is serving and tells you in chat if another mod won.",
-            "Standing idles can be played too: they show up as Idle triggers and keep their offset until you move.",
-            "Hold Shift (or Ctrl or Alt, in Settings) to make the gizmo rotate while Move is selected.",
-        ]),
-        ("Fixes", [
-            "Unlocking and moving after a locked pose no longer leaves your character sunk into the ground or running in circles.",
-            "The movement lock holds you still again (in 3.0.2.2 you could still walk while locked). It takes hold once you've stopped moving.",
-            "The quick library opens with everything collapsed, even with a type filter on; a search still opens what matches.",
+        ("Support and Discord", [
+            "The main window's header now has Ko-fi, Patreon and Discord buttons, and this window has a \"Join the Discord\" button below, for updates and help.",
         ]),
     ];
 
@@ -88,7 +73,8 @@ public sealed class ChangelogWindow : Window, IDisposable
         var version = typeof(ChangelogWindow).Assembly.GetName().Version;
         PoseKitUi.TextWrappedDisabled($"PoseKit {version}. Reopen this anytime with /posekit changelog.");
 
-        var footer = ImGui.GetFrameHeightWithSpacing() + ImGui.GetStyle().ItemSpacing.Y;
+        // Two button rows: Join the Discord, then Got it.
+        var footer = ImGui.GetFrameHeightWithSpacing() * 2 + ImGui.GetStyle().ItemSpacing.Y;
         if (ImGui.BeginChild("##PoseKitChangelogScroll", new Vector2(0, -footer), false, ImGuiWindowFlags.None))
         {
             foreach (var (heading, items) in Sections)
@@ -107,6 +93,10 @@ public sealed class ChangelogWindow : Window, IDisposable
         }
         ImGui.EndChild();
 
+        if (PoseKitUi.WideButton("Join the Discord##PoseKitChangelogDiscord"))
+            Dalamud.Utility.Util.OpenLink(SupportLinks.DiscordUrl);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Updates and help\ndiscord.gg/87eMbV4FU9");
         if (PoseKitUi.WideButton("Got it##PoseKitChangelogClose"))
             IsOpen = false;
     }

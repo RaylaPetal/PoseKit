@@ -1,0 +1,52 @@
+name = "posekit-relay"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# PoseKit's pairing relay: Durable Objects only (DeviceHub per device, CharacterInbox per character, one Budget).
+# No D1 or R2: the account's D1 writes are reserved by Oathbound's relay budgets. Separate from every other Worker on
+# the account. The top level is production (`npm run deploy`); env.local exists only for `wrangler dev` and the tests.
+
+[vars]
+RELAY_ENVIRONMENT = "production"
+DAILY_BUDGET = "150000"
+BUDGET_SAMPLING = "16"
+
+[[durable_objects.bindings]]
+name = "DEVICE_HUB"
+class_name = "DeviceHub"
+
+[[durable_objects.bindings]]
+name = "CHARACTER_INBOX"
+class_name = "CharacterInbox"
+
+[[durable_objects.bindings]]
+name = "BUDGET"
+class_name = "Budget"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeviceHub", "CharacterInbox", "Budget"]
+
+[observability.logs]
+enabled = true
+# Logs bill per event; a 10% sample still shows patterns.
+head_sampling_rate = 0.1
+
+[env.local]
+vars = { RELAY_ENVIRONMENT = "local", DAILY_BUDGET = "150000", BUDGET_SAMPLING = "1" }
+
+[[env.local.durable_objects.bindings]]
+name = "DEVICE_HUB"
+class_name = "DeviceHub"
+
+[[env.local.durable_objects.bindings]]
+name = "CHARACTER_INBOX"
+class_name = "CharacterInbox"
+
+[[env.local.durable_objects.bindings]]
+name = "BUDGET"
+class_name = "Budget"
+
+[[env.local.migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeviceHub", "CharacterInbox", "Budget"]

@@ -8,7 +8,9 @@ using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using PoseKit.Presets;
+using PoseKit.Relay;
 
 /// <summary>The anchor kind a capture request asks the partner to capture: 0 = none, 1 = spot,
 /// 2 = furniture (the item matching FurnitureEntryId).</summary>
@@ -46,14 +48,16 @@ public enum CoupleAnswer
 }
 
 /// <summary>
-/// The pairing protocol over /tell, for this session only. No server is involved.
-///
-/// The sender is always taken from the game's own sender field, never from the message text.
+/// The pairing protocol, carried by PoseKit's relay (see Relay/). Invites and acceptances go to a character's inbox and
+/// are trusted only when the claimed character is standing nearby and targeting this player, or is a remembered partner
+/// on the same device key. Every later line is sealed to that partner's key, so the sender of a line is always the
+/// verified partner, never something the text claims. Pairing state is for this session only.
 /// </summary>
 public sealed class PairingListener : IDisposable
 {
-    private const string InviteKeyword = "posekitpair invite";
-    private const string AcceptKeyword = "posekitpair accept";
+    /// Only recognised in tells from older versions, to tell the player they need to update.
+    private const string LegacyInviteKeyword = "posekitpair invite";
+    private const string ConfirmKeyword = "posekitpair confirm";
     private const string UnpairKeyword = "posekitpair unpair";
     private const string QueueKeyword = "posekitqueue";
     private const string OverrideToggleKeyword = "posekitoverride";
@@ -69,7 +73,31 @@ public sealed class PairingListener : IDisposable
     // Long enough to survive a lull, short enough that a forgotten pairing ends.
     private const long StaleTimeoutMs = 2 * 60 * 60 * 1000;
 
+    // How long a claimed character has to be seen targeting this player before an invite or acceptance is trusted.
+    private const long VerifyWindowMs = 10_000;
+    // How long the accepting side waits for the inviter's sealed confirm.
+    private const long ConfirmWindowMs = 15_000;
+
     private readonly PairingState state;
+    private readonly RelayService relay;
+    private readonly Configuration configuration;
+
+    /// This side's nonce for the invite it sent; mixed into the pair key.
+    private byte[]? outgoingNonce;
+
+    /// An invite or acceptance waiting for its sender to be seen targeting this player.
+    private sealed record Claim(string FromId, InviteBody Body, long Deadline);
+    private Claim? verifyingInvite;
+    private Claim? verifyingAccept;
+
+    /// The verified invite behind state.PendingInvite, kept for its key and nonce.
+    private Claim? pendingInvite;
+
+    /// After accepting: the inviter's identity until their sealed confirm arrives.
+    private (PartnerIdentity Peer, EcPublicKey Key, long Deadline)? awaitingConfirm;
+
+    /// Senders already told they need to update this session, so a repeated old invite stays quiet.
+    private readonly HashSet<string> legacyNoticeShown = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<PartnerIdentity, string>? QueueSignalReceived;
 
@@ -92,92 +120,180 @@ public sealed class PairingListener : IDisposable
 
     public event Action<PartnerIdentity, string, ForceSelectionHashes>? ForceSelectionReceived;
 
-    public PairingListener(PairingState state)
+    public PairingListener(PairingState state, RelayService relay, Configuration configuration)
     {
         this.state = state;
+        this.relay = relay;
+        this.configuration = configuration;
+        PairingTransport.Configure(relay, state);
+        relay.Messenger.LineReceived += OnLineReceived;
+        relay.Messenger.InviteReceived += OnInviteReceived;
+        state.Changed += OnStateChanged;
         Plugin.ChatGui.ChatMessage += OnChatMessage;
     }
 
-    public void Dispose() => Plugin.ChatGui.ChatMessage -= OnChatMessage;
-
-    /// Ends an idle pairing locally. The partner's timer ends theirs at about the same time.
-    public void Tick()
+    public void Dispose()
     {
-        if (!state.Active) return;
-        if (state.TicksSinceActivity > StaleTimeoutMs)
-            state.Clear();
+        relay.Messenger.LineReceived -= OnLineReceived;
+        relay.Messenger.InviteReceived -= OnInviteReceived;
+        state.Changed -= OnStateChanged;
+        Plugin.ChatGui.ChatMessage -= OnChatMessage;
     }
 
+    /// Ends an idle pairing locally (the partner's timer ends theirs at about the same time), and settles claims
+    /// waiting for their targeting check.
+    public void Tick()
+    {
+        if (state.Active && state.TicksSinceActivity > StaleTimeoutMs)
+            state.Clear();
+
+        var now = Environment.TickCount64;
+        if (verifyingInvite is { } invite)
+        {
+            if (state.Active) verifyingInvite = null;
+            else if (Verified(invite)) ShowInvite(invite);
+            else if (now > invite.Deadline) verifyingInvite = null; // a claim nobody backed up: dropped silently
+        }
+
+        if (verifyingAccept is { } accept)
+        {
+            if (state.OutgoingInvite is not { } outgoing || !outgoing.Target.Matches(accept.Body.Name, accept.Body.World)) verifyingAccept = null;
+            else if (Verified(accept)) CompleteAsInviter(accept);
+            else if (now > accept.Deadline)
+            {
+                verifyingAccept = null;
+                state.CancelOutgoingInvite();
+                Echo($"Couldn't verify {accept.Body.Name}. Ask them to target you and accept again.");
+            }
+        }
+
+        if (awaitingConfirm is { } waiting && now > waiting.Deadline)
+        {
+            awaitingConfirm = null;
+            relay.Messenger.Session = null;
+            Echo($"Couldn't confirm the pairing with {waiting.Peer.Name}. Ask them to invite you again while you target them.");
+        }
+    }
+
+    /// Sends an invite to a nearby player (targeting them, so their client can verify it's really this player) or to a
+    /// remembered partner anywhere.
     public void InitiatePairing(PartnerIdentity target)
     {
+        if (!relay.Connected)
+        {
+            PairingTransport.Notice("unavailable");
+            return;
+        }
+        if (relay.Self is not { } self) return;
+
+        var nearby = FindNearby(target);
+        if (nearby == null && RememberedPartners.Find(configuration, target) == null)
+        {
+            Echo($"{target.Name} isn't nearby. Stand near them to pair the first time; after that you can pair again from anywhere.");
+            return;
+        }
+        if (nearby != null) Plugin.TargetManager.Target = nearby;
+
         var inviteId = Guid.NewGuid().ToString("N")[..8];
+        outgoingNonce = RelayCrypto.RandomBytes(16);
         state.SetOutgoingInvite(target, inviteId);
-        PairingSender.Send(PairingComposer.ComposeInvite(target, inviteId));
-        state.Touch();
+        relay.Messenger.SendInvite(RelayCrypto.InboxId(target.TellAddress), Body(InviteBody.InviteKind, inviteId, self, outgoingNonce), result =>
+        {
+            if (result == "delivered" || state.OutgoingInvite?.InviteId != inviteId) return;
+            state.CancelOutgoingInvite();
+            if (result == "offline")
+                Echo($"{target.Name} isn't online with a PoseKit that can pair. If they're on, they need to update PoseKit.");
+            else
+                PairingTransport.Notice(result);
+        });
         Echo($"Pairing invite sent to {target}.");
     }
 
     public void AcceptPending()
     {
-        if (state.PendingInvite is not { } pending) return;
-        PairingSender.Send(PairingComposer.ComposeAccept(pending.Sender, pending.InviteId));
-        state.Activate(pending.Sender);
-        Echo($"Paired with {pending.Sender.Name}.");
+        if (state.PendingInvite is not { } pending || pendingInvite is not { } invite) return;
+        if (!relay.Connected || relay.Self is not { } self)
+        {
+            PairingTransport.Notice("unavailable");
+            return;
+        }
+
+        // Targeting the inviter lets their client verify this acceptance came from this character.
+        if (FindNearby(pending.Sender) is { } nearby) Plugin.TargetManager.Target = nearby;
+
+        var nonce = RelayCrypto.RandomBytes(16);
+        var key = PeerCrypto.DeriveKey(relay.Identity.Key, relay.Identity.Id, nonce, invite.Body.Key, invite.FromId,
+            RelayCrypto.Base64UrlDecode(invite.Body.Nonce));
+        relay.Messenger.Session = new PeerSession(invite.FromId, invite.Body.Key, key);
+        awaitingConfirm = (pending.Sender, invite.Body.Key, Environment.TickCount64 + ConfirmWindowMs);
+        pendingInvite = null;
+        state.DismissPendingInvite();
+
+        relay.Messenger.SendInvite(RelayCrypto.InboxId(pending.Sender.TellAddress), Body(InviteBody.AcceptKind, pending.InviteId, self, nonce), result =>
+        {
+            if (result == "delivered" || awaitingConfirm == null) return;
+            awaitingConfirm = null;
+            relay.Messenger.Session = null;
+            if (result == "offline") Echo($"{pending.Sender.Name} isn't online any more.");
+            else PairingTransport.Notice(result);
+        });
+        Echo($"Accepted {pending.Sender.Name}'s invite. Confirming...");
     }
 
     public void RequestPartnerCapture(string requestId, PresetAnchor? anchorHint)
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeCoupleCaptureRequest(peer, requestId, anchorHint));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeCoupleCaptureRequest(requestId, anchorHint));
         state.Touch();
     }
 
     public void ReplyToCoupleCapture(PartnerIdentity target, string requestId, CapturedPoseState captured)
     {
-        PairingSender.Send(PairingComposer.ComposeCoupleCaptureReply(target, requestId, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+        if (state.Peer is not { } peer || !peer.Equals(target)) return;
+        PairingTransport.Send(PairingComposer.ComposeCoupleCaptureReply(requestId, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
         state.Touch();
     }
 
     public void RelayCouplePreset(string presetName, CapturedPoseState captured)
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeCoupleRelay(peer, presetName, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeCoupleRelay(presetName, captured.Pose, captured.Offset, captured.Anchor, captured.Penumbra));
         state.Touch();
     }
 
     public void AnnounceBoneAlign()
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeBoneAlign(peer));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeBoneAlign());
         state.Touch();
     }
 
     public void AnswerCoupleRelay(string presetName, CoupleAnswer answer)
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeCoupleAnswer(peer, presetName, answer));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeCoupleAnswer(presetName, answer));
         state.Touch();
     }
 
     public void RelayRole(string name, RoleHashes role)
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeRoleRelay(peer, name, role));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeRoleRelay(name, role));
         state.Touch();
     }
 
     /// Withdraws a relay the partner hasn't answered yet.
     public void CancelRelay(string name)
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeRelayCancel(peer, name));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeRelayCancel(name));
         state.Touch();
     }
 
     public void SendOverrideToggle(bool enabled)
     {
-        if (state.Peer is not { } peer) return;
-        PairingSender.Send(PairingComposer.ComposeOverrideToggle(peer, enabled));
+        if (state.Peer is null) return;
+        PairingTransport.Send(PairingComposer.ComposeOverrideToggle(enabled));
         state.Touch();
     }
 
@@ -186,12 +302,112 @@ public sealed class PairingListener : IDisposable
     {
         if (state.Peer is { } peer)
         {
-            PairingSender.Send(PairingComposer.ComposeUnpair(peer));
-            state.Touch();
+            PairingTransport.Send(PairingComposer.ComposeUnpair());
             Echo($"Ended the pairing with {peer.Name}.");
         }
         state.Clear();
     }
+
+    // ---- relay invites ------------------------------------------------------------------------------------------
+
+    private InviteBody Body(string kind, string inviteId, PartnerIdentity self, byte[] nonce)
+    {
+        var key = relay.Identity.PublicKey;
+        return new InviteBody
+        {
+            Kind = kind, InviteId = inviteId, Name = self.Name, World = self.World,
+            Nonce = RelayCrypto.Base64UrlEncode(nonce), X = key.X, Y = key.Y,
+        };
+    }
+
+    private void OnInviteReceived(string fromId, InviteBody body)
+    {
+        var claimed = new PartnerIdentity(body.Name, body.World);
+        if (relay.Self is { } self && self.Equals(claimed)) return;
+        var claim = new Claim(fromId, body, Environment.TickCount64 + VerifyWindowMs);
+
+        if (body.Kind == InviteBody.InviteKind)
+        {
+            if (state.Active || awaitingConfirm != null) return;
+            // Two devices claiming one character at once: one of them is lying, and there's no telling which.
+            if (verifyingInvite is { } other && other.FromId != fromId && claimed.Matches(other.Body.Name, other.Body.World))
+            {
+                verifyingInvite = null;
+                Echo($"Got two pairing invites claiming to be {claimed.Name}, so neither was trusted. Ask them to invite you again.");
+                return;
+            }
+            verifyingInvite = claim;
+            if (Verified(claim)) ShowInvite(claim);
+        }
+        else if (body.Kind == InviteBody.AcceptKind)
+        {
+            if (state.OutgoingInvite is not { } outgoing || outgoing.InviteId != body.InviteId || !outgoing.Target.Equals(claimed)) return;
+            if (verifyingAccept is { } other && other.FromId != fromId)
+            {
+                verifyingAccept = null;
+                state.CancelOutgoingInvite();
+                Echo($"Got two answers claiming to be {claimed.Name}, so neither was trusted. Invite them again.");
+                return;
+            }
+            verifyingAccept = claim;
+            if (Verified(claim)) CompleteAsInviter(claim);
+        }
+    }
+
+    /// A remembered partner on the same device key, or the claimed character standing nearby targeting this player.
+    private bool Verified(Claim claim)
+    {
+        var claimed = new PartnerIdentity(claim.Body.Name, claim.Body.World);
+        if (RememberedPartners.Trusts(configuration, claimed, claim.FromId)) return true;
+        var self = Plugin.ObjectTable.LocalPlayer;
+        return self != null && FindNearby(claimed) is { } character && character.TargetObjectId == self.GameObjectId;
+    }
+
+    private void ShowInvite(Claim invite)
+    {
+        verifyingInvite = null;
+        pendingInvite = invite;
+        var sender = new PartnerIdentity(invite.Body.Name, invite.Body.World);
+        state.SetPendingInvite(sender, invite.Body.InviteId);
+        Echo($"{sender.Name} invited you to pair. Accept in the notification, the library (/posekit lib) or PoseKit's pairing panel.");
+    }
+
+    private void CompleteAsInviter(Claim accept)
+    {
+        verifyingAccept = null;
+        if (outgoingNonce is not { } nonce || state.OutgoingInvite is not { } outgoing) return;
+        var key = PeerCrypto.DeriveKey(relay.Identity.Key, relay.Identity.Id, nonce, accept.Body.Key, accept.FromId,
+            RelayCrypto.Base64UrlDecode(accept.Body.Nonce));
+        relay.Messenger.Session = new PeerSession(accept.FromId, accept.Body.Key, key);
+        // Confirm before activating: activation can send lines (an override already on), and the accepting side only
+        // takes lines once the confirm has paired it.
+        PairingTransport.Send(PairingComposer.ComposeConfirm());
+        state.Activate(outgoing.Target);
+        RememberedPartners.Remember(configuration, outgoing.Target, accept.Body.Key);
+        Echo($"Paired with {outgoing.Target.Name}.");
+    }
+
+    private void OnStateChanged()
+    {
+        if (!state.Active && awaitingConfirm == null) relay.Messenger.Session = null;
+        if (state.PendingInvite == null) pendingInvite = null;
+    }
+
+    /// The character by name and home world, if it's loaded nearby.
+    private static IPlayerCharacter? FindNearby(PartnerIdentity identity)
+    {
+        foreach (var obj in Plugin.ObjectTable)
+        {
+            if (obj is IPlayerCharacter player && PartnerIdentity.FromCharacter(player).Equals(identity) &&
+                player.GameObjectId != Plugin.ObjectTable.LocalPlayer?.GameObjectId)
+                return player;
+        }
+        return null;
+    }
+
+    /// Whether this character could receive an invite now: loaded nearby, or remembered.
+    public bool CanReach(PartnerIdentity identity) =>
+        FindNearby(identity) != null || RememberedPartners.Find(configuration, identity) != null;
 
     /// A meaningful pairing event, in place of the hidden tell that carried it.
     private static void Echo(string text) => Plugin.ChatGui.Print($"[PoseKit] {text}");
@@ -199,43 +415,42 @@ public sealed class PairingListener : IDisposable
     /// Every PoseKit keyword starts with this, newer ones this version doesn't know included.
     private const string ProtocolPrefix = "posekit";
 
+    /// <summary>
+    /// Older PoseKit versions still pair over tells. Those tells are hidden, never answered, and an invite gets one
+    /// local line saying the sender needs to update.
+    /// </summary>
     private void OnChatMessage(IHandleableChatMessage message)
     {
         var sent = message.LogKind == XivChatType.TellOutgoing;
         if (!sent && message.LogKind != XivChatType.TellIncoming) return;
 
-        // Protocol tells are hidden both ways; meaningful events print their own [PoseKit] line.
         var text = message.Message.TextValue.Trim();
         if (!text.StartsWith(ProtocolPrefix, StringComparison.OrdinalIgnoreCase)) return;
         message.PreventOriginal();
-        Plugin.Log.Debug($"[PoseKit] Pairing tell {(sent ? "to" : "from")} {message.Sender.TextValue}: {text}");
-        if (sent) return;
+        if (sent || !text.StartsWith(LegacyInviteKeyword, StringComparison.OrdinalIgnoreCase)) return;
 
         var (senderName, senderWorld) = ExtractNameAndWorld(message.Sender);
-        if (senderName is null || senderWorld is null) return;
-        var sender = new PartnerIdentity(senderName, senderWorld);
+        if (senderName is null || senderWorld is null || !legacyNoticeShown.Add($"{senderName}@{senderWorld}")) return;
+        Echo($"{senderName} tried to pair from an older PoseKit. Ask them to update PoseKit to pair with you.");
+    }
 
-        if (text.StartsWith(InviteKeyword, StringComparison.OrdinalIgnoreCase))
+    /// A sealed line from the session's partner. The sender is the partner whose key opened it.
+    private void OnLineReceived(PeerSession session, string text)
+    {
+        text = text.Trim();
+        if (!text.StartsWith(ProtocolPrefix, StringComparison.OrdinalIgnoreCase)) return;
+
+        if (text.Equals(ConfirmKeyword, StringComparison.OrdinalIgnoreCase))
         {
-            var inviteId = text[InviteKeyword.Length..].Trim();
-            if (inviteId.Length > 0)
-            {
-                state.SetPendingInvite(sender, inviteId);
-                Echo($"{sender.Name} invited you to pair. Accept in the notification, the library (/posekit lib) or PoseKit's pairing panel.");
-            }
+            if (awaitingConfirm is not { } waiting || session.PeerId != relay.Messenger.Session?.PeerId) return;
+            awaitingConfirm = null;
+            state.Activate(waiting.Peer);
+            RememberedPartners.Remember(configuration, waiting.Peer, waiting.Key);
+            Echo($"Paired with {waiting.Peer.Name}.");
             return;
         }
 
-        if (text.StartsWith(AcceptKeyword, StringComparison.OrdinalIgnoreCase))
-        {
-            var inviteId = text[AcceptKeyword.Length..].Trim();
-            if (state.OutgoingInvite is { } outgoing && outgoing.InviteId == inviteId && outgoing.Target.Equals(sender))
-            {
-                state.Activate(sender);
-                Echo($"Paired with {sender.Name}.");
-            }
-            return;
-        }
+        if (state.Peer is not { } sender) return;
 
         if (text.StartsWith(UnpairKeyword, StringComparison.OrdinalIgnoreCase))
         {

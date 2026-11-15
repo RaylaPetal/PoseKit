@@ -1,0 +1,32 @@
+{
+  "name": "posekit-relay",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --env local",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "wrangler deploy --env=\"\""
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.8.71",
+    "@cloudflare/workers-types": "5.20260904.1",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.16.0",
+    "typescript": "^5.7.2",
+    "vitest": "3.2.7",
+    "wrangler": "4.129.0"
+  },
+  "allowScripts": {
+    "sharp@0.33.5": true,
+    "workerd@1.20250906.0": true,
+    "workerd@1.20260903.1": true,
+    "esbuild@0.25.4": true,
+    "esbuild@0.28.1": true,
+    "esbuild@0.28.2": true
+  }
+}
