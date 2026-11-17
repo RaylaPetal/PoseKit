@@ -24,7 +24,10 @@ public interface ILibraryContext
     bool PresetFits(NamedPose preset);
 }
 
-/// <summary>Anywhere the character isn't chair-seated or in bed: groundsits, dozes, idles and emotes play where they stand.</summary>
+/// <summary>
+/// Anywhere the character isn't chair-seated or in bed: every pose kind is listed, and each plays where
+/// they stand (chair sit and doze through AnywherePose).
+/// </summary>
 public sealed class StandingContext : ILibraryContext
 {
     public static readonly StandingContext Instance = new();
@@ -35,15 +38,14 @@ public sealed class StandingContext : ILibraryContext
     public IReadOnlyList<LibrarySection> Sections { get; } =
     [
         new("Ground sits", LibraryIndex.IsGroundSit),
+        new("Chair sits", LibraryIndex.IsChairSit),
         new("Doze poses", LibraryIndex.IsDoze),
         new("Idle stances", LibraryIndex.IsIdle),
         new("Emotes & dances", LibraryIndex.IsEmote),
     ];
 
-    /// Chair-sit poses need a chair (doze plays anywhere, see AnywherePose), and a furniture preset
-    /// belongs to that furniture.
-    public bool PresetFits(NamedPose preset) =>
-        preset.Pose.EmoteModeId != LibraryIndex.ChairSitMode && preset.Anchor?.Furniture == null;
+    /// Every pose kind plays anywhere; only a furniture preset belongs to that furniture.
+    public bool PresetFits(NamedPose preset) => preset.Anchor?.Furniture == null;
 }
 
 /// <summary>

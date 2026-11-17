@@ -204,12 +204,17 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         EnterEmote(t.PoseType, t.Command);
     }
 
-    /// Doze goes through the emote agent so it works away from a bed or chair; everything else, and
-    /// doze when that call isn't available, uses its slash command.
+    /// Doze and chair sit go through the emote agent so they work away from furniture; ground sit,
+    /// and those two when that call isn't available, use their slash command.
     private void EnterEmote(EmoteController.PoseType poseType, string command)
     {
-        if (poseType == EmoteController.PoseType.Doze && anywherePose.EnterDoze()) return;
-        ChatCommand.Execute(command);
+        var entered = poseType switch
+        {
+            EmoteController.PoseType.Doze => anywherePose.EnterDoze(),
+            EmoteController.PoseType.Sit => anywherePose.EnterSit(),
+            _ => false,
+        };
+        if (!entered) ChatCommand.Execute(command);
     }
 
     private void EnterPoseCycle(PoseIdentifier pose, PoseOffset offset, PresetAnchor? anchor, bool silent, EmoteController.PoseType poseType, string enterCommand)
