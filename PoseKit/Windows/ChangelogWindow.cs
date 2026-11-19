@@ -12,10 +12,14 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.1.0.5";
+    public const string ChangelogId = "3.1.0.6";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
+        ("Playing along with your partner", [
+            "When your partner picks an animation, the \"picked\" section now shows the whole mod, not just the option they clicked. Mods that put each role in its own group (like a \"Bottom\" list and a \"Top\" toggle) now offer your half first.",
+            "Your partner's own group follows, and the rest of the mod is under \"More from ...\" so nothing is out of reach.",
+        ]),
         ("Sit anywhere", [
             "Chair-sit animations now play wherever you stand, the same way doze already does: no chair needed, and others see you sitting. Next to a chair you still sit on it.",
             "Sitting in the open puts you at chair height; use the gizmo or offsets to lower you onto a ledge, a rock or anything else.",

@@ -610,33 +610,75 @@ public static class PenumbraPosePanel
         return true;
     }
 
-    /// Trigger buttons for the partner's pick, shown in the pairing panel. An option with several
-    /// triggers already covers both roles, so only it is shown; otherwise the roles are sibling
-    /// options and all of them are shown. False when the mod isn't found.
+    /// Trigger buttons for the partner's pick, shown in the pairing panel, covering the pick's whole mod.
+    /// Mods often split the roles into separate groups ("Bottom Options" and a "Top Toggle"), so groups
+    /// playing a different trigger than the partner's come first, as this side's likely half. The
+    /// partner's part follows: an option with several triggers already covers both roles, so only it;
+    /// otherwise its group, whose sibling options may hold the other role. Every other group of the mod
+    /// sits in a collapsed "More from" node so nothing is out of reach when the guess is wrong. False
+    /// when the mod isn't found.
     public static bool TryDrawQuickTriggerButtons(Plugin plugin, string label)
     {
         if (FindByTriggerLabel(plugin, label) is not { } found) return false;
-        var (mod, group, matchedOption, _) = found;
+        var (mod, pickedGroup, matchedOption, pickedTrigger) = found;
         var collectionId = plugin.PenumbraIpc.TryGetLocalPlayerCollectionId();
+        var pickedText = PlayDispatch.TriggerText(pickedTrigger);
 
-        ImGui.TextWrapped($"{mod.ModName} — {group.Name}:");
+        var counterparts = new List<PoseModGroup>();
+        var rest = new List<PoseModGroup>();
+        foreach (var group in mod.Groups)
+        {
+            if (group == pickedGroup || !group.Options.Any(o => o.Triggers.Count > 0)) continue;
+            var playsOther = group.Options.Any(o => o.Triggers.Any(t => PlayDispatch.TriggerText(t) != pickedText));
+            (playsOther ? counterparts : rest).Add(group);
+        }
 
+        ImGui.TextWrapped(mod.ModName);
+
+        foreach (var group in counterparts)
+            DrawQuickGroup(plugin, mod, group, group.Options, collectionId, GroupTitle(mod, group));
+
+        var theirTitle = $"{GroupTitle(mod, pickedGroup)} (their pick)";
         if (matchedOption.Triggers.Count > 1)
         {
-            ImGui.TextWrapped(matchedOption.Name);
-            DrawTriggerButtons(plugin, mod, group, matchedOption, collectionId, $"PoseKitQuickPlay{matchedOption.Name.GetHashCode()}",
-                PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, matchedOption, collectionId));
-            return true;
+            DrawQuickGroup(plugin, mod, pickedGroup, [matchedOption], collectionId, theirTitle);
+            // The group's other options weren't shown above, so they belong with the rest.
+            if (pickedGroup.Options.Any(o => o != matchedOption && o.Triggers.Count > 0))
+                rest.Insert(0, pickedGroup);
+        }
+        else
+        {
+            DrawQuickGroup(plugin, mod, pickedGroup, pickedGroup.Options, collectionId, theirTitle);
         }
 
-        foreach (var sibling in group.Options)
+        if (rest.Count > 0 && ImGui.TreeNode($"More from {mod.ModName} ({rest.Count})##PoseKitQuickMore"))
         {
-            if (sibling.Triggers.Count == 0) continue;
-            ImGui.TextWrapped(sibling.Name);
-            DrawTriggerButtons(plugin, mod, group, sibling, collectionId, $"PoseKitQuickPlay{sibling.Name.GetHashCode()}",
-                PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, sibling, collectionId));
+            foreach (var group in rest)
+            {
+                var options = group == pickedGroup ? pickedGroup.Options.Where(o => o != matchedOption) : group.Options;
+                DrawQuickGroup(plugin, mod, group, options, collectionId, GroupTitle(mod, group));
+            }
+            ImGui.TreePop();
         }
         return true;
+    }
+
+    /// The implicit (default files) group has no name of its own, so it goes by the mod's.
+    private static string GroupTitle(PoseModInfo mod, PoseModGroup group) => group.IsImplicit ? mod.ModName : group.Name;
+
+    /// One group's options with triggers under its name. IDs include the group, since options in
+    /// different groups often share a name ("Normal").
+    private static void DrawQuickGroup(Plugin plugin, PoseModInfo mod, PoseModGroup group, IEnumerable<PoseModOption> options,
+        Guid? collectionId, string title)
+    {
+        ImGui.TextColored(PoseKitUi.Muted, $"{title}:");
+        foreach (var option in options)
+        {
+            if (option.Triggers.Count == 0) continue;
+            ImGui.TextWrapped(option.Name);
+            DrawTriggerButtons(plugin, mod, group, option, collectionId, $"PoseKitQuickPlay{group.Name.GetHashCode()}|{option.Name.GetHashCode()}",
+                PlayDispatch.SelectOptionBeforePlay(plugin, mod, group, option, collectionId));
+        }
     }
 
 }

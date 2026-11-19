@@ -310,8 +310,8 @@ public static class PairingPanel
         return ImGui.Button(label, new Vector2(width, 0));
     }
 
-    /// This side's matching preset or animation for the partner's pick, if any.
-    /// The partner's pick, with this side's options to play along (also shown in the quick library).
+    /// The partner's pick, with this side's options to play along (also shown in the quick library): the
+    /// matching preset, or the pick's mod with this side's likely half first.
     public static void DrawQuickPick(Plugin plugin, string partnerSelectionName)
     {
         var preset = plugin.PresetManager.Presets.FirstOrDefault(p => p.Name == partnerSelectionName);
