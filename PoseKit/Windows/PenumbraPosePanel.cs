@@ -611,8 +611,9 @@ public static class PenumbraPosePanel
     }
 
     /// Trigger buttons for the partner's pick, shown in the pairing panel, covering the pick's whole mod.
-    /// Mods often split the roles into separate groups ("Bottom Options" and a "Top Toggle"), so groups
-    /// playing a different trigger than the partner's come first, as this side's likely half. The
+    /// Scene mods often split the roles into separate groups ("Bottom Options" and a "Top Toggle"), so in a
+    /// mod with few groups, those playing a different trigger than the partner's come first, as this side's
+    /// likely half; a pack's groups are separate animations and get no such guess. The
     /// partner's part follows: an option with several triggers already covers both roles, so only it;
     /// otherwise its group, whose sibling options may hold the other role. Every other group of the mod
     /// sits in a collapsed "More from" node so nothing is out of reach when the guess is wrong. False
@@ -631,6 +632,14 @@ public static class PenumbraPosePanel
             if (group == pickedGroup || !group.Options.Any(o => o.Triggers.Count > 0)) continue;
             var playsOther = group.Options.Any(o => o.Triggers.Any(t => PlayDispatch.TriggerText(t) != pickedText));
             (playsOther ? counterparts : rest).Add(group);
+        }
+
+        // Only a mod that's one scene splits its roles across groups; in a pack every group is its own
+        // animation and nearly all play something else, so the guess would bury the partner's group.
+        if (counterparts.Count + rest.Count > MaxSceneOtherGroups)
+        {
+            rest.InsertRange(0, counterparts);
+            counterparts.Clear();
         }
 
         ImGui.TextWrapped(mod.ModName);
@@ -662,6 +671,10 @@ public static class PenumbraPosePanel
         }
         return true;
     }
+
+    /// Most groups with triggers, besides the partner's, a mod can have and still be read as one scene whose
+    /// other groups hold this side's role (a "Bottom" list plus a "Top" toggle, maybe an extra variant).
+    private const int MaxSceneOtherGroups = 2;
 
     /// The implicit (default files) group has no name of its own, so it goes by the mod's.
     private static string GroupTitle(PoseModInfo mod, PoseModGroup group) => group.IsImplicit ? mod.ModName : group.Name;
