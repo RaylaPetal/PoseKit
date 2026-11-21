@@ -69,6 +69,28 @@ public sealed unsafe class AnimationReadiness
         return parts.Count > 0 ? string.Join(", ", parts) : "none";
     }
 
+    private static HashSet<string>? emoteStems;
+
+    /// Whether the game has an emote animation with this file stem, so a search for it can succeed.
+    public static bool HasEmoteStem(string stem)
+    {
+        if (emoteStems == null)
+        {
+            TimelineKey(0);
+            emoteStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var key in timelineKeys!.Values)
+            {
+                if (key.StartsWith("emote/", StringComparison.OrdinalIgnoreCase))
+                    emoteStems.Add(Penumbra.PoseNameHeuristics.TimelineStem(key));
+            }
+        }
+        return emoteStems.Contains(stem);
+    }
+
+    /// The key of the character's base animation ("emote/l_pose01_loop"), or "" when none is known.
+    public static string BaseTimelineKey(Character* character) =>
+        character == null ? "" : TimelineKey((uint)character->Timeline.TimelineSequencer.TimelineIds[0]);
+
     private static string TimelineKey(uint timeline)
     {
         if (timelineKeys == null)

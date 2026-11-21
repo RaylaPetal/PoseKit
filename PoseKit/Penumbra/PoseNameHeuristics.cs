@@ -101,4 +101,30 @@ public static class PoseNameHeuristics
 
         return hits;
     }
+
+    /// The animation file a sit, groundsit or doze variant was read from ("l_pose01", "bed_liedown"), the
+    /// inverse of Detect. Null for other poses. A mod replaces this file, so it's what must be playing.
+    public static string? VariantFileStem(PoseIdentifier pose) => (pose.EmoteModeId, pose.CPoseState) switch
+    {
+        (1, 0) => "jmn",
+        (2, 0) => "sit",
+        (3, 0) => "bed_liedown",
+        (1, var n) => $"j_pose{n:00}",
+        (2, var n) => $"s_pose{n:00}",
+        (3, var n) => $"l_pose{n:00}",
+        _ => null,
+    };
+
+    /// An animation timeline key ("emote/l_pose01_loop") as a file stem ("l_pose01"), for comparing with
+    /// VariantFileStem: the folder and the start/loop/end part are dropped.
+    public static string TimelineStem(string timelineKey)
+    {
+        var name = timelineKey[(timelineKey.LastIndexOf('/') + 1)..];
+        foreach (var suffix in new[] { "_loop", "_start", "_end" })
+        {
+            if (name.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase))
+                return name[..^suffix.Length];
+        }
+        return name;
+    }
 }

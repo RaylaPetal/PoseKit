@@ -237,6 +237,7 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
 
         cyclingTarget = (pose, offset, anchor, silent);
         attempts = 0;
+        variantSearch = null;
         nextAttemptTime = Environment.TickCount64 + (alreadyInThatEmote ? 150 : 500);
     }
 
@@ -261,8 +262,10 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
             return;
         }
 
-        if (c.CPoseState == target.Pose.CPoseState)
+        if (variantSearch != null || c.CPoseState == target.Pose.CPoseState)
         {
+            if (!TickVariantSearch(c.CPoseState, target.Pose)) return;
+            variantSearch = null;
             ApplyOffset(ResolveOffset(target.Offset, target.Anchor, target.Silent));
             cyclingTarget = null;
             return;
@@ -271,6 +274,81 @@ public sealed unsafe class PoseTrigger(Configuration configuration, OffsetEngine
         ChatCommand.Execute("/cpose");
         if (++attempts >= MaxCposeAttempts) cyclingTarget = null;
         else nextAttemptTime = Environment.TickCount64 + CposeAttemptDelayMs;
+    }
+
+    /// Set once the target state is reached: the state last seen, since when, how many "/cpose" steps the
+    /// search took, and whether it has stepped away from the target state.
+    private sealed class VariantSearch
+    {
+        public byte State;
+        public long Since;
+        public int Steps;
+        public bool LeftTarget;
+    }
+
+    private VariantSearch? variantSearch;
+
+    // Long enough for the animation to follow a pose change before it's read.
+    private const int VariantSettleMs = 350;
+    // More than one full cycle of sit, groundsit or doze variants.
+    private const int MaxVariantSteps = 10;
+
+    /// True once the animation playing is the file the pose was read from. The pose number alone isn't
+    /// enough: where the game counts the variants differently, such as dozing away from a bed, the number
+    /// lands on another animation and the mod's never plays. So, at the target number, this checks what's
+    /// playing and steps "/cpose" until it's the right file. When it can't tell (no known animation, or
+    /// a file the game doesn't have) it trusts the number, and when a full cycle finds nothing it stops
+    /// back on the target number, as before.
+    private bool TickVariantSearch(byte state, PoseIdentifier target)
+    {
+        var now = Environment.TickCount64;
+        if (variantSearch is not { } search)
+        {
+            if (Penumbra.PoseNameHeuristics.VariantFileStem(target) is not { } wanted || !Bones.AnimationReadiness.HasEmoteStem(wanted))
+                return true;
+            variantSearch = new VariantSearch { State = state, Since = now };
+            nextAttemptTime = now + CposeAttemptDelayMs;
+            return false;
+        }
+
+        if (search.State != state)
+        {
+            search.State = state;
+            search.Since = now;
+        }
+        if (now - search.Since < VariantSettleMs)
+        {
+            nextAttemptTime = now + CposeAttemptDelayMs;
+            return false;
+        }
+
+        var expected = Penumbra.PoseNameHeuristics.VariantFileStem(target)!;
+        var key = Bones.AnimationReadiness.BaseTimelineKey((Character*)(Plugin.ObjectTable.LocalPlayer?.Address ?? 0));
+        var playing = key.Length == 0 ? null : Penumbra.PoseNameHeuristics.TimelineStem(key);
+
+        if (playing == null && state == target.CPoseState) return true;
+        if (string.Equals(playing, expected, StringComparison.OrdinalIgnoreCase))
+        {
+            if (search.Steps > 0)
+                Plugin.Log.Debug($"[PoseKit] {target.DisplayName}: \"{expected}\" plays at pose {state}, after {search.Steps} extra /cpose.");
+            return true;
+        }
+
+        // Back on the target number after a full cycle without finding it: stay there, as before.
+        if ((search.LeftTarget && state == target.CPoseState) || search.Steps >= MaxVariantSteps)
+        {
+            Plugin.Log.Debug($"[PoseKit] {target.DisplayName}: \"{expected}\" never played in a /cpose cycle (last \"{key}\").");
+            return true;
+        }
+
+        if (state != target.CPoseState) search.LeftTarget = true;
+        else if (search.Steps == 0) Plugin.Log.Debug($"[PoseKit] {target.DisplayName}: pose {state} plays \"{key}\", looking for \"{expected}\".");
+
+        ChatCommand.Execute("/cpose");
+        search.Steps++;
+        search.Since = now;
+        nextAttemptTime = now + CposeAttemptDelayMs;
+        return false;
     }
 
     // Standing /cpose plays a transition first; Oathbound found the idle state dependable after this.

@@ -12,13 +12,17 @@ namespace PoseKit.Windows;
 public sealed class ChangelogWindow : Window, IDisposable
 {
     /// Bump with each changelog worth showing. The window opens whenever the player's last seen ID differs.
-    public const string ChangelogId = "3.1.0.6";
+    public const string ChangelogId = "3.1.0.8";
 
     private static readonly (string Heading, string[] Items)[] Sections =
     [
+        ("The right animation, every time", [
+            "Sit, ground sit and doze animations now check what's actually playing and step to the right pose themselves. Some poses used to land one too early, so you saw the normal game animation and had to /cpose to the next one.",
+            "Scenes with a role written without a dash, like \"(Dom-BedPose0/Sub BedPose1)\", are now recognized, so Play together offers your partner their role.",
+        ]),
         ("Playing along with your partner", [
-            "When your partner picks an animation, the \"picked\" section now shows the whole mod, not just the option they clicked. Mods that put each role in its own group (like a \"Bottom\" list and a \"Top\" toggle) now offer your half first.",
-            "Your partner's own group follows, and the rest of the mod is under \"More from ...\" so nothing is out of reach.",
+            "When your partner picks an animation, the \"picked\" section now shows the whole mod, not just the option they clicked. Scene mods that put each role in its own group (like a \"Bottom\" list and a \"Top\" toggle) offer your half first.",
+            "In big animation packs, your partner's group comes first and the rest of the pack is under \"More from ...\", so nothing is out of reach.",
         ]),
         ("Sit anywhere", [
             "Chair-sit animations now play wherever you stand, the same way doze already does: no chair needed, and others see you sitting. Next to a chair you still sit on it.",

@@ -27,7 +27,9 @@ public static class SceneRoles
 {
     private static readonly Regex Enclosed = new(@"[\(\[]([^()\[\]]*)[\)\]]", RegexOptions.Compiled);
 
-    private static readonly Regex RolePart = new(@"^\s*(f?dom\d*|top|hugger|sub\d*|bot|hugged)\s*-\s*([a-z0-9]+)\s*$",
+    // A space also separates role and pose: authors drop the hyphen ("Dom-BedPose0/Sub BedPose1"), and the
+    // pose must still resolve to one of the option's triggers.
+    private static readonly Regex RolePart = new(@"^\s*(f?dom\d*|top|hugger|sub\d*|bot|hugged)(?:\s*-\s*|\s+)([a-z0-9]+)\s*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex PoseToken = new(@"^(csit|chairsit|chair|sit|gsit|groundsit|bedpose|bed|doze)0*(\d)$",
