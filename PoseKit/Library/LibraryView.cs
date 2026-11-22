@@ -21,7 +21,32 @@ public sealed class LibraryView
     /// One option group: in most packs the animation itself, its options the roles or variants.
     public sealed record Animation(PoseModGroup Group, List<Row> Rows);
 
-    public sealed record ModBlock(PoseModInfo Mod, List<Animation> Animations);
+    /// A mod option that plays nothing, such as an "SFX" add-on: a toggle for a multi-select group's option, or the
+    /// whole group as a dropdown when it's single-select. Options is every option a dropdown offers.
+    public sealed record ModSetting(PoseModGroup Group, List<PoseModOption> Options, bool IsSingle);
+
+    public sealed record ModBlock(PoseModInfo Mod, List<Animation> Animations, List<ModSetting> Settings);
+
+    /// The mod's trigger-less settings. A single-select group mixing animations with trigger-less options is left
+    /// out: those options are its off states, reached by playing another option.
+    public static List<ModSetting> SettingsOf(PoseModInfo mod)
+    {
+        var settings = new List<ModSetting>();
+        foreach (var group in mod.Groups)
+        {
+            if (group.IsImplicit || group.Options.Count == 0) continue;
+            if (group.MultiSelect)
+            {
+                foreach (var option in group.Options.Where(option => option.Triggers.Count == 0))
+                    settings.Add(new ModSetting(group, [option], false));
+            }
+            else if (group.Options.All(option => option.Triggers.Count == 0))
+            {
+                settings.Add(new ModSetting(group, group.Options, true));
+            }
+        }
+        return settings;
+    }
 
     private (int IndexVersion, int TagVersion, int FavoritesVersion, ILibraryContext Context, string Search, LibraryTypeFilter Filter)? cachedKey;
     private List<ModBlock> cachedTree = [];
@@ -67,7 +92,8 @@ public sealed class LibraryView
             .GroupBy(row => row.Entry.Mod)
             .OrderBy(mod => mod.Key.ModName, StringComparer.OrdinalIgnoreCase)
             .Select(mod => new ModBlock(mod.Key,
-                mod.GroupBy(row => row.Entry.Group).Select(group => new Animation(group.Key, group.ToList())).ToList()))
+                mod.GroupBy(row => row.Entry.Group).Select(group => new Animation(group.Key, group.ToList())).ToList(),
+                SettingsOf(mod.Key)))
             .ToList();
 
     /// The recorded animations that exist and can play here, newest first. The pairing filter doesn't apply:

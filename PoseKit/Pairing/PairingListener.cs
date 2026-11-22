@@ -120,6 +120,9 @@ public sealed class PairingListener : IDisposable
 
     public event Action<PartnerIdentity, string, ForceSelectionHashes>? ForceSelectionReceived;
 
+    /// Only the partner's own unpair; an idle timeout or this side's Unpair doesn't raise it.
+    public event Action<PartnerIdentity>? PartnerUnpaired;
+
     public PairingListener(PairingState state, RelayService relay, Configuration configuration)
     {
         this.state = state;
@@ -458,6 +461,7 @@ public sealed class PairingListener : IDisposable
             {
                 state.Clear();
                 Echo($"{sender.Name} ended the pairing.");
+                PartnerUnpaired?.Invoke(sender);
             }
             return;
         }

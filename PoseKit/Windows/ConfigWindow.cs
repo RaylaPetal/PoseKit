@@ -88,6 +88,29 @@ public class ConfigWindow : Window, IDisposable
             PoseKitUi.TextWrappedDisabled("While held, the gizmo rotates instead of moving. Move/Rotate still picks " +
                                            "what it does otherwise. None turns this off.");
 
+            PoseKitUi.SectionHeader("Pairing");
+            var alertSound = configuration.PairingAlertSound;
+            if (ImGui.Checkbox("Alert sound for partner activity", ref alertSound))
+            {
+                configuration.PairingAlertSound = alertSound;
+                configuration.Save();
+            }
+            using (ImRaii.Disabled(!alertSound))
+            {
+                var soundId = configuration.PairingAlertSoundId;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderInt("Sound##PoseKitAlertSound", ref soundId, 1, 16, "<se.%d>"))
+                {
+                    configuration.PairingAlertSoundId = soundId;
+                    configuration.Save();
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Test##PoseKitAlertSoundTest"))
+                    plugin.PairingAlerts.Play(configuration.PairingAlertSoundId);
+            }
+            PoseKitUi.TextWrappedDisabled("Plays when someone invites you, accepts your invite, picks an animation, " +
+                                           "offers you a role, or ends the pairing. Uses the game's chat sounds and volume.");
+
             PoseKitUi.SectionHeader("Quick Library");
             var neverShowChip = configuration.NeverShowLibraryChip;
             if (ImGui.Checkbox("Never show library chip", ref neverShowChip))

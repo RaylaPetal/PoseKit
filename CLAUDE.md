@@ -79,6 +79,9 @@ partner) that recomputes the offset on replay. Couple presets carry the partner'
 - Relays (couple presets, library roles) are answered exactly once; `CoupleRelayOutbox` plays this side only after
   `Accepted`. Picks normally go through `CoupleQueueService` (both pick, then both play); "override" and "solo"
   change that.
+- Attention: `PairingAlerts` plays a chat sound (`<se.N>`, setting) for partner-originated events only (invite,
+  accept of our invite, their pick, a pending relay, their unpair), with a 2 s cooldown. `LibraryChipWindow` shows
+  the most pressing pending item in words and also appears for an incoming invite.
 
 **Bones** (`Bones/`): `BoneAlignService` samples bones and corrects the bone layer; `AlignmentMemory` persists
 results per animation in `alignments.json`; `AutoAlignCoordinator` re-aligns remembered animations and saves
@@ -88,6 +91,8 @@ hand nudges. `AlignOrigin` (Manual/Memory/Nudge) decides what gets recorded and 
 `LibraryContextResolver` picks Standing, Seated or Bed context from `SeatReferenceService`; `SeatPlacement` moves
 groundsits/emotes played while seated onto the seat (stand-up retry, hip snap). `PlayDispatch` is the single
 click path shared with the main window. The main window must keep working as before; the library is the quick UI.
+`LibraryIndex` holds only options with triggers; a mod's trigger-less options (SFX add-ons) are listed separately
+as `LibraryView.SettingsOf` toggles under each mod and applied with `PlayDispatch.ApplyGroupChange`.
 
 **Pairing tags** (`Library/DeclaredTags.cs`, `PairingTagService.cs`): each option's `FxF`, `MxF` or `M/F x F` state comes only from evidence, strongest first: the player's right-click tag, parts recorded by Bone Align (`ContactEvidence`), words naming the act (`NameGuess`, Strong), the author's role code or solo mark, any installed mod's byte-identical animation, a literal label, and other words in its names. The rule: a couple scene is `MxF` unless named acts show no penis is needed (those are `M/F x F`), explicit no-penis acts are `FxF`, and male-only scenes are `MxF`. Author codes are often wrong, which is why act words outrank them. Identical files share their best word reading, and a non-list group's options share a tag. Don't infer from bone tracks: penis tracks appear in F/F animations. `AnimationHasher` identifies animations by `.pap` content in the background, so tags and alignments carry across renumbering and packs. `LibraryBuckets` sorts rows into Fits and Doesn't fit; only a stated solo removes one. `ContactObserver` measures closest parts during paired plays, and its results stay suggestions in the row's menu.
 

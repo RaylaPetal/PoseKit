@@ -90,6 +90,7 @@ public sealed class Plugin : IDalamudPlugin
     public CoupleQueueService CoupleQueueService { get; init; }
     public CouplePresetCaptureService CouplePresetCaptureService { get; init; }
     public CoupleRelayInbox CoupleRelayInbox { get; init; }
+    public PairingAlerts PairingAlerts { get; init; }
     public CoupleRelayOutbox CoupleRelayOutbox { get; init; }
     public Bones.BoneAlignService BoneAlign { get; init; }
     public Bones.AlignmentMemory AlignmentMemory { get; init; }
@@ -149,6 +150,7 @@ public sealed class Plugin : IDalamudPlugin
         CoupleRelayInbox = new CoupleRelayInbox(PairingState, PairingListener,
             role => Library.PlayDispatch.FindRole(this, role) != null);
         CoupleRelayInbox.AutoApply += ApplyRelayRequest;
+        PairingAlerts = new PairingAlerts(Configuration, PairingState, PairingListener, CoupleRelayInbox);
         CoupleRelayOutbox = new CoupleRelayOutbox(PairingState, PairingListener, PlayPreset);
         BoneAlign = new Bones.BoneAlignService(Configuration, PairingState, PairingListener, PoseTrigger, OffsetEngine, EmoteSync);
         AlignmentMemory = new Bones.AlignmentMemory(PluginInterface.GetPluginConfigDirectory());
@@ -271,6 +273,7 @@ public sealed class Plugin : IDalamudPlugin
         CoupleQueueService.Dispose();
         CouplePresetCaptureService.Dispose();
         CoupleRelayInbox.Dispose();
+        PairingAlerts.Dispose();
         CoupleRelayOutbox.Dispose();
         PairingTags.Dispose();
         AutoAlign.Dispose();

@@ -291,10 +291,66 @@ public sealed class QuickLibraryWindow : Window, IDisposable
                 continue;
 
             ImGui.PushID(mod.Mod.ModDirectory);
+            DrawModSettings(mod, collectionId, expandReason, section);
             foreach (var animation in mod.Animations)
                 DrawAnimation(animation, mod.Mod, collectionId, expandReason, section);
             ImGui.PopID();
         }
+    }
+
+    /// The mod's options that play nothing (sound add-ons and the like), so they can be switched without the main
+    /// window. Local only: a temporary setting like any library change, never sent to the partner, and kept
+    /// through plays since those only clear options claiming the same animations. Doesn't enable a disabled mod;
+    /// playing one of its animations does.
+    private void DrawModSettings(LibraryView.ModBlock mod, Guid? collectionId, string? expandReason, string section)
+    {
+        if (mod.Settings.Count == 0) return;
+
+        PoseKitUi.OpenOnce($"library|{section}|settings|{mod.Mod.ModDirectory}", expandReason);
+        if (!ImGui.TreeNodeEx($"Settings  ({mod.Settings.Count})##PoseKitLibraryModSettings", ImGuiTreeNodeFlags.SpanAvailWidth))
+            return;
+
+        foreach (var setting in mod.Settings)
+        {
+            var group = setting.Group;
+            ImGui.PushID(group.Name);
+            if (setting.IsSingle)
+            {
+                var selected = group.Options.FirstOrDefault(option => group.Selected.Contains(option.Name));
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextUnformatted(group.Name);
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(Math.Min(180f, ImGui.GetContentRegionAvail().X));
+                if (ImGui.BeginCombo("##PoseKitLibrarySettingCombo", selected?.Name ?? "None"))
+                {
+                    foreach (var option in setting.Options)
+                    {
+                        if (ImGui.Selectable(option.Name, ReferenceEquals(option, selected)) && collectionId is { } cid &&
+                            !ReferenceEquals(option, selected))
+                            PlayDispatch.ApplyGroupChange(plugin, mod.Mod, group, [option.Name], cid, enabled: mod.Mod.Enabled);
+                    }
+                    ImGui.EndCombo();
+                }
+            }
+            else
+            {
+                var option = setting.Options[0];
+                ImGui.PushID(option.Name);
+                var isOn = group.Selected.Contains(option.Name);
+                if (ImGui.Checkbox($"{group.Name}: {option.Name}", ref isOn) && collectionId is { } cid)
+                {
+                    var selection = new HashSet<string>(group.Selected);
+                    if (isOn) selection.Add(option.Name);
+                    else selection.Remove(option.Name);
+                    PlayDispatch.ApplyGroupChange(plugin, mod.Mod, group, selection, cid, enabled: mod.Mod.Enabled);
+                }
+                if (!mod.Mod.Enabled && ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Takes effect once you play an animation from this mod.");
+                ImGui.PopID();
+            }
+            ImGui.PopID();
+        }
+        ImGui.TreePop();
     }
 
     /// What was last played with this partner, or alone when unpaired or playing solo.

@@ -60,6 +60,12 @@ public class Configuration : IPluginConfiguration
     /// Opens the quick library each time the character sits or lies down.
     public bool OpenLibraryWhenSeated { get; set; } = true;
 
+    /// A chat sound when a partner's invite, pick or offer arrives, since chat lines scroll away unnoticed.
+    public bool PairingAlertSound { get; set; } = true;
+
+    /// Which of the game's chat sounds (&lt;se.1&gt; to &lt;se.16&gt;) the alert plays.
+    public int PairingAlertSoundId { get; set; } = 2;
+
     /// This install's relay key (P-256, base64url). Plaintext like Oathbound's under Wine: it only authenticates
     /// pairing traffic, and losing it just means pairing by targeting again. See Relay.DeviceIdentity.
     public string RelayDeviceKeyD { get; set; } = "";
